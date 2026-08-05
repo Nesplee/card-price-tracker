@@ -1,0 +1,37 @@
+[project]
+name = "card-price-tracker"
+version = "0.1.0"
+description = "Pipeline de suivi des prix de cartes Pokemon (raw -> staging -> prod)"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "psycopg[binary]>=3.1",
+    "python-dotenv>=1.0",
+    "tenacity>=8.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "responses>=0.25",
+    "ruff>=0.4",
+    "black>=24.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
