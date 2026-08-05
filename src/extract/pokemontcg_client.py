@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 import requests
-from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import Retrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from src.common.config import PokemonTcgConfig
 
@@ -22,6 +22,37 @@ logger = logging.getLogger(__name__)
 
 class PokemonTcgApiError(Exception):
     """Levée quand l'API pokemontcg.io reste en échec après épuisement des tentatives."""
+
+
+def _is_retryable_error(exc: BaseException) -> bool:
+    """Retourne True si l'erreur mérite un nouvel essai : erreurs réseau/timeout,
+    ou erreurs serveur (5xx) qui peuvent être temporaires. Les erreurs 4xx
+    (ex: 401 clé invalide, 404) sont définitives : retenter ne changerait rien.
+
+    Cette fonction est le prédicat passé à retry_if_exception(...) ci-dessous :
+    tenacity l'appelle à chaque exception levée par _do_get() pour décider si
+    elle doit programmer un nouvel essai (True) ou laisser l'exception remonter
+    telle quelle immédiatement (False), sans consommer de tentative supplémentaire.
+    """
+    # requests.HTTPError est levée par response.raise_for_status() (voir
+    # _do_get plus bas) et porte la réponse HTTP complète dans exc.response,
+    # ce qui permet de lire son status_code pour distinguer 4xx de 5xx.
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        # >= 500 : erreur côté SERVEUR (500, 502, 503...), potentiellement
+        # transitoire (redémarrage, surcharge momentanée) -> ça vaut le coup
+        # de réessayer. En dessous de 500 (4xx : requête incorrecte de notre
+        # côté, ex. 401/404), on renvoie False : voir isinstance(...,
+        # RequestException) ci-dessous ne serait pas atteint pour ce cas
+        # précis puisqu'on retourne directement ici.
+        return exc.response.status_code >= 500
+    # Toute autre RequestException (Timeout, ConnectionError, DNS...) est une
+    # erreur réseau : on ne sait pas si le problème est chez nous ou chez le
+    # serveur, mais dans les deux cas il a de bonnes chances d'être transitoire
+    # -> on retente. Une exception qui n'est PAS une RequestException (bug
+    # dans notre propre code, KeyError...) retourne False ici : elle remonte
+    # immédiatement, on ne veut jamais masquer un vrai bug en le faisant
+    # échouer silencieusement plusieurs fois de suite.
+    return isinstance(exc, requests.RequestException)
 
 
 class PokemonTcgClient:
@@ -57,28 +88,35 @@ class PokemonTcgClient:
         # sans ça, la suite de tests attendrait réellement plusieurs secondes
         # à chaque test qui déclenche un retry.
         #
-        # --- Pourquoi retry uniquement sur les erreurs réseau/5xx ? ---
+        # --- Pourquoi retry uniquement sur les erreurs réseau/5xx, et PAS sur les 4xx ? ---
         # requests.RequestException est la classe mère de toutes les erreurs
         # levées par `requests` : timeout, connexion refusée/coupée, DNS qui
         # échoue, et — via response.raise_for_status() dans _do_get() — les
-        # codes HTTP 4xx et 5xx. Une erreur 5xx (500, 502, 503...) signifie
-        # "le SERVEUR a un problème", typiquement transitoire : il y a de
-        # bonnes chances que réessayer quelques secondes plus tard fonctionne.
-        # À l'inverse, une erreur 4xx (401 clé API invalide, 404 route
-        # inexistante) signifie "la REQUÊTE elle-même est incorrecte" :
+        # codes HTTP 4xx et 5xx (sous forme de requests.HTTPError, une
+        # sous-classe de RequestException). Une erreur 5xx (500, 502, 503...)
+        # signifie "le SERVEUR a un problème", typiquement transitoire : il y
+        # a de bonnes chances que réessayer quelques secondes plus tard
+        # fonctionne. À l'inverse, une erreur 4xx (401 clé API invalide, 404
+        # route inexistante) signifie "la REQUÊTE elle-même est incorrecte" :
         # réessayer la même requête produira toujours la même erreur, ce
         # n'est donc jamais utile de retry dessus (ça ne ferait que perdre du
-        # temps). Ici on ne distingue pas 4xx/5xx dans le type d'exception
-        # (requests ne les sépare pas nativement), mais dans la pratique les
-        # tests ci-contre ne couvrent que les 5xx, qui sont le cas d'usage
-        # visé par ce client.
+        # temps avant un échec de toute façon certain). C'est précisément pour
+        # ça qu'on n'utilise PAS retry_if_exception_type(requests.
+        # RequestException) tel quel (ça retenterait aveuglément sur les 4xx
+        # aussi) : le prédicat _is_retryable_error(...) défini plus haut fait
+        # explicitement la distinction en inspectant le status_code de la
+        # réponse quand l'exception est une HTTPError.
         self._retrying = Retrying(
-            # retry_if_exception_type(...) : ne déclenche un retry QUE si
-            # l'exception levée est une RequestException (ou une sous-classe).
-            # Toute autre exception (bug dans notre code, KeyError...) remonte
-            # immédiatement sans retry : on ne veut pas masquer un vrai bug en
-            # le faisant échouer silencieusement 4 fois de suite.
-            retry=retry_if_exception_type(requests.RequestException),
+            # retry_if_exception(_is_retryable_error) : appelle notre
+            # prédicat à chaque exception levée par _do_get() ; ne déclenche
+            # un retry que s'il renvoie True (erreurs réseau/timeout, ou HTTP
+            # 5xx). Sur une erreur 4xx ou toute exception qui n'est pas une
+            # RequestException (bug dans notre code, KeyError...), le
+            # prédicat renvoie False et l'exception remonte immédiatement,
+            # sans consommer de tentative supplémentaire : on ne veut pas
+            # masquer un vrai bug (ni perdre du temps sur une erreur déjà
+            # certaine) en la faisant échouer silencieusement plusieurs fois.
+            retry=retry_if_exception(_is_retryable_error),
             # stop_after_attempt(max_attempts) : arrête d'essayer après
             # max_attempts tentatives au total (la 1re tentative + les
             # retries), qu'elles aient réussi ou non. Évite de retry à

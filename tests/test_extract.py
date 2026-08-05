@@ -88,3 +88,22 @@ def test_fetch_cards_page_raises_after_exhausting_retries(client: PokemonTcgClie
     # stop_after_attempt(max_attempts=4) doit stopper net à la 4e, ni avant
     # (ce qui abandonnerait trop tôt) ni après (ce qui ignorerait la limite).
     assert len(responses.calls) == 4
+
+
+@responses.activate
+def test_fetch_cards_page_fails_immediately_on_client_error(client: PokemonTcgClient) -> None:
+    # Une réponse 401 (clé API invalide/manquante) est une erreur DÉFINITIVE :
+    # la requête elle-même est incorrecte, donc la répéter produira toujours
+    # exactement la même erreur 401. Contrairement aux tests 500 ci-dessus, on
+    # ne veut ici PAS de retry : le client doit lever PokemonTcgApiError dès le
+    # premier échec, sans consommer les 4 tentatives pour rien (ce qui ne
+    # ferait que retarder inutilement un échec déjà certain, sans jamais
+    # changer le résultat).
+    responses.add(responses.GET, "https://api.pokemontcg.io/v2/cards", status=401)
+
+    with pytest.raises(PokemonTcgApiError):
+        client.fetch_cards_page(page=1)
+
+    # Un seul appel HTTP effectué : la preuve que le retry n'a pas eu lieu sur
+    # cette erreur 4xx (contrairement aux 4 appels du test précédent sur 5xx).
+    assert len(responses.calls) == 1
