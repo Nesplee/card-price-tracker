@@ -61,3 +61,27 @@ def load_db_config() -> DatabaseConfig:
         user=_require_env("POSTGRES_APP_USER"),
         password=_require_env("POSTGRES_APP_PASSWORD"),
     )
+
+
+# @dataclass(frozen=True) : même logique que DatabaseConfig ci-dessus
+# (immutabilité, __init__/__repr__/__eq__ générés automatiquement). Cette
+# config est utilisée par PokemonTcgClient (src/extract/pokemontcg_client.py)
+# pour savoir quelle URL de base appeler et quelle clé API envoyer.
+@dataclass(frozen=True)
+class PokemonTcgConfig:
+    # Clé API pokemontcg.io (gratuite, à obtenir sur https://dev.pokemontcg.io).
+    # Sans authentification, l'API impose des quotas beaucoup plus stricts.
+    api_key: str
+    # base_url a une valeur par défaut car elle ne change quasiment jamais
+    # (contrairement à api_key, propre à chaque utilisateur). Elle reste
+    # néanmoins un champ modifiable (utile pour les tests, qui peuvent pointer
+    # vers une URL factice sans toucher au code de production).
+    base_url: str = "https://api.pokemontcg.io/v2"
+
+
+def load_pokemontcg_config() -> PokemonTcgConfig:
+    # Même pattern que load_db_config() : on ne lit jamais os.environ
+    # directement ailleurs dans le code, tout passe par cette fonction pour
+    # centraliser la lecture de la config (un seul endroit à modifier si le
+    # nom de la variable d'environnement change un jour).
+    return PokemonTcgConfig(api_key=_require_env("POKEMONTCG_API_KEY"))
