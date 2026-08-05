@@ -1,0 +1,28 @@
+# Définit l'environnement Postgres local pour le développement. Un seul
+# service "db" : l'image officielle postgres:16 initialisée avec les
+# identifiants admin et le nom de base lus depuis .env (jamais en dur ici).
+services:
+  db:
+    image: postgres:16
+    environment:
+      # Ces variables sont lues par l'image officielle postgres au premier
+      # démarrage du conteneur pour créer le rôle admin et la base par défaut.
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # Expose le port Postgres du conteneur (5432) sur le port de l'hôte
+      # défini par POSTGRES_PORT, pour que les scripts/tests sur la machine
+      # hôte puissent s'y connecter via localhost.
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      # Volume nommé : les données Postgres survivent aux redémarrages/
+      # recréations du conteneur (sinon tout serait perdu à chaque "down").
+      - card_tracker_pg_data:/var/lib/postgresql/data
+      # Monte le dossier migrations en lecture seule (:ro) dans le conteneur,
+      # pour que scripts/apply_migrations.sh puisse exécuter les fichiers .sql
+      # via "psql -f /migrations/...".
+      - ./migrations:/migrations:ro
+
+volumes:
+  card_tracker_pg_data:
