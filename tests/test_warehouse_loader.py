@@ -112,3 +112,21 @@ def test_load_staging_to_warehouse_is_idempotent(db_connection) -> None:
         cur.execute("SELECT count(*) FROM prod.fact_price_history WHERE card_id = 'base1-1';")
         (count,) = cur.fetchone()
     assert count == 1
+
+
+def test_load_staging_to_warehouse_raises_on_unknown_platform(db_connection) -> None:
+    # Régression pour un finding de code review : _UPSERT_FACT_SQL résout
+    # platform_id via une sous-requête (SELECT ... FROM prod.dim_platform
+    # WHERE platform_name = ...). Si platform_name ne correspond à aucune
+    # ligne de dim_platform (ici "unknown_platform", jamais seedée par
+    # migrations/003_create_star_schema.sql), le SELECT renvoie 0 ligne et
+    # l'INSERT ... SELECT n'insère silencieusement rien - sans lever d'erreur
+    # côté Postgres. Ce test vérifie que load_staging_to_warehouse() détecte
+    # ce cas via cur.rowcount et lève explicitement un RuntimeError, plutôt
+    # que de "réussir" en ayant perdu l'observation de prix du jour.
+    load_staging(db_connection, [_seed_card()], extracted_date=date(2026, 9, 1))
+
+    with pytest.raises(RuntimeError):
+        load_staging_to_warehouse(
+            db_connection, extracted_date=date(2026, 9, 1), platform_name="unknown_platform"
+        )
