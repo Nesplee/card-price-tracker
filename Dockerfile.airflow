@@ -21,4 +21,16 @@ COPY pyproject.toml /opt/airflow/pyproject.toml
 # (installation du package card-price-tracker lui-même) car pyproject.toml
 # n'est pas accompagné du reste du code source dans cette image -- seules les
 # dépendances tierces sont nécessaires, le code du projet arrive par volume.
-RUN pip install --no-cache-dir requests>=2.31 "psycopg[binary]>=3.1" python-dotenv>=1.0 tenacity>=8.2
+#
+# IMPORTANT -- chaque contrainte de version DOIT être entre guillemets.
+# Sans guillemets, le shell qui exécute cette commande (sh -c, la forme
+# "shell" d'une instruction RUN Docker) interprète le caractère ">"
+# comme une redirection de sortie, PAS comme un opérateur de comparaison
+# pip -- "requests>=2.31" non quoté serait lu comme "installe requests,
+# puis redirige la sortie vers un fichier nommé =2.31". Concrètement, ça
+# a été détecté en review (pas repéré à l'implémentation initiale) : trois
+# fichiers parasites nommés "=2.31", "=1.0", "=8.2" se retrouvaient créés
+# dans /opt/airflow, et les contraintes de version minimale (>=2.31 etc.)
+# n'étaient jamais réellement appliquées par pip (silencieusement ignorées,
+# pip installait la dernière version disponible sans vérifier le minimum).
+RUN pip install --no-cache-dir "requests>=2.31" "psycopg[binary]>=3.1" "python-dotenv>=1.0" "tenacity>=8.2"
