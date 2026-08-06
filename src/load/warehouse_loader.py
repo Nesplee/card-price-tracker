@@ -201,6 +201,30 @@ def load_staging_to_warehouse(
                     "platform_name": platform_name,
                 },
             )
+            # Pourquoi ce contrôle est indispensable : _UPSERT_FACT_SQL est un
+            # INSERT ... SELECT ... FROM prod.dim_platform WHERE platform_name
+            # = %(platform_name)s. Si `platform_name` ne correspond à AUCUNE
+            # ligne de dim_platform (faute de frappe, mauvaise casse,
+            # plateforme pas encore seedée en migration), le SELECT renvoie
+            # zéro ligne : l'INSERT n'a alors rien à insérer, mais ce n'est
+            # PAS une erreur au sens de Postgres (0 ligne insérée est un
+            # comportement parfaitement valide d'un INSERT ... SELECT). Sans
+            # ce contrôle, cur.rowcount ne serait jamais lu, et la fonction
+            # continuerait silencieusement : dim_card aurait déjà été mis à
+            # jour juste au-dessus, donc le pipeline "réussirait" alors que
+            # l'observation de prix du jour pour cette carte a disparu sans
+            # aucune exception ni avertissement - une perte de données
+            # silencieuse, la pire catégorie de bug dans un pipeline dont le
+            # but est justement de préserver un historique de prix fiable.
+            # On applique ici le même principe "échec explicite plutôt que
+            # silencieux" que _require_env() dans src/common/config.py et
+            # PokemonTcgApiError dans src/extract/pokemontcg_client.py :
+            # mieux vaut un run qui plante bruyamment qu'un run qui "réussit"
+            # en ayant discrètement perdu des données.
+            if cur.rowcount == 0:
+                raise RuntimeError(
+                    f"platform_name inconnu ou absent de prod.dim_platform : {platform_name!r}"
+                )
 
     logger.info("Warehouse : %d faits chargés (date=%s)", len(rows), extracted_date)
     # Comme load_staging() dans staging_loader.py, on renvoie le nombre de
