@@ -44,11 +44,22 @@ from src.transform.clean import clean_raw_to_staging
     # run manqué n'a pas de sens à rattraper a posteriori -- contrairement à
     # un pipeline qui traiterait des données historiques par date.
     catchup=False,
-    # retries=2 : si une tâche échoue (ex: erreur réseau transitoire vers
-    # pokemontcg.io malgré les retries internes du client -- voir Mois 1),
-    # Airflow relance automatiquement la tâche jusqu'à 2 fois avant de la
-    # marquer définitivement en échec.
-    default_args={"retries": 2},
+    # retries=20 : valeur augmentée après un run réel qui a échoué avec
+    # retries=2 (3 tentatives au total), non pas à cause d'un bug mais de
+    # l'instabilité mesurée de pokemontcg.io (~37% d'échecs 5xx observés au
+    # Mois 1) sur une extraction de ~80 pages. La preuve concrète (logs du
+    # run manuel__2026-08-06T19:01:11) montre que le mécanisme
+    # checkpoint+reprise (src/extract/pipeline.py) fonctionne bien À TRAVERS
+    # les retries Airflow -- chaque nouvelle tentative reprend exactement où
+    # la précédente s'est arrêtée ("Reprise détectée [...] page 40"), sans
+    # jamais repartir de zéro ni dupliquer. Le seul problème était le NOMBRE
+    # de tentatives, pas la logique de reprise elle-même : avec seulement 3
+    # tentatives, la probabilité de traverser ~80 pages à 37% d'échec par
+    # page est trop faible. 20 tentatives, combinées au coût quasi nul d'un
+    # retry (reprise immédiate, pas de perte), rend un run complet bien plus
+    # probable sans risque de corruption -- au pire, encore plus de retries
+    # manuels seraient nécessaires, jamais de résultat incorrect.
+    default_args={"retries": 20},
 )
 def card_price_pipeline():
     @task
