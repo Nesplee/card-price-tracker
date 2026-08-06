@@ -1,15 +1,20 @@
-# Tests de la logique de reprise (resume) du script d'orchestration
-# scripts/run_extract_load.py. Comme tests/test_raw_loader.py, ces tests
+# Tests de la logique de reprise (resume) de l'orchestration extract->load.
+# Depuis le refactor de la Task 4 (Mois 2), cette logique (_resume_page,
+# PAGE_SIZE) vit dans src/extract/pipeline.py (partagée par
+# scripts/run_extract_load.py ET le DAG Airflow), plus dans
+# scripts/run_extract_load.py lui-même -- seul l'import ci-dessous change,
+# la logique testée est identique. Comme tests/test_raw_loader.py, ces tests
 # tournent contre une VRAIE connexion Postgres (docker-compose), pas un mock :
 # ce qu'on vérifie ici (compter les lignes déjà présentes pour un
 # (extracted_date, source) donné) est une garantie qui dépend du contenu réel
 # de la table raw.card_prices, pas juste de la logique Python.
 #
-# Pourquoi tester _resume_page et pas main() directement ? main() orchestre
-# aussi les vrais appels réseau à pokemontcg.io (via PokemonTcgClient), ce qui
-# en ferait un test lent et flaky (dépendant de la disponibilité de l'API
-# externe). _resume_page est la portion de logique testable en isolation :
-# "étant donné ce qui est déjà en base, quelle page faut-il reprendre ?".
+# Pourquoi tester _resume_page et pas run_extract_load()/main() directement ?
+# Ces derniers orchestrent aussi les vrais appels réseau à pokemontcg.io (via
+# PokemonTcgClient), ce qui en ferait un test lent et flaky (dépendant de la
+# disponibilité de l'API externe). _resume_page est la portion de logique
+# testable en isolation : "étant donné ce qui est déjà en base, quelle page
+# faut-il reprendre ?".
 from __future__ import annotations
 
 import os
@@ -18,9 +23,9 @@ from datetime import date
 import psycopg
 import pytest
 
-from scripts.run_extract_load import PAGE_SIZE, _resume_page
 from src.common.config import load_db_config
 from src.common.db import get_connection
+from src.extract.pipeline import PAGE_SIZE, _resume_page
 from src.load.raw_loader import load_cards
 
 
