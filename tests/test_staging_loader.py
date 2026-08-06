@@ -98,3 +98,28 @@ def test_load_quarantine_records_rejected_rows(db_connection) -> None:
         )
         (reason,) = cur.fetchone()
     assert reason == "prix négatif (averageSellPrice=-1)"
+
+
+def test_load_quarantine_is_idempotent_for_same_day(db_connection) -> None:
+    # Ajouté suite à une review de code (finding "Important") : avant la
+    # contrainte UNIQUE (card_id, extracted_date, source) posée par
+    # migrations/004_add_quarantine_unique_constraint.sql, rejouer
+    # load_quarantine() pour la MÊME carte rejetée, le MÊME jour, créait une
+    # DEUXIÈME ligne de quarantaine au lieu de mettre à jour la première — ce
+    # qui casse l'idempotence attendue à chaque retry du DAG (Task 4 du Mois
+    # 2, `retries: 2`). Même structure que
+    # test_load_staging_is_idempotent_for_same_day ci-dessus et
+    # test_load_cards_is_idempotent_for_same_day dans tests/test_raw_loader.py
+    # (Mois 1) : on rejoue deux fois le même appel et on vérifie qu'une seule
+    # ligne subsiste.
+    rejected = [({"id": "base1-3", "name": "Gyarados"}, "prix négatif (averageSellPrice=-1)")]
+
+    load_quarantine(db_connection, rejected, extracted_date=date(2026, 9, 1))
+    load_quarantine(db_connection, rejected, extracted_date=date(2026, 9, 1))
+
+    with db_connection.cursor() as cur:
+        cur.execute(
+            "SELECT count(*) FROM staging.card_prices_quarantine WHERE card_id = 'base1-3';"
+        )
+        (count,) = cur.fetchone()
+    assert count == 1
