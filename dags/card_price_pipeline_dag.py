@@ -9,7 +9,7 @@
 # c'est Airflow (le scheduler, en le scannant dans dags/) qui l'exécute.
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import psycopg
 from airflow.decorators import dag, task
@@ -44,11 +44,14 @@ from src.transform.clean import clean_raw_to_staging
     # run manqué n'a pas de sens à rattraper a posteriori -- contrairement à
     # un pipeline qui traiterait des données historiques par date.
     catchup=False,
-    # retries=20 : valeur augmentée après un run réel qui a échoué avec
-    # retries=2 (3 tentatives au total), non pas à cause d'un bug mais de
-    # l'instabilité mesurée de pokemontcg.io (~37% d'échecs 5xx observés au
-    # Mois 1) sur une extraction de ~80 pages. La preuve concrète (logs du
-    # run manuel__2026-08-06T19:01:11) montre que le mécanisme
+)
+def card_price_pipeline():
+    # retries=20 SCOPÉ À CETTE SEULE TÂCHE (pas à default_args du DAG comme
+    # avant une review de code) : valeur augmentée après un run réel qui a
+    # échoué avec retries=2 (3 tentatives au total), non pas à cause d'un bug
+    # mais de l'instabilité mesurée de pokemontcg.io (~37% d'échecs 5xx
+    # observés au Mois 1) sur une extraction de ~80 pages. La preuve concrète
+    # (logs du run manuel__2026-08-06T19:01:11) montre que le mécanisme
     # checkpoint+reprise (src/extract/pipeline.py) fonctionne bien À TRAVERS
     # les retries Airflow -- chaque nouvelle tentative reprend exactement où
     # la précédente s'est arrêtée ("Reprise détectée [...] page 40"), sans
@@ -59,10 +62,25 @@ from src.transform.clean import clean_raw_to_staging
     # retry (reprise immédiate, pas de perte), rend un run complet bien plus
     # probable sans risque de corruption -- au pire, encore plus de retries
     # manuels seraient nécessaires, jamais de résultat incorrect.
-    default_args={"retries": 20},
-)
-def card_price_pipeline():
-    @task
+    #
+    # retry_delay=30s (pas les 5 minutes par défaut d'Airflow) : la reprise
+    # est immédiate et peu coûteuse grâce au checkpoint par page (aucun
+    # travail perdu, on repart de la dernière page confirmée) -- attendre 5
+    # minutes entre chaque tentative n'apporterait rien ici (l'API ne "guérit"
+    # pas parce qu'on attend plus longtemps que 30s) et multiplierait juste
+    # inutilement la durée totale d'un run qui doit déjà absorber jusqu'à 20
+    # tentatives.
+    #
+    # Pourquoi retries=20 N'EST PAS mis sur les 3 tâches (via default_args du
+    # DAG, comme c'était le cas avant) : clean_to_staging et load_to_warehouse
+    # ci-dessous sont des opérations SQL locales, rapides et déterministes --
+    # elles n'appellent aucune API externe instable. Si l'une d'elles échoue,
+    # c'est très probablement un vrai bug (pas un aléa réseau), et le laisser
+    # masqué derrière 20 tentatives x le délai entre essais retarderait sa
+    # visibilité pour rien. Elles gardent donc retries=2 (une valeur modeste,
+    # pour absorber un aléa transitoire de connexion à la DB locale, sans
+    # cacher un vrai bug pendant longtemps).
+    @task(retries=20, retry_delay=timedelta(seconds=30))
     def extract_and_load_raw() -> str:
         # ÉCART DÉLIBÉRÉ par rapport à une réécriture "en dur" de la boucle
         # de pagination + checkpoint ICI dans le DAG : on réutilise
@@ -98,7 +116,7 @@ def card_price_pipeline():
             conn.close()
         return extracted_date.isoformat()
 
-    @task
+    @task(retries=2)
     def clean_to_staging(extracted_date_iso: str) -> str:
         # date.fromisoformat : XCom (le mécanisme Airflow qui transmet la
         # valeur de retour d'une tâche à la suivante) ne sérialise que des
@@ -113,7 +131,7 @@ def card_price_pipeline():
             clean_raw_to_staging(conn, extracted_date)
         return extracted_date_iso
 
-    @task
+    @task(retries=2)
     def load_to_warehouse(extracted_date_iso: str) -> None:
         extracted_date = date.fromisoformat(extracted_date_iso)
         with get_connection(load_db_config()) as conn:

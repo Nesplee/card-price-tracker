@@ -4,3 +4,8 @@ __pycache__/
 .venv/
 .pytest_cache/
 *.egg-info/
+# Logs Airflow écrits par le scheduler (voir docker-compose.yml, volume
+# partagé ./logs entre airflow-webserver et airflow-scheduler) : ce sont des
+# artefacts d'exécution locale, régénérés à chaque run, jamais des fichiers
+# à versionner.
+logs/
