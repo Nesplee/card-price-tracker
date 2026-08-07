@@ -1,0 +1,62 @@
+[project]
+name = "card-price-tracker"
+version = "0.1.0"
+description = "Pipeline de suivi des prix de cartes Pokemon (raw -> staging -> prod)"
+requires-python = ">=3.11"
+
+# Dépendances principales du projet :
+# - requests : bibliothèque HTTP pour appeler l'API pokemontcg.io (fetch des données brutes)
+# - psycopg : driver PostgreSQL pour charger les données en base de données
+# - python-dotenv : charge les variables d'environnement depuis .env (credentials DB, API keys)
+# - tenacity : gestion des retry automatiques pour les appels API (robustesse du pipeline)
+dependencies = [
+    "requests>=2.31",
+    "psycopg[binary]>=3.1",
+    "python-dotenv>=1.0",
+    "tenacity>=8.2",
+]
+
+# Dépendances de développement (installez avec : pip install -e ".[dev]")
+[project.optional-dependencies]
+dev = [
+    # pytest : framework de test (exécute les tests du dossier tests/)
+    "pytest>=8.0",
+    # responses : mock les appels HTTP pour tester sans vraie API (isoler les tests)
+    "responses>=0.25",
+    # ruff : linter ultra-rapide (détecte les erreurs de style et logique)
+    "ruff>=0.4",
+    # black : formateur de code (met automatiquement le code au format standard)
+    "black>=24.0",
+]
+
+# Configuration pytest
+# pythonpath = ["."] : permet aux tests d'importer le package "src" sans le préfixer
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+# Configuration ruff (linter)
+# line-length = 100 : limite chaque ligne à 100 caractères max (lisibilité)
+# target-version : la version Python minimale que ruff cible pour les vérifications
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+# Règles à vérifier :
+# E : erreurs PEP 8 (indentation, espaces, etc.)
+# F : erreurs Pyflakes (imports inutilisés, variables non définies)
+# I : imports mal organisés (isort)
+# UP : upgrade Python (utiliser la syntaxe moderne pour la version cible)
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+# Configuration black (formateur de code)
+# line-length = 100 : limite à 100 caractères (cohérent avec ruff)
+# target-version : la version Python minimale que black cible
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+# Système de build : setuptools (standard Python pour packager et installer les projets)
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
