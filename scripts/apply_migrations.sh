@@ -16,13 +16,18 @@ set -euo pipefail
 # dans l'environnement de ce script, comme si on les avait tapées à la main.
 source .env
 
+# Fichier compose à utiliser : premier argument du script si fourni, sinon
+# "docker-compose.yml" par défaut (usage local inchangé). Permet de réutiliser
+# ce même script en prod avec "./scripts/apply_migrations.sh docker-compose.prod.yml".
+COMPOSE_FILE="${1:-docker-compose.yml}"
+
 # Commande psql réutilisée pour toutes les requêtes admin ci-dessous :
 # - exec -T : exécute une commande dans le conteneur "db" déjà démarré,
 #   -T désactive l'allocation d'un pseudo-terminal (nécessaire en script,
 #   sans terminal interactif).
 # - ON_ERROR_STOP=1 : psql s'arrête dès qu'une requête SQL échoue, au lieu de
 #   continuer sur les suivantes.
-ADMIN_PSQL="docker compose exec -T db psql -v ON_ERROR_STOP=1 -U ${POSTGRES_ADMIN_USER} -d ${POSTGRES_DB}"
+ADMIN_PSQL="docker compose -f ${COMPOSE_FILE} exec -T db psql -v ON_ERROR_STOP=1 -U ${POSTGRES_ADMIN_USER} -d ${POSTGRES_DB}"
 
 # Table de suivi des migrations déjà appliquées (dans le schéma "public" par
 # défaut). IF NOT EXISTS : ne fait rien si elle existe déjà (idempotent).
@@ -46,7 +51,7 @@ for filepath in migrations/*.sql; do
     # -f /migrations/... exécute le fichier SQL monté en lecture seule dans le
     # conteneur (voir docker-compose.yml) plutôt que de le streamer depuis
     # l'hôte : évite les soucis d'encodage/chemin entre hôte et conteneur.
-    docker compose exec -T db psql -v ON_ERROR_STOP=1 -U "${POSTGRES_ADMIN_USER}" -d "${POSTGRES_DB}" -f "/migrations/${filename}"
+    docker compose -f ${COMPOSE_FILE} exec -T db psql -v ON_ERROR_STOP=1 -U "${POSTGRES_ADMIN_USER}" -d "${POSTGRES_DB}" -f "/migrations/${filename}"
     # Une fois la migration appliquée avec succès, on l'enregistre pour ne
     # jamais la rejouer lors d'un prochain appel de ce script.
     $ADMIN_PSQL -c "INSERT INTO public.schema_migrations (filename) VALUES ('${filename}');"
