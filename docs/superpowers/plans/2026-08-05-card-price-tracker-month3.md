@@ -61,6 +61,8 @@ Expected : comportement identique à avant (utilise `docker-compose.yml` par dé
 
 - [ ] **Step 3: Créer `docker-compose.prod.yml`**
 
+**Correction 2026-08-07** : ce plan a été rédigé le même jour que celui du Mois 2, avant les correctifs sortis de l'implémentation réelle du Mois 2 (voir `docker-compose.yml` local actuel). Le YAML ci-dessous a été mis à jour pour reprendre ces correctifs déjà prouvés, plutôt que de les reproduire à l'identique et les refaire découvrir en prod : `AIRFLOW__WEBSERVER__SECRET_KEY` partagé (sans quoi la récupération des logs de tâches entre webserver et scheduler échoue silencieusement), volume `./logs` partagé + `user: "${AIRFLOW_UID:-50000}:0"` (sans quoi `PermissionError` à l'écriture, et logs perdus au moindre redémarrage de conteneur — critique sur une VM headless où l'UI web est le seul moyen de déboguer à distance), `POSTGRES_HOST`/`POSTGRES_PORT` explicites sur les services Airflow (sans quoi `.env` fournit `POSTGRES_HOST=localhost`, qui à l'intérieur d'un conteneur pointe vers lui-même, pas vers le service `db`), et `depends_on: airflow-init: condition: service_completed_successfully` en forme longue (pas juste attendre le démarrage du conteneur, mais la fin réelle de la migration).
+
 ```yaml
 services:
   db:
@@ -109,19 +111,25 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.airflow
+    user: "${AIRFLOW_UID:-50000}:0"
     depends_on:
-      - airflow-init
+      airflow-init:
+        condition: service_completed_successfully
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       PYTHONPATH: /opt/airflow
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     command: webserver
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
+      - ./logs:/opt/airflow/logs
       - ./.env:/opt/airflow/.env:ro
     restart: unless-stopped
 
@@ -129,17 +137,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.airflow
+    user: "${AIRFLOW_UID:-50000}:0"
     depends_on:
-      - airflow-init
+      airflow-init:
+        condition: service_completed_successfully
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       PYTHONPATH: /opt/airflow
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     command: scheduler
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
+      - ./logs:/opt/airflow/logs
       - ./.env:/opt/airflow/.env:ro
     restart: unless-stopped
 
@@ -148,7 +162,7 @@ volumes:
   airflow_pg_data:
 ```
 
-Note : contrairement à `docker-compose.yml` (dev local), `db` et `airflow-db` n'ont **aucun port publié** — ni Postgres ni les métadonnées Airflow ne sont joignables depuis l'extérieur de la VM, uniquement via le réseau Docker interne entre conteneurs. `airflow-webserver` n'est lié qu'à `127.0.0.1:8080`, donc invisible depuis l'extérieur de la VM elle-même — accès uniquement via tunnel SSH (Task 2).
+Note : contrairement à `docker-compose.yml` (dev local), `db` et `airflow-db` n'ont **aucun port publié** — ni Postgres ni les métadonnées Airflow ne sont joignables depuis l'extérieur de la VM, uniquement via le réseau Docker interne entre conteneurs. `airflow-webserver` n'est lié qu'à `127.0.0.1:8080`, donc invisible depuis l'extérieur de la VM elle-même — accès uniquement via tunnel SSH (Task 2). Le volume `./logs` reste interne à la VM (jamais exposé publiquement), il sert uniquement au débogage via SSH/tunnel.
 
 - [ ] **Step 4: Cloner le repo sur la VM et préparer `.env`**
 
