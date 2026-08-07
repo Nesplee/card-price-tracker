@@ -1,12 +1,18 @@
 # Test d'intégration bout en bout : vérifie que rejouer DEUX FOIS le pipeline
 # complet (raw -> staging -> prod) pour le MÊME jour ne produit ni doublons ni
-# lignes supplémentaires. C'est la propriété d'idempotence que chaque étage a
-# été conçu individuellement pour garantir (UPSERT dans load_cards, Task 2 :
-# UNIQUE sur la quarantaine, Task 3 : UPSERT staging->prod) -- ce test vérifie
-# que ces garanties LOCALES tiennent aussi bout en bout, une fois les trois
-# étages enchaînés comme le fait le DAG (mais sans passer par Airflow : on
-# appelle directement les fonctions Python, plus rapide et plus simple à
-# déboguer qu'un test qui déclencherait un vrai DAG run).
+# lignes supplémentaires -- ET que ce n'est pas un simple "ON CONFLICT DO
+# NOTHING" qui ignorerait silencieusement le second passage : une carte
+# valide voit son prix mis à jour (UPSERT réel), et une carte invalide dès le
+# départ passe par le chemin de quarantaine et y reste idempotente elle aussi
+# (une seule ligne malgré 2 passages, cohérent avec la contrainte UNIQUE
+# posée par migrations/004_add_quarantine_unique_constraint.sql). C'est la
+# propriété d'idempotence que chaque étage a été conçu individuellement pour
+# garantir (Mois 1 : UPSERT dans load_cards ; Task 2 : UPSERT staging ET
+# quarantaine ; Task 3 : UPSERT staging->prod) -- ce test vérifie que ces
+# garanties LOCALES tiennent aussi bout en bout, une fois les trois étages
+# enchaînés comme le fait le DAG (mais sans passer par Airflow : on appelle
+# directement les fonctions Python, plus rapide et plus simple à déboguer
+# qu'un test qui déclencherait un vrai DAG run).
 from __future__ import annotations
 
 import os
@@ -59,25 +65,43 @@ def db_connection():
 
 def test_full_pipeline_is_idempotent_when_replayed(db_connection) -> None:
     extracted_date = date(2026, 9, 5)
-    cards = [
-        {
-            "id": "base1-1",
-            "name": "Alakazam",
-            "rarity": "Rare Holo",
-            "set": {"id": "base1", "name": "Base"},
-            "cardmarket": {
-                "prices": {"averageSellPrice": 12.5, "trendPrice": 13.0, "lowPrice": 8.0}
-            },
-        }
-    ]
 
-    # Rejoue le pipeline complet DEUX FOIS avec exactement les mêmes données
-    # et la même extracted_date : c'est la définition même de l'idempotence
-    # testée ici -- si un des trois étages n'était PAS idempotent (ex: un
-    # INSERT sans UPSERT quelque part), ce deuxième passage créerait des
-    # doublons détectés par les assertions ci-dessous.
-    for _ in range(2):
-        load_cards(db_connection, cards, extracted_date=extracted_date)
+    # Carte VALIDE : traverse tout le pipeline jusqu'à prod. Son prix
+    # (averageSellPrice) sera modifié entre les deux passages ci-dessous
+    # (12.5 -> 20.0) pour prouver que le second passage effectue un vrai
+    # UPDATE et non un no-op silencieux (voir la boucle plus bas).
+    valid_card = {
+        "id": "base1-1",
+        "name": "Alakazam",
+        "rarity": "Rare Holo",
+        "set": {"id": "base1", "name": "Base"},
+        "cardmarket": {"prices": {"averageSellPrice": 12.5, "trendPrice": 13.0, "lowPrice": 8.0}},
+    }
+    # Carte INVALIDE dès le départ (prix négatif) : reprend exactement le cas
+    # déjà couvert par test_validate_and_clean_rejects_negative_price dans
+    # tests/test_transform.py, pour rester cohérent avec les règles de
+    # validation testées ailleurs. Présente dans les DEUX passages, à
+    # l'identique (contrairement à valid_card, dont seul le prix change) :
+    # l'objectif ici n'est pas de prouver un UPDATE sur son contenu, mais que
+    # la ligne de quarantaine ne se DUPLIQUE PAS au second passage.
+    invalid_card = {
+        "id": "base1-2",
+        "name": "Machamp",
+        "rarity": "Rare Holo",
+        "set": {"id": "base1", "name": "Base"},
+        "cardmarket": {"prices": {"averageSellPrice": -1.0}},
+    }
+
+    # Rejoue le pipeline complet DEUX FOIS avec la même extracted_date. Entre
+    # les deux passages, le prix de la carte valide change (12.5 -> 20.0) :
+    # si load_staging/load_staging_to_warehouse faisaient un "ON CONFLICT DO
+    # NOTHING" au lieu d'un vrai UPDATE, le prix final resterait 12.5 --
+    # l'assertion sur average_sell_price en fin de test distinguerait donc un
+    # UPSERT réel d'un simple "ignorer si déjà présent".
+    for i in range(2):
+        if i == 1:
+            valid_card["cardmarket"]["prices"]["averageSellPrice"] = 20.0
+        load_cards(db_connection, [valid_card, invalid_card], extracted_date=extracted_date)
         clean_raw_to_staging(db_connection, extracted_date)
         load_staging_to_warehouse(db_connection, extracted_date)
 
@@ -86,12 +110,35 @@ def test_full_pipeline_is_idempotent_when_replayed(db_connection) -> None:
         (raw_count,) = cur.fetchone()
         cur.execute("SELECT count(*) FROM staging.card_prices;")
         (staging_count,) = cur.fetchone()
+        cur.execute("SELECT count(*) FROM staging.card_prices_quarantine;")
+        (quarantine_count,) = cur.fetchone()
+        cur.execute("SELECT count(*) FROM prod.dim_card;")
+        (dim_card_count,) = cur.fetchone()
         cur.execute("SELECT count(*) FROM prod.fact_price_history;")
         (fact_count,) = cur.fetchone()
+        cur.execute(
+            "SELECT average_sell_price FROM prod.fact_price_history WHERE card_id = %s;",
+            (valid_card["id"],),
+        )
+        (stored_price,) = cur.fetchone()
 
-    # Une seule carte, une seule extracted_date, rejouée deux fois : à chaque
-    # étage, on doit retrouver EXACTEMENT une ligne -- pas deux (ce qui
-    # signalerait un doublon au lieu d'une mise à jour).
-    assert raw_count == 1
+    # Deux cartes distinctes (valide + invalide), chacune une seule ligne en
+    # raw malgré 2 passages : load_cards est idempotent (Mois 1, UPSERT sur
+    # card_id + extracted_date).
+    assert raw_count == 2
+    # Seule la carte valide traverse jusqu'en staging.
     assert staging_count == 1
+    # Seule la carte invalide finit en quarantaine -- et une seule fois
+    # malgré 2 passages : c'est la preuve que la contrainte UNIQUE posée par
+    # migrations/004_add_quarantine_unique_constraint.sql (et l'UPSERT
+    # correspondant dans load_quarantine) empêche bien l'accumulation de
+    # doublons en quarantaine, pas seulement en staging.
+    assert quarantine_count == 1
+    # dim_card ne doit pas dupliquer la carte valide entre les deux passages.
+    assert dim_card_count == 1
     assert fact_count == 1
+    # Preuve concrète de l'UPSERT (pas d'un no-op) : le prix stocké en prod
+    # est celui du SECOND passage (20.0), pas celui du premier (12.5) --
+    # si un des étages avait fait un "ON CONFLICT DO NOTHING" au lieu d'un
+    # DO UPDATE, cette assertion échouerait avec stored_price == 12.5.
+    assert stored_price == 20.0

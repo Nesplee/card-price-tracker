@@ -111,12 +111,43 @@ services:
   # airflow-webserver : sert l'interface web d'Airflow (http://localhost:8080)
   # -- permet de visualiser le DAG, déclencher des runs manuellement, et
   # inspecter les logs de chaque tâche.
+  # Logs Airflow non récupérables + secret_key incohérent entre conteneurs
+  # (webserver et scheduler ci-dessous) : avec LocalExecutor, les TÂCHES du
+  # DAG s'exécutent comme sous-processus du SCHEDULER, pas du webserver --
+  # c'est donc le conteneur airflow-scheduler qui écrit réellement les
+  # fichiers de log de chaque tâche sur son propre système de fichiers.
+  # Quand on consulte les logs d'une tâche dans l'UI web (servie par
+  # airflow-webserver), celui-ci n'a PAS ces fichiers en local : il tente
+  # normalement de les récupérer via une requête HTTP interne vers le
+  # scheduler, requête signée par [webserver] secret_key -- mais sans
+  # valeur explicite pour cette clé, Airflow en génère une aléatoire
+  # DIFFÉRENTE à chaque démarrage de CHAQUE conteneur, donc la signature ne
+  # correspond jamais entre les deux côtés et la récupération échoue. Deux
+  # correctifs complémentaires ci-dessous (volume ./logs partagé + clé
+  # secret_key partagée via AIRFLOW_SECRET_KEY) : le volume rend la
+  # récupération HTTP inutile ici (accès direct au système de fichiers), et
+  # la clé partagée est ajoutée quand même par bonne pratique de
+  # configuration Airflow (utile si LocalExecutor est un jour remplacé par
+  # un exécuteur distribué où les tâches ne partagent plus de disque avec le
+  # webserver). Particulièrement important pour le déploiement prévu au
+  # Mois 3 sur une VM headless : sans accès direct au système de fichiers de
+  # la VM, l'UI web sera le SEUL moyen de diagnostiquer un problème de
+  # pipeline -- des logs de tâche inaccessibles y rendraient tout débogage
+  # à distance impossible.
   airflow-webserver:
     build:
       context: .
       dockerfile: Dockerfile.airflow
     depends_on:
-      - airflow-init
+      # Forme longue + condition explicite (pas juste "- airflow-init") :
+      # la forme courte attend seulement que le conteneur airflow-init
+      # DÉMARRE, pas qu'il se TERMINE avec succès. airflow-init exécute
+      # `airflow db migrate` puis s'arrête (voir commentaire sur ce service
+      # plus haut) -- sans cette condition, webserver pourrait démarrer et
+      # tenter de se connecter à une base de métadonnées Airflow encore en
+      # cours de migration, voire pas encore migrée du tout.
+      airflow-init:
+        condition: service_completed_successfully
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
@@ -139,12 +170,31 @@ services:
       # dans l'environnement du conteneur -- cette surcharge gagne donc
       # bien sur la valeur "localhost" lue depuis le .env monté.
       POSTGRES_HOST: db
+      # POSTGRES_PORT=5432 EN DUR (pas ${POSTGRES_PORT}) : le service "db"
+      # publie "${POSTGRES_PORT}:5432" -- le port CÔTÉ HÔTE est configurable
+      # (pour éviter un conflit local avec un autre Postgres), mais le port
+      # CÔTÉ CONTENEUR, à l'intérieur du réseau Docker Compose, est TOUJOURS
+      # 5432, quel que soit le port choisi côté hôte. Ces conteneurs Airflow
+      # se connectent à "db" via le réseau interne (jamais via le port
+      # publié sur l'hôte), donc c'est bien 5432 en dur qu'il faut ici --
+      # interpoler ${POSTGRES_PORT} romprait la connexion dès qu'un
+      # développeur changerait ce port dans son .env.
+      POSTGRES_PORT: 5432
+      # AIRFLOW__WEBSERVER__SECRET_KEY : voir le commentaire détaillé
+      # au-dessus de ce service. Valeur PARTAGÉE avec airflow-scheduler
+      # (même variable d'environnement ${AIRFLOW_SECRET_KEY}, lue depuis .env).
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     command: webserver
     ports:
       - "8080:8080"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
+      # Volume PARTAGÉ (même chemin hôte ./logs) avec airflow-scheduler :
+      # voir le commentaire détaillé au-dessus de ce service. Donne au
+      # webserver un accès direct, par système de fichiers, aux logs de
+      # tâches réellement écrits par le scheduler.
+      - ./logs:/opt/airflow/logs
       - ./.env:/opt/airflow/.env:ro
 
   # airflow-scheduler : le processus qui décide QUAND exécuter les tâches
@@ -156,7 +206,12 @@ services:
       context: .
       dockerfile: Dockerfile.airflow
     depends_on:
-      - airflow-init
+      # Forme longue + condition explicite : voir le commentaire détaillé
+      # sur la même directive dans airflow-webserver ci-dessus -- MÊME
+      # correctif, MÊME raison (attendre la fin de la migration de la base
+      # de métadonnées, pas juste le démarrage du conteneur airflow-init).
+      airflow-init:
+        condition: service_completed_successfully
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
@@ -171,10 +226,26 @@ services:
       # observée concrètement dans les logs de tâche lors de la
       # vérification manuelle du DAG (Step 5).
       POSTGRES_HOST: db
+      # POSTGRES_PORT=5432 EN DUR : voir le commentaire détaillé sur la même
+      # variable dans le service airflow-webserver ci-dessus -- MÊME
+      # correctif, MÊME raison (le port interne au réseau Docker Compose est
+      # toujours 5432, indépendamment du port choisi côté hôte via
+      # ${POSTGRES_PORT}).
+      POSTGRES_PORT: 5432
+      # AIRFLOW__WEBSERVER__SECRET_KEY : voir le commentaire détaillé
+      # au-dessus du service airflow-webserver. Valeur PARTAGÉE (même
+      # ${AIRFLOW_SECRET_KEY}) -- indispensable pour que la signature des
+      # requêtes de récupération de logs corresponde des deux côtés.
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     command: scheduler
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
+      # Volume PARTAGÉ (même chemin hôte ./logs) avec airflow-webserver :
+      # voir le commentaire détaillé au-dessus du service airflow-webserver.
+      # C'est CE conteneur qui écrit réellement les fichiers de log (voir
+      # ce même commentaire pour le pourquoi).
+      - ./logs:/opt/airflow/logs
       - ./.env:/opt/airflow/.env:ro
 
 volumes:

@@ -70,10 +70,17 @@ def clean_raw_to_staging(
     # Étape 3 — persistance : deux appels séparés, chacun idempotent de son
     # côté (voir staging_loader.py). Si clean_raw_to_staging est rejouée pour
     # le même jour (ex: après un crash entre les deux appels), load_staging
-    # met à jour les lignes déjà chargées sans dupliquer, et load_quarantine
-    # ajoute de nouvelles lignes de quarantaine pour les cartes encore
-    # rejetées (accumulation volontaire, voir le commentaire dans
-    # staging_loader.py sur l'absence de contrainte UNIQUE en quarantaine).
+    # ET load_quarantine mettent chacun à jour les lignes déjà présentes pour
+    # ce jour au lieu de les dupliquer — les deux reposent maintenant sur le
+    # même mécanisme d'UPSERT (ON CONFLICT ... DO UPDATE), grâce à la
+    # contrainte UNIQUE (card_id, extracted_date, source) posée sur
+    # staging.card_prices_quarantine par
+    # migrations/004_add_quarantine_unique_constraint.sql. Avant cette
+    # migration, la quarantaine accumulait une nouvelle ligne à chaque
+    # relance au lieu de mettre à jour l'existante ; voir staging_loader.py
+    # (_INSERT_QUARANTINE_SQL) pour le détail du comportement actuel, y
+    # compris le cas particulier des lignes à card_id NULL qui, elles,
+    # continuent de s'accumuler.
     load_staging(conn, cleaned, extracted_date=extracted_date, source=source)
     load_quarantine(conn, rejected, extracted_date=extracted_date, source=source)
 
