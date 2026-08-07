@@ -15,15 +15,19 @@ def _make_payload(**overrides) -> dict:
     # Construit un payload "carte pokemontcg.io" valide par défaut, avec la
     # forme exacte renvoyée par l'API (voir src/extract/pokemontcg_client.py) :
     # id/name au niveau racine, set imbriqué (id/name), prix imbriqués sous
-    # cardmarket.prices. **overrides permet à chaque test de ne modifier QUE
-    # le champ qui l'intéresse (ex: set=None) sans réécrire tout le payload,
-    # ce qui rend chaque test lisible et concentré sur un seul cas de rejet.
+    # tcgplayer.prices.<variante>. **overrides permet à chaque test de ne
+    # modifier QUE le champ qui l'intéresse (ex: set=None) sans réécrire tout
+    # le payload, ce qui rend chaque test lisible et concentré sur un seul cas.
     payload = {
         "id": "base1-1",
         "name": "Alakazam",
         "rarity": "Rare Holo",
         "set": {"id": "base1", "name": "Base"},
-        "cardmarket": {"prices": {"averageSellPrice": 12.5, "trendPrice": 13.0, "lowPrice": 8.0}},
+        "tcgplayer": {
+            "prices": {
+                "normal": {"low": 8.0, "mid": 13.0, "market": 12.5, "high": 20.0},
+            }
+        },
     }
     payload.update(overrides)
     return payload
@@ -32,11 +36,15 @@ def _make_payload(**overrides) -> dict:
 def test_validate_and_clean_accepts_valid_payload() -> None:
     # Cas nominal : un payload complet et cohérent doit être accepté, et les
     # champs du CleanedCard doivent correspondre à ceux du payload d'origine.
+    # market -> average_sell_price, low -> low_price, mid -> trend_price (voir
+    # docs/superpowers/specs/2026-08-07-tcgplayer-pricing-source-design.md).
     result = validate_and_clean(_make_payload())
 
     assert result.is_valid
     assert result.cleaned.card_id == "base1-1"
     assert result.cleaned.average_sell_price == 12.5
+    assert result.cleaned.low_price == 8.0
+    assert result.cleaned.trend_price == 13.0
 
 
 def test_validate_and_clean_rejects_missing_set() -> None:
@@ -50,15 +58,16 @@ def test_validate_and_clean_rejects_missing_set() -> None:
 
 
 def test_validate_and_clean_rejects_when_no_price_available() -> None:
-    # Une carte sans AUCUN prix cardmarket (les 3 champs absents) n'a pas
-    # d'intérêt pour un pipeline de suivi de PRIX : mieux vaut la rejeter
-    # explicitement en quarantaine (avec sa raison) plutôt que l'insérer en
-    # staging avec average_sell_price/trend_price/low_price tous NULL, ce qui
-    # masquerait silencieusement un problème de données côté source.
-    result = validate_and_clean(_make_payload(cardmarket={"prices": {}}))
+    # Une carte sans AUCUN prix tcgplayer (prices vide) n'a pas d'intérêt pour
+    # un pipeline de suivi de PRIX : mieux vaut la rejeter explicitement en
+    # quarantaine (avec sa raison) plutôt que de l'insérer en staging avec les 3
+    # prix NULL, ce qui masquerait silencieusement un problème de données
+    # source.
+    result = validate_and_clean(_make_payload(tcgplayer={"prices": {}}))
 
     assert not result.is_valid
     assert "prix" in result.rejection_reason
+    assert "tcgplayer" in result.rejection_reason
 
 
 def test_validate_and_clean_rejects_negative_price() -> None:
@@ -66,7 +75,60 @@ def test_validate_and_clean_rejects_negative_price() -> None:
     # avoir une valeur marchande négative) : c'est le signe d'une anomalie
     # de la source ou d'un bug, donc la carte est rejetée plutôt
     # qu'acceptée avec une donnée aberrante qui fausserait les analyses.
-    result = validate_and_clean(_make_payload(cardmarket={"prices": {"averageSellPrice": -1.0}}))
+    result = validate_and_clean(_make_payload(tcgplayer={"prices": {"normal": {"market": -1.0}}}))
 
     assert not result.is_valid
     assert "négatif" in result.rejection_reason
+
+
+def test_validate_and_clean_prefers_normal_over_holofoil_variant() -> None:
+    # Si plusieurs variantes d'impression sont disponibles, "normal" doit être
+    # choisie en priorité (ordre de priorité documenté dans le design spec) —
+    # pas la première trouvée dans le dict ni la plus chère.
+    result = validate_and_clean(
+        _make_payload(
+            tcgplayer={
+                "prices": {
+                    "holofoil": {"low": 6.0, "mid": 20.0, "market": 15.0},
+                    "normal": {"low": 1.0, "mid": 2.0, "market": 1.5},
+                }
+            }
+        )
+    )
+
+    assert result.is_valid
+    assert result.cleaned.average_sell_price == 1.5
+
+
+def test_validate_and_clean_prefers_holofoil_when_normal_absent() -> None:
+    # Une carte Rare Holo n'a souvent AUCUNE variante "normal" (elle n'existe
+    # qu'en holofoil) : la sélection doit alors retomber sur "holofoil",
+    # deuxième priorité de la liste, pas rejeter la carte faute de "normal".
+    result = validate_and_clean(
+        _make_payload(
+            tcgplayer={
+                "prices": {
+                    "reverseHolofoil": {"low": 4.0, "mid": 5.0, "market": 4.5},
+                    "holofoil": {"low": 6.0, "mid": 9.0, "market": 7.5},
+                }
+            }
+        )
+    )
+
+    assert result.is_valid
+    assert result.cleaned.average_sell_price == 7.5
+
+
+def test_validate_and_clean_falls_back_to_first_available_variant() -> None:
+    # Si aucune variante de la liste de priorité n'est présente (ex: une
+    # variante récente type "pokeBallPattern", non gérée spécifiquement en v1
+    # — décision produit explicite, voir le design spec), on retombe sur la
+    # première variante du payload plutôt que de rejeter la carte.
+    result = validate_and_clean(
+        _make_payload(
+            tcgplayer={"prices": {"pokeBallPattern": {"low": 3.0, "mid": 4.0, "market": 3.5}}}
+        )
+    )
+
+    assert result.is_valid
+    assert result.cleaned.average_sell_price == 3.5
