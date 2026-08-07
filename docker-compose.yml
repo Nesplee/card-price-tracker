@@ -138,6 +138,26 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.airflow
+    # user: PIÈGE DÉCOUVERT en ajoutant le volume ./logs ci-dessous (montage
+    # depuis l'hôte, PAS un volume nommé Docker) : sur un clone fraîchement
+    # cloné, ./logs sur l'hôte appartient à l'utilisateur qui a cloné le
+    # dépôt (via logs/.gitkeep, versionné exprès pour ça -- voir .gitignore).
+    # Mais l'image apache/airflow tourne PAR DÉFAUT avec l'uid 50000 (son
+    # propre utilisateur interne "airflow") -- un uid différent de celui du
+    # propriétaire du dossier hôte, donc SANS droit d'écriture dessus (Linux
+    # compare les UID numériques entre hôte et conteneur sur un bind mount,
+    # il n'y a pas de mapping automatique). Résultat sans ce correctif :
+    # PermissionError dès le premier `docker compose up`, à chaque tentative
+    # d'écrire un log. "${AIRFLOW_UID:-50000}:0" fait tourner le PROCESSUS
+    # DANS le conteneur avec l'uid de l'utilisateur hôte (lu depuis .env,
+    # voir .env.example) au lieu de l'uid 50000 par défaut -- il peut alors
+    # écrire dans ./logs comme le ferait n'importe quel processus de cet
+    # utilisateur sur l'hôte. Le ":0" fixe le GID interne à root (gid 0),
+    # requis par l'image officielle Airflow indépendamment de l'UID choisi.
+    # Le ":-50000" (valeur par défaut si AIRFLOW_UID est absent de .env)
+    # retombe sur le comportement d'origine de l'image plutôt que de casser
+    # le démarrage si quelqu'un oublie de définir cette variable.
+    user: "${AIRFLOW_UID:-50000}:0"
     depends_on:
       # Forme longue + condition explicite (pas juste "- airflow-init") :
       # la forme courte attend seulement que le conteneur airflow-init
@@ -205,6 +225,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.airflow
+    # user: voir le commentaire détaillé sur la même directive dans
+    # airflow-webserver ci-dessus -- MÊME correctif, MÊME raison. C'est
+    # d'ailleurs CE conteneur qui écrit réellement les fichiers de log (les
+    # tâches tournent en sous-processus du scheduler avec LocalExecutor),
+    # donc c'est ici que la PermissionError se manifestait concrètement.
+    user: "${AIRFLOW_UID:-50000}:0"
     depends_on:
       # Forme longue + condition explicite : voir le commentaire détaillé
       # sur la même directive dans airflow-webserver ci-dessus -- MÊME

@@ -7,5 +7,10 @@ __pycache__/
 # Logs Airflow écrits par le scheduler (voir docker-compose.yml, volume
 # partagé ./logs entre airflow-webserver et airflow-scheduler) : ce sont des
 # artefacts d'exécution locale, régénérés à chaque run, jamais des fichiers
-# à versionner.
-logs/
+# à versionner. On ignore le CONTENU (logs/*) mais PAS le dossier lui-même
+# (logs/.gitkeep, exempté ci-dessous) : le dossier doit exister dès le clone
+# du dépôt, propriété de l'utilisateur hôte qui clone, pour que le montage
+# Docker ne le crée pas lui-même appartenant à root (voir AIRFLOW_UID dans
+# docker-compose.yml pour le mécanisme complet).
+logs/*
+!logs/.gitkeep
