@@ -107,7 +107,7 @@ def load_staging_to_warehouse(
     conn: Connection,
     extracted_date: date,
     source: str = "pokemontcg.io",
-    platform_name: str = "cardmarket",
+    platform_name: str = "tcgplayer",
 ) -> int:
     """Charge staging.card_prices vers le star schema. Les dimensions
     (dim_card, dim_date) sont upsertées avant le fait pour respecter les
