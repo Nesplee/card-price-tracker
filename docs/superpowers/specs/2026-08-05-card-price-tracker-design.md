@@ -1,7 +1,7 @@
 # Card Price Tracker — Design
 
-**Date** : 2026-08-05
-**Statut** : Validé par l'utilisateur, en attente de revue finale avant passage au plan d'implémentation.
+**Date** : 2026-08-05 (mis à jour 2026-08-07)
+**Statut** : Mois 1 et Mois 2 exécutés (branche `month-1-foundations`, pas encore mergée dans `main` — Task 5 du Mois 1, provisioning VM, bloquée par une limite de capacité côté Oracle Cloud, indépendante du code). Voir la section « État réel — écarts et leçons » en bas de ce document, et `.superpowers/sdd/*/progress.md` pour le détail tâche par tâche.
 
 ## Contexte
 
@@ -76,13 +76,15 @@ card-price-tracker/
 ├── pyproject.toml
 │
 ├── migrations/
-│   ├── 001_create_raw_tables.sql
+│   ├── 001_create_schemas_and_raw.sql
 │   ├── 002_create_staging_tables.sql
-│   └── 003_create_star_schema.sql
+│   ├── 003_create_star_schema.sql
+│   └── 004_add_quarantine_unique_constraint.sql   # ajoutée en cours de route, voir écarts plus bas
 │
 ├── src/
 │   ├── extract/
-│   │   └── pokemontcg_client.py
+│   │   ├── pokemontcg_client.py
+│   │   └── pipeline.py             # logique checkpoint/reprise, partagée script+DAG (voir écarts)
 │   ├── transform/
 │   │   ├── clean.py
 │   │   └── validate.py
@@ -97,18 +99,25 @@ card-price-tracker/
 ├── dags/
 │   └── card_price_pipeline_dag.py
 │
-├── tests/
+├── tests/                            # un fichier par module (plus granulaire que prévu ici)
+│   ├── test_db_setup.py
 │   ├── test_extract.py
+│   ├── test_raw_loader.py
+│   ├── test_run_extract_load.py
 │   ├── test_transform.py
+│   ├── test_staging_loader.py
+│   ├── test_warehouse_loader.py
 │   └── test_idempotence.py
 │
 ├── infra/
-│   └── oracle_vm_setup.md
+│   └── oracle_vm_setup.md            # pas encore écrit, Task 5 toujours en cours
 │
 └── .github/
     └── workflows/
         └── ci.yml
 ```
+
+**README.md n'existe pas encore** — gap réel identifié en review finale du Mois 2, à faire au Mois 3 (section « README complet » déjà prévue dans le plan mensuel ci-dessous).
 
 ## Plan en 3 mois
 
@@ -151,6 +160,17 @@ Avec ~65h au total sur 3 mois pour ce périmètre, la marge est réelle mais pas
 1. **Non négociable** : pipeline raw→staging→prod idempotent, testé, avec les standards professionnels listés plus haut — c'est ce qui démontre la compétence recherchée.
 2. **Important mais sacrifiable en dernier recours** : déploiement automatisé sur la VM (peut légèrement déborder sur novembre si nécessaire).
 3. **Stretch, coupé en premier si le temps manque** : dashboard Metabase/notebook.
+
+## État réel — écarts et leçons (mise à jour 2026-08-07)
+
+Ce spec décrivait des intentions au 2026-08-05 ; voici ce que l'exécution réelle du Mois 1 et du Mois 2 a révélé ou fait évoluer, à prendre en compte avant d'écrire le plan du Mois 3.
+
+- **L'idempotence par UPSERT seule ne suffisait pas pour l'extraction** (ligne 63 originale de ce document). pokemontcg.io s'est révélée instable en conditions réelles (~37% d'appels en échec 5xx/timeout observés). Une extraction complète fait ~80 appels de pagination : sans mécanisme supplémentaire, un seul échec tardif faisait perdre tout le travail déjà accompli (transaction unique englobant tout le run). Le design final ajoute un **checkpoint par page** (commit après chaque page réussie) + **reprise automatique** (recalcul de la page de départ à partir de ce qui est déjà en base) — implémenté dans `src/extract/pipeline.py`, réutilisé à la fois par le script manuel et la tâche Airflow d'extraction. Validé en conditions réelles à deux reprises (Mois 1 : 20 479 cartes ; Mois 2 via le DAG : 20 729 cartes, avec reprise effective après un échec réel sur l'API en plein milieu d'un run).
+- **La capacité VM Oracle Cloud Always Free n'est pas garantie à la demande.** La forme `VM.Standard.A1.Flex` (seule forme gratuite avec des ressources correctes) est en compétition mondiale ; la région Zurich (Home Region imposée dès le signup, non modifiable) a une capacité limitée avec un seul Availability Domain. Task 5 du Mois 1 est bloquée depuis le 2026-08-06 malgré un script de retry automatique tournant en continu (300+ tentatives à ce jour). À anticiper pour le Mois 3 : si la VM n'est toujours pas obtenue, il faudra soit continuer d'attendre, soit reconsidérer l'hébergement (aucune alternative Always Free équivalente identifiée à ce jour).
+- **Quatrième migration ajoutée en cours de route** (`004_add_quarantine_unique_constraint.sql`) : la table de quarantaine, prévue à l'origine comme un journal d'événements append-only, s'est révélée devoir être idempotente elle aussi (rejouer un jour dupliquerait les lignes de rejet sans ça) — cohérent avec la règle générale d'idempotence, corrigé après une review qui l'a signalé.
+- **Le DAG Airflow n'a délibérément pas répliqué le pattern `extract >> clean >> load` de façon symétrique côté gestion de transaction.** Seule la tâche d'extraction (celle qui appelle l'API externe instable) utilise une connexion gérée manuellement avec checkpoint ; les deux tâches suivantes (nettoyage, chargement warehouse) utilisent le pattern standard `get_connection()` (une transaction, tout ou rien) car ce sont des opérations SQL locales rapides et déterministes qui n'ont pas besoin de reprise progressive.
+- **5 points identifiés en review finale du Mois 2 sont explicitement reportés au Mois 3** plutôt que corrigés immédiatement (décision actée, pas un oubli) : absence de garde-fou si l'API renvoie une page vide par erreur (silence sur un jour de données manquant) ; absence totale d'alerting/timeout sur le DAG ; `validate_and_clean` qui plante au lieu de mettre en quarantaine sur des données mal typées ; duplication manuelle de la liste de dépendances dans `Dockerfile.airflow` (risque de dérive) ; quelques points de ménage sur les tests. Le raisonnement : ce sont des préoccupations de "production réelle, sans surveillance humaine" qui n'ont de sens qu'une fois le déploiement Mois 3 engagé, pas avant. Voir `.superpowers/sdd/2026-08-05-card-price-tracker-month2/progress.md` pour le détail complet et les justifications.
+- **Repo structure légèrement plus fine que prévu** : un fichier de test par module plutôt que 3 fichiers groupés, migration 001 renommée `001_create_schemas_and_raw.sql`, module `src/extract/pipeline.py` ajouté pour factoriser la logique checkpoint/reprise entre le script manuel et le DAG.
 
 ## Hors scope de ce document
 
