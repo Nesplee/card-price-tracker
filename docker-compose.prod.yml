@@ -119,8 +119,16 @@ services:
       - ./src:/opt/airflow/src
       - ./logs:/opt/airflow/logs
       - ./.env:/opt/airflow/.env:ro
+    # Pas de --hostname sur ce check (contrairement a un premier essai) : ce
+    # filtre comparait le hostname du conteneur au hostname enregistre par
+    # Airflow en base pour ce job, et les deux ne correspondaient pas
+    # (constate en prod : "No alive jobs found" alors que le scheduler
+    # tournait parfaitement -- 2 pipelines complets reussis pendant que ce
+    # healthcheck le signalait a tort comme "unhealthy"). Un seul conteneur
+    # scheduler existe dans ce deploiement, donc verifier "au moins un
+    # SchedulerJob actif" (sans filtrer par hostname) est suffisant et fiable.
     healthcheck:
-      test: ["CMD", "airflow", "jobs", "check", "--job-type", "SchedulerJob", "--hostname", "$${HOSTNAME}"]
+      test: ["CMD", "airflow", "jobs", "check", "--job-type", "SchedulerJob"]
       interval: 30s
       timeout: 10s
       retries: 5
