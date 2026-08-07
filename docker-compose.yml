@@ -1,0 +1,283 @@
+# Définit l'environnement Postgres local pour le développement. Un seul
+# service "db" : l'image officielle postgres:16 initialisée avec les
+# identifiants admin et le nom de base lus depuis .env (jamais en dur ici).
+services:
+  db:
+    image: postgres:16
+    environment:
+      # Ces variables sont lues par l'image officielle postgres au premier
+      # démarrage du conteneur pour créer le rôle admin et la base par défaut.
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # Expose le port Postgres du conteneur (5432) sur le port de l'hôte
+      # défini par POSTGRES_PORT, pour que les scripts/tests sur la machine
+      # hôte puissent s'y connecter via localhost.
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      # Volume nommé : les données Postgres survivent aux redémarrages/
+      # recréations du conteneur (sinon tout serait perdu à chaque "down").
+      - card_tracker_pg_data:/var/lib/postgresql/data
+      # Monte le dossier migrations en lecture seule (:ro) dans le conteneur,
+      # pour que scripts/apply_migrations.sh puisse exécuter les fichiers .sql
+      # via "psql -f /migrations/...".
+      - ./migrations:/migrations:ro
+
+  # --- Services Airflow (Task 4, Mois 2) : orchestration locale du DAG
+  # card_price_pipeline (extract -> clean -> load). Airflow a besoin de SA
+  # PROPRE base de métadonnées (état des DAGs, runs, tâches...) : on utilise
+  # un second conteneur Postgres dédié (airflow-db) plutôt que de réutiliser
+  # le service "db" ci-dessus, pour ne jamais mélanger les métadonnées internes
+  # d'Airflow avec les données métier du pipeline (raw/staging/prod).
+  airflow-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_pg_data:/var/lib/postgresql/data
+
+  # airflow-init : conteneur "à usage unique" qui prépare la base de
+  # métadonnées Airflow (airflow db migrate = crée/met à jour son schéma
+  # interne) et crée le compte admin de l'UI web, PUIS s'arrête (il ne reste
+  # pas en cours d'exécution comme webserver/scheduler). depends_on: airflow-db
+  # garantit que le conteneur Postgres dédié à Airflow existe avant qu'on
+  # tente de migrer son schéma dessus -- mais ne garantit PAS qu'il est déjà
+  # prêt à accepter des connexions (depends_on sans "condition:
+  # service_healthy" attend juste le démarrage du conteneur, pas la
+  # disponibilité du service à l'intérieur) ; en pratique, airflow db migrate
+  # retente en interne le temps que Postgres soit prêt.
+  airflow-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    depends_on:
+      - airflow-db
+    environment:
+      # LocalExecutor : exécute les tâches du DAG dans des processus locaux
+      # (pas de worker distribué type Celery/Kubernetes) -- suffisant et plus
+      # simple pour un usage local/développement, cohérent avec le périmètre
+      # de ce projet (un seul DAG, un seul environnement).
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      # Indique à Airflow où se trouve SA base de métadonnées (le conteneur
+      # airflow-db ci-dessus, résolu par son nom de service Docker Compose --
+      # "airflow-db" fait office de nom d'hôte DNS interne au réseau créé
+      # automatiquement par Compose).
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
+      # Désactive les DAGs d'exemple fournis par défaut avec Airflow : on ne
+      # veut voir QUE card_price_pipeline dans l'UI, pas une vingtaine de
+      # DAGs de démo qui n'ont rien à voir avec ce projet.
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      # PYTHONPATH=/opt/airflow permet aux imports "from src...." dans
+      # dags/card_price_pipeline_dag.py de fonctionner : src/ est monté à cet
+      # endroit (voir volumes ci-dessous), donc Python doit savoir chercher
+      # les modules depuis /opt/airflow, pas seulement depuis le dossier
+      # standard des DAGs.
+      PYTHONPATH: /opt/airflow
+    # entrypoint/command personnalisés : on écrase l'entrypoint par défaut de
+    # l'image Airflow pour exécuter une commande unique (migration + création
+    # du user admin) au lieu de démarrer un serveur qui tournerait en continu.
+    entrypoint: /bin/bash
+    # IMPORTANT -- toutes les lignes de continuation ci-dessous doivent rester
+    # à LA MÊME indentation que la première ("-c ...") : en YAML, un scalaire
+    # replié (">") ne remplace les retours à la ligne par des espaces QUE si
+    # l'indentation reste constante -- une ligne plus indentée que les autres
+    # est traitée littéralement, en conservant son retour à la ligne. Une
+    # sur-indentation ici avait cassé la commande en plusieurs instructions
+    # bash distinctes (repéré en vérifiant manuellement les logs du conteneur
+    # : "airflow users create" s'exécutait sans ses arguments -f/-l/-r, puis
+    # "--firstname" était interprété comme une commande à part entière).
+    command: >
+      -c "airflow db migrate &&
+      airflow users create --username admin --password ${AIRFLOW_ADMIN_PASSWORD}
+      --firstname Admin --lastname User --role Admin --email admin@example.com"
+    volumes:
+      # ./dags et ./src montés en volume (pas copiés dans l'image) : toute
+      # modification du DAG ou du code src/ pendant le développement local
+      # est visible immédiatement au prochain scheduler heartbeat, sans
+      # reconstruire l'image Docker.
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      # .env monté en LECTURE SEULE (:ro) : la tâche extract_and_load_raw du
+      # DAG appelle load_db_config()/load_pokemontcg_config() (src/common/
+      # config.py), qui lisent .env via python-dotenv -- ces conteneurs ont
+      # donc besoin du même fichier .env que les scripts/tests lancés
+      # directement sur la machine hôte, pour se connecter au MÊME Postgres
+      # applicatif (le service "db" ci-dessus, pas airflow-db).
+      - ./.env:/opt/airflow/.env:ro
+
+  # airflow-webserver : sert l'interface web d'Airflow (http://localhost:8080)
+  # -- permet de visualiser le DAG, déclencher des runs manuellement, et
+  # inspecter les logs de chaque tâche.
+  # Logs Airflow non récupérables + secret_key incohérent entre conteneurs
+  # (webserver et scheduler ci-dessous) : avec LocalExecutor, les TÂCHES du
+  # DAG s'exécutent comme sous-processus du SCHEDULER, pas du webserver --
+  # c'est donc le conteneur airflow-scheduler qui écrit réellement les
+  # fichiers de log de chaque tâche sur son propre système de fichiers.
+  # Quand on consulte les logs d'une tâche dans l'UI web (servie par
+  # airflow-webserver), celui-ci n'a PAS ces fichiers en local : il tente
+  # normalement de les récupérer via une requête HTTP interne vers le
+  # scheduler, requête signée par [webserver] secret_key -- mais sans
+  # valeur explicite pour cette clé, Airflow en génère une aléatoire
+  # DIFFÉRENTE à chaque démarrage de CHAQUE conteneur, donc la signature ne
+  # correspond jamais entre les deux côtés et la récupération échoue. Deux
+  # correctifs complémentaires ci-dessous (volume ./logs partagé + clé
+  # secret_key partagée via AIRFLOW_SECRET_KEY) : le volume rend la
+  # récupération HTTP inutile ici (accès direct au système de fichiers), et
+  # la clé partagée est ajoutée quand même par bonne pratique de
+  # configuration Airflow (utile si LocalExecutor est un jour remplacé par
+  # un exécuteur distribué où les tâches ne partagent plus de disque avec le
+  # webserver). Particulièrement important pour le déploiement prévu au
+  # Mois 3 sur une VM headless : sans accès direct au système de fichiers de
+  # la VM, l'UI web sera le SEUL moyen de diagnostiquer un problème de
+  # pipeline -- des logs de tâche inaccessibles y rendraient tout débogage
+  # à distance impossible.
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    # user: PIÈGE DÉCOUVERT en ajoutant le volume ./logs ci-dessous (montage
+    # depuis l'hôte, PAS un volume nommé Docker) : sur un clone fraîchement
+    # cloné, ./logs sur l'hôte appartient à l'utilisateur qui a cloné le
+    # dépôt (via logs/.gitkeep, versionné exprès pour ça -- voir .gitignore).
+    # Mais l'image apache/airflow tourne PAR DÉFAUT avec l'uid 50000 (son
+    # propre utilisateur interne "airflow") -- un uid différent de celui du
+    # propriétaire du dossier hôte, donc SANS droit d'écriture dessus (Linux
+    # compare les UID numériques entre hôte et conteneur sur un bind mount,
+    # il n'y a pas de mapping automatique). Résultat sans ce correctif :
+    # PermissionError dès le premier `docker compose up`, à chaque tentative
+    # d'écrire un log. "${AIRFLOW_UID:-50000}:0" fait tourner le PROCESSUS
+    # DANS le conteneur avec l'uid de l'utilisateur hôte (lu depuis .env,
+    # voir .env.example) au lieu de l'uid 50000 par défaut -- il peut alors
+    # écrire dans ./logs comme le ferait n'importe quel processus de cet
+    # utilisateur sur l'hôte. Le ":0" fixe le GID interne à root (gid 0),
+    # requis par l'image officielle Airflow indépendamment de l'UID choisi.
+    # Le ":-50000" (valeur par défaut si AIRFLOW_UID est absent de .env)
+    # retombe sur le comportement d'origine de l'image plutôt que de casser
+    # le démarrage si quelqu'un oublie de définir cette variable.
+    user: "${AIRFLOW_UID:-50000}:0"
+    depends_on:
+      # Forme longue + condition explicite (pas juste "- airflow-init") :
+      # la forme courte attend seulement que le conteneur airflow-init
+      # DÉMARRE, pas qu'il se TERMINE avec succès. airflow-init exécute
+      # `airflow db migrate` puis s'arrête (voir commentaire sur ce service
+      # plus haut) -- sans cette condition, webserver pourrait démarrer et
+      # tenter de se connecter à une base de métadonnées Airflow encore en
+      # cours de migration, voire pas encore migrée du tout.
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: /opt/airflow
+      # POSTGRES_HOST=db : SURCHARGE la valeur "localhost" du .env monté
+      # ci-dessous (voir volumes) -- constaté en vérifiant manuellement
+      # l'exécution du DAG (Step 5) : "localhost", DANS un conteneur,
+      # désigne le conteneur LUI-MÊME, pas la machine hôte ni le conteneur
+      # "db" (Postgres applicatif) -- résultat observé sans cette
+      # surcharge : psycopg.OperationalError "connection to server at
+      # 127.0.0.1, port 5432 failed: Connection refused" à chaque tentative
+      # de load_db_config()/get_connection(). Le service "db" est joignable
+      # depuis ces conteneurs par son NOM DE SERVICE Docker Compose ("db",
+      # résolu via le réseau interne créé automatiquement par Compose),
+      # exactement comme AIRFLOW__DATABASE__SQL_ALCHEMY_CONN ci-dessus
+      # utilise déjà "airflow-db" (et non "localhost") pour la base de
+      # métadonnées d'Airflow. python-dotenv (load_dotenv(), voir
+      # src/common/config.py) NE RÉÉCRIT PAS une variable déjà présente
+      # dans l'environnement du conteneur -- cette surcharge gagne donc
+      # bien sur la valeur "localhost" lue depuis le .env monté.
+      POSTGRES_HOST: db
+      # POSTGRES_PORT=5432 EN DUR (pas ${POSTGRES_PORT}) : le service "db"
+      # publie "${POSTGRES_PORT}:5432" -- le port CÔTÉ HÔTE est configurable
+      # (pour éviter un conflit local avec un autre Postgres), mais le port
+      # CÔTÉ CONTENEUR, à l'intérieur du réseau Docker Compose, est TOUJOURS
+      # 5432, quel que soit le port choisi côté hôte. Ces conteneurs Airflow
+      # se connectent à "db" via le réseau interne (jamais via le port
+      # publié sur l'hôte), donc c'est bien 5432 en dur qu'il faut ici --
+      # interpoler ${POSTGRES_PORT} romprait la connexion dès qu'un
+      # développeur changerait ce port dans son .env.
+      POSTGRES_PORT: 5432
+      # AIRFLOW__WEBSERVER__SECRET_KEY : voir le commentaire détaillé
+      # au-dessus de ce service. Valeur PARTAGÉE avec airflow-scheduler
+      # (même variable d'environnement ${AIRFLOW_SECRET_KEY}, lue depuis .env).
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+    command: webserver
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      # Volume PARTAGÉ (même chemin hôte ./logs) avec airflow-scheduler :
+      # voir le commentaire détaillé au-dessus de ce service. Donne au
+      # webserver un accès direct, par système de fichiers, aux logs de
+      # tâches réellement écrits par le scheduler.
+      - ./logs:/opt/airflow/logs
+      - ./.env:/opt/airflow/.env:ro
+
+  # airflow-scheduler : le processus qui décide QUAND exécuter les tâches
+  # (parse les DAGs, respecte les dépendances entre tâches et le planning
+  # "schedule"). Sans lui, le DAG resterait visible dans l'UI mais ne
+  # s'exécuterait jamais, ni automatiquement ni sur déclenchement manuel.
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    # user: voir le commentaire détaillé sur la même directive dans
+    # airflow-webserver ci-dessus -- MÊME correctif, MÊME raison. C'est
+    # d'ailleurs CE conteneur qui écrit réellement les fichiers de log (les
+    # tâches tournent en sous-processus du scheduler avec LocalExecutor),
+    # donc c'est ici que la PermissionError se manifestait concrètement.
+    user: "${AIRFLOW_UID:-50000}:0"
+    depends_on:
+      # Forme longue + condition explicite : voir le commentaire détaillé
+      # sur la même directive dans airflow-webserver ci-dessus -- MÊME
+      # correctif, MÊME raison (attendre la fin de la migration de la base
+      # de métadonnées, pas juste le démarrage du conteneur airflow-init).
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: /opt/airflow
+      # POSTGRES_HOST=db : voir le commentaire détaillé sur la même
+      # variable dans le service airflow-webserver ci-dessus -- MÊME
+      # correctif, MÊME raison. C'est en particulier CE conteneur
+      # (airflow-scheduler) qui exécute réellement le code des tâches avec
+      # LocalExecutor (les tâches tournent en sous-processus du scheduler,
+      # pas du webserver) -- c'est donc ici que l'erreur de connexion a été
+      # observée concrètement dans les logs de tâche lors de la
+      # vérification manuelle du DAG (Step 5).
+      POSTGRES_HOST: db
+      # POSTGRES_PORT=5432 EN DUR : voir le commentaire détaillé sur la même
+      # variable dans le service airflow-webserver ci-dessus -- MÊME
+      # correctif, MÊME raison (le port interne au réseau Docker Compose est
+      # toujours 5432, indépendamment du port choisi côté hôte via
+      # ${POSTGRES_PORT}).
+      POSTGRES_PORT: 5432
+      # AIRFLOW__WEBSERVER__SECRET_KEY : voir le commentaire détaillé
+      # au-dessus du service airflow-webserver. Valeur PARTAGÉE (même
+      # ${AIRFLOW_SECRET_KEY}) -- indispensable pour que la signature des
+      # requêtes de récupération de logs corresponde des deux côtés.
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+    command: scheduler
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      # Volume PARTAGÉ (même chemin hôte ./logs) avec airflow-webserver :
+      # voir le commentaire détaillé au-dessus du service airflow-webserver.
+      # C'est CE conteneur qui écrit réellement les fichiers de log (voir
+      # ce même commentaire pour le pourquoi).
+      - ./logs:/opt/airflow/logs
+      - ./.env:/opt/airflow/.env:ro
+
+volumes:
+  card_tracker_pg_data:
+  # Volume nommé dédié aux métadonnées d'Airflow (airflow-db ci-dessus) : les
+  # runs/tâches/logs d'Airflow survivent aux redémarrages du conteneur, tout
+  # comme card_tracker_pg_data pour les données métier -- deux volumes
+  # séparés pour deux bases Postgres séparées.
+  airflow_pg_data:

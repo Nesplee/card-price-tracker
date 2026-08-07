@@ -1,0 +1,36 @@
+# Image Airflow utilisée pour les 3 services Airflow locaux (init/webserver/
+# scheduler) définis dans docker-compose.yml. On part de l'image officielle
+# apache/airflow (qui contient déjà Airflow, son propre Postgres client, etc.)
+# plutôt que de réinstaller Airflow nous-mêmes -- Airflow a beaucoup de
+# dépendances internes fragiles, l'image officielle garantit une combinaison
+# de versions déjà testée par le projet Apache.
+FROM apache/airflow:2.9.3-python3.11
+
+# Copie uniquement pyproject.toml (pas tout le dépôt) : ce Dockerfile ne sert
+# qu'à exécuter le DAG (dags/card_price_pipeline_dag.py) et les modules qu'il
+# importe (src/...), pas à faire tourner la suite de tests ni les outils de
+# lint/format. Les vrais fichiers src/ et dags/ sont montés en volume depuis
+# docker-compose.yml (voir plus bas) plutôt que copiés dans l'image : ça évite
+# de reconstruire l'image à chaque modification du code Python pendant le
+# développement local.
+COPY pyproject.toml /opt/airflow/pyproject.toml
+
+# Installe uniquement les dépendances RUNTIME du pipeline (pas les dépendances
+# de dev comme pytest/ruff/black : Airflow n'en a pas besoin pour exécuter le
+# DAG). On les liste explicitement ici plutôt que "pip install -e ."
+# (installation du package card-price-tracker lui-même) car pyproject.toml
+# n'est pas accompagné du reste du code source dans cette image -- seules les
+# dépendances tierces sont nécessaires, le code du projet arrive par volume.
+#
+# IMPORTANT -- chaque contrainte de version DOIT être entre guillemets.
+# Sans guillemets, le shell qui exécute cette commande (sh -c, la forme
+# "shell" d'une instruction RUN Docker) interprète le caractère ">"
+# comme une redirection de sortie, PAS comme un opérateur de comparaison
+# pip -- "requests>=2.31" non quoté serait lu comme "installe requests,
+# puis redirige la sortie vers un fichier nommé =2.31". Concrètement, ça
+# a été détecté en review (pas repéré à l'implémentation initiale) : trois
+# fichiers parasites nommés "=2.31", "=1.0", "=8.2" se retrouvaient créés
+# dans /opt/airflow, et les contraintes de version minimale (>=2.31 etc.)
+# n'étaient jamais réellement appliquées par pip (silencieusement ignorées,
+# pip installait la dernière version disponible sans vérifier le minimum).
+RUN pip install --no-cache-dir "requests>=2.31" "psycopg[binary]>=3.1" "python-dotenv>=1.0" "tenacity>=8.2"

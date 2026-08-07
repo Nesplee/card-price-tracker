@@ -1,0 +1,82 @@
+# Pipeline d'intégration continue : à chaque push sur main et à chaque pull
+# request, on reconstruit un Postgres jetable, on y applique les migrations,
+# puis on lance lint + format + la suite de tests complète -- pour détecter
+# une régression AVANT qu'elle n'atteigne main, pas après.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # "services" démarre un conteneur Postgres jetable EN PARALLÈLE du job,
+    # accessible sur localhost:5432 grâce au mapping de port ci-dessous --
+    # c'est l'équivalent CI du service "db" de docker-compose.yml en local.
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: card_tracker
+        ports:
+          - 5432:5432
+        # health-cmd/interval/timeout/retries : GitHub Actions attend que ce
+        # health check passe avant de démarrer les étapes du job -- sans ça,
+        # les premières requêtes psql risqueraient d'échouer si Postgres n'a
+        # pas fini son propre démarrage interne.
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+    # Variables d'environnement lues par src/common/config.py (load_db_config
+    # / load_pokemontcg_config) exactement comme en local via .env -- mais
+    # définies ici directement (pas de fichier .env en CI, GitHub Actions
+    # n'en a pas besoin). POKEMONTCG_API_KEY n'est pas réellement utilisée
+    # (aucun test de la suite n'appelle la vraie API pokemontcg.io, elle est
+    # mockée -- voir tests/test_extract.py), mais load_pokemontcg_config()
+    # échoue si la variable est absente, d'où la valeur factice "unused-in-ci".
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: card_tracker
+      POSTGRES_ADMIN_USER: postgres
+      POSTGRES_ADMIN_PASSWORD: postgres
+      POSTGRES_APP_USER: pipeline_app
+      POSTGRES_APP_PASSWORD: pipeline_app_password
+      POKEMONTCG_API_KEY: unused-in-ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # postgresql-client fournit `psql`, utilisé ci-dessous pour appliquer
+      # les migrations SQL -- pas installé par défaut sur le runner ubuntu.
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      # Installe le projet en mode éditable + les dépendances de dev
+      # (pytest, ruff, black, responses) définies dans pyproject.toml.
+      - run: pip install -e ".[dev]"
+      - name: Apply migrations
+        run: |
+          # Applique chaque fichier migrations/*.sql DANS L'ORDRE (glob trié
+          # alphabétiquement, d'où le préfixe numérique 001_, 002_... des
+          # fichiers de migration) sur le Postgres jetable du service "db"
+          # ci-dessus. -v ON_ERROR_STOP=1 fait échouer immédiatement le job
+          # si une migration contient une erreur SQL, plutôt que de continuer
+          # silencieusement sur un schéma partiellement appliqué.
+          for f in migrations/*.sql; do
+            PGPASSWORD=$POSTGRES_ADMIN_PASSWORD psql -h localhost -U $POSTGRES_ADMIN_USER -d $POSTGRES_DB -v ON_ERROR_STOP=1 -f "$f"
+          done
+          # Les migrations créent le rôle pipeline_app SANS mot de passe
+          # utilisable (par sécurité, un mot de passe en dur dans un fichier
+          # de migration versionné serait un secret exposé) -- on le fixe
+          # donc explicitement ici, à la valeur attendue par POSTGRES_APP_PASSWORD
+          # ci-dessus, pour que load_db_config() puisse s'authentifier en CI.
+          PGPASSWORD=$POSTGRES_ADMIN_PASSWORD psql -h localhost -U $POSTGRES_ADMIN_USER -d $POSTGRES_DB -c "ALTER ROLE pipeline_app WITH PASSWORD '${POSTGRES_APP_PASSWORD}';"
+      - run: ruff check .
+      - run: black --check .
+      - run: pytest
