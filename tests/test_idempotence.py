@@ -75,7 +75,7 @@ def test_full_pipeline_is_idempotent_when_replayed(db_connection) -> None:
         "name": "Alakazam",
         "rarity": "Rare Holo",
         "set": {"id": "base1", "name": "Base"},
-        "cardmarket": {"prices": {"averageSellPrice": 12.5, "trendPrice": 13.0, "lowPrice": 8.0}},
+        "tcgplayer": {"prices": {"normal": {"low": 8.0, "mid": 13.0, "market": 12.5}}},
     }
     # Carte INVALIDE dès le départ (prix négatif) : reprend exactement le cas
     # déjà couvert par test_validate_and_clean_rejects_negative_price dans
@@ -89,7 +89,7 @@ def test_full_pipeline_is_idempotent_when_replayed(db_connection) -> None:
         "name": "Machamp",
         "rarity": "Rare Holo",
         "set": {"id": "base1", "name": "Base"},
-        "cardmarket": {"prices": {"averageSellPrice": -1.0}},
+        "tcgplayer": {"prices": {"normal": {"market": -1.0}}},
     }
 
     # Rejoue le pipeline complet DEUX FOIS avec la même extracted_date. Entre
@@ -100,7 +100,7 @@ def test_full_pipeline_is_idempotent_when_replayed(db_connection) -> None:
     # UPSERT réel d'un simple "ignorer si déjà présent".
     for i in range(2):
         if i == 1:
-            valid_card["cardmarket"]["prices"]["averageSellPrice"] = 20.0
+            valid_card["tcgplayer"]["prices"]["normal"]["market"] = 20.0
         load_cards(db_connection, [valid_card, invalid_card], extracted_date=extracted_date)
         clean_raw_to_staging(db_connection, extracted_date)
         load_staging_to_warehouse(db_connection, extracted_date)

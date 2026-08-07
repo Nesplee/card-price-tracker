@@ -29,7 +29,7 @@ class CleanedCard:
     """Représente une carte APRÈS validation et nettoyage : ses champs sont
     des types Postgres directement utilisables par staging_loader (str, float
     ou None), plus aucune trace de la structure JSON imbriquée d'origine
-    (set.id devient set_id, cardmarket.prices.averageSellPrice devient
+    (set.id devient set_id, tcgplayer.prices.<variante>.market devient
     average_sell_price, etc.). C'est la "forme staging" de la donnée."""
 
     card_id: str
@@ -43,7 +43,7 @@ class CleanedCard:
     # rarity, donc ce champ ne fait PAS partie des règles de rejet ci-dessous.
     rarity: str | None
     # Les 3 prix sont `float | None` individuellement : la règle de rejet
-    # porte sur le TRIO (voir plus bas, "aucun prix cardmarket disponible"),
+    # porte sur le TRIO (voir plus bas, "aucun prix tcgplayer disponible"),
     # pas sur chaque champ séparément. Une carte peut très bien n'avoir que
     # trendPrice sans averageSellPrice ni lowPrice et rester valide.
     average_sell_price: float | None
@@ -74,6 +74,30 @@ class ValidationResult:
         return self.cleaned is not None
 
 
+# Ordre de priorité des variantes d'impression TCGPlayer, du plus courant au
+# moins courant. "normal" en tête car c'est la variante la plus représentative
+# pour une carte qui en dispose ; les holo/reverseHolofoil ne sont utilisées
+# que si "normal" n'existe pas (cas fréquent des cartes Rare Holo, qui
+# n'existent QUE dans ces variantes).
+_VARIANT_PRIORITY = ["normal", "holofoil", "reverseHolofoil", "1stEditionHolofoil"]
+
+
+def _select_tcgplayer_variant(tcgplayer_prices: dict) -> dict:
+    """Choisit quelle variante d'impression utiliser parmi celles disponibles
+    dans tcgplayer.prices, selon _VARIANT_PRIORITY. Retombe sur la première
+    variante disponible (ordre du payload d'origine, ex: "pokeBallPattern",
+    "masterBallPattern") si aucune des priorités nommées n'est présente —
+    ces variantes récentes ne sont volontairement pas traitées spécifiquement
+    en v1 (décision produit explicite, voir le design spec). Renvoie {} si
+    aucune variante du tout n'est disponible."""
+    for variant in _VARIANT_PRIORITY:
+        if variant in tcgplayer_prices:
+            return tcgplayer_prices[variant]
+    if tcgplayer_prices:
+        return next(iter(tcgplayer_prices.values()))
+    return {}
+
+
 def validate_and_clean(payload: dict) -> ValidationResult:
     """Valide puis nettoie un payload brut de carte (dict JSON tel que stocké
     dans raw.card_prices.payload). Applique les règles métier dans un ordre
@@ -102,15 +126,24 @@ def validate_and_clean(payload: dict) -> ValidationResult:
     if not set_id or not set_name:
         return ValidationResult(cleaned=None, rejection_reason="informations de set manquantes")
 
-    # --- Règle 3 : au moins un prix cardmarket disponible ---
-    # Même logique défensive en chaîne que pour `set` : cardmarket ou
-    # cardmarket.prices peuvent être absents ou None selon les cartes (toutes
-    # les cartes n'ont pas de cote sur cardmarket, notamment les cartes très
-    # récentes ou très obscures).
-    cardmarket_prices = (payload.get("cardmarket") or {}).get("prices") or {}
-    average_sell_price = cardmarket_prices.get("averageSellPrice")
-    trend_price = cardmarket_prices.get("trendPrice")
-    low_price = cardmarket_prices.get("lowPrice")
+    # --- Règle 3 : au moins un prix tcgplayer disponible ---
+    # TCGPlayer (contrairement à CardMarket) sépare les cartes japonaises
+    # dans une ligne de produit distincte ("Pokemon Japan") : les prix
+    # tcgplayer pour un card_id pokemontcg.io (catalogue anglais uniquement)
+    # représentent donc déjà spécifiquement le marché anglais — voir
+    # docs/superpowers/specs/2026-08-07-tcgplayer-pricing-source-design.md
+    # pour le raisonnement complet (bascule depuis cardmarket, agrégé toutes
+    # langues confondues par conception chez Cardmarket lui-même).
+    #
+    # TCGPlayer structure ses prix par VARIANTE D'IMPRESSION (normal,
+    # holofoil, reverseHolofoil...), contrairement à cardmarket qui n'avait
+    # qu'un seul jeu de prix par carte. _select_tcgplayer_variant() choisit
+    # laquelle utiliser selon un ordre de priorité déterministe.
+    tcgplayer_prices = (payload.get("tcgplayer") or {}).get("prices") or {}
+    selected_variant = _select_tcgplayer_variant(tcgplayer_prices)
+    average_sell_price = selected_variant.get("market")
+    trend_price = selected_variant.get("mid")
+    low_price = selected_variant.get("low")
 
     # Si les 3 prix sont absents, la carte n'apporte rien à un pipeline dont
     # le but est justement de SUIVRE DES PRIX : on la rejette explicitement
@@ -121,7 +154,7 @@ def validate_and_clean(payload: dict) -> ValidationResult:
     # source. En la routant vers card_prices_quarantine avec une raison
     # explicite, le problème reste visible et traçable pour un audit manuel.
     if average_sell_price is None and trend_price is None and low_price is None:
-        return ValidationResult(cleaned=None, rejection_reason="aucun prix cardmarket disponible")
+        return ValidationResult(cleaned=None, rejection_reason="aucun prix tcgplayer disponible")
 
     # --- Règle 4 : aucun prix ne doit être négatif ---
     # On boucle sur les 3 prix nommés (label utilisé dans le message
@@ -133,9 +166,9 @@ def validate_and_clean(payload: dict) -> ValidationResult:
     # Une valeur négative signale une anomalie de la source (bug API, donnée
     # corrompue) car une carte ne peut pas avoir de valeur marchande < 0.
     for label, value in [
-        ("averageSellPrice", average_sell_price),
-        ("trendPrice", trend_price),
-        ("lowPrice", low_price),
+        ("market", average_sell_price),
+        ("mid", trend_price),
+        ("low", low_price),
     ]:
         if value is not None and value < 0:
             return ValidationResult(
