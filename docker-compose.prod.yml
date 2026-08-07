@@ -8,6 +8,11 @@ services:
     volumes:
       - card_tracker_pg_data:/var/lib/postgresql/data
       - ./migrations:/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   airflow-db:
@@ -18,24 +23,43 @@ services:
       POSTGRES_DB: airflow
     volumes:
       - airflow_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
+  # airflow-init : conteneur "a usage unique" (voir docker-compose.yml local
+  # pour le detail complet) -- pas de healthcheck ici, une verification de
+  # sante n'a de sens que pour un service cense rester UP en continu.
   airflow-init:
     build:
       context: .
       dockerfile: Dockerfile.airflow
     depends_on:
-      - airflow-db
+      airflow-db:
+        condition: service_healthy
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       PYTHONPATH: /opt/airflow
     entrypoint: /bin/bash
+    # IMPORTANT -- les lignes de continuation ci-dessous DOIVENT rester a LA
+    # MEME indentation (6 espaces) que la premiere ("-c ..."). En YAML, un
+    # scalaire replie (">") ne fusionne les retours a la ligne en espaces QUE
+    # si l'indentation est constante -- une ligne plus indentee est traitee
+    # litteralement, retour a la ligne inclus. C'est exactement le bug deja
+    # rencontre et corrige sur le docker-compose.yml local (Mois 2) :
+    # une sur-indentation ici avait casse la commande en plusieurs
+    # instructions bash distinctes ("airflow users create" sans ses
+    # arguments -e/-f/-l/-r, puis "--firstname ..." execute comme une
+    # commande inconnue). Reproduit puis corrige ici, meme cause, meme fix.
     command: >
       -c "airflow db migrate &&
-          airflow users create --username admin --password ${AIRFLOW_ADMIN_PASSWORD}
-          --firstname Admin --lastname User --role Admin --email admin@example.com"
+      airflow users create --username admin --password ${AIRFLOW_ADMIN_PASSWORD}
+      --firstname Admin --lastname User --role Admin --email admin@example.com"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
@@ -65,6 +89,12 @@ services:
       - ./src:/opt/airflow/src
       - ./logs:/opt/airflow/logs
       - ./.env:/opt/airflow/.env:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   airflow-scheduler:
@@ -89,6 +119,12 @@ services:
       - ./src:/opt/airflow/src
       - ./logs:/opt/airflow/logs
       - ./.env:/opt/airflow/.env:ro
+    healthcheck:
+      test: ["CMD", "airflow", "jobs", "check", "--job-type", "SchedulerJob", "--hostname", "$${HOSTNAME}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
 volumes:
