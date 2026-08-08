@@ -36,6 +36,10 @@ Remplacer `datetime.now(UTC).date()` par une valeur calculée **une seule fois �
 
 **Effet** : le checkpoint (`_resume_page`) continue de recevoir exactement le même `extracted_date` à chaque tentative, quelle que soit la durée totale des retries ou le nombre de minuits UTC traversés entre-temps.
 
+### 3. Changer l'heure de déclenchement automatique
+
+`schedule="@daily"` → `schedule="0 7 * * *"` (cron, 07:00 UTC). `@daily` équivaut à `"0 0 * * *"` (minuit) — décision utilisateur de décaler le déclenchement automatique à 7h00 UTC (heure fixe, pas de fuseau horaire local ni de gestion d'heure d'été/hiver : le DAG reste entièrement en UTC, cohérent avec `start_date=datetime(2024, 1, 1, tzinfo=UTC)` déjà en place). `catchup=False` reste inchangé.
+
 ## Hors scope (rappel)
 
 - Aucune alerte (email/Slack/Discord) — explicitement écarté par l'utilisateur pour cette itération. Reste une piste future si le besoin réapparaît.
