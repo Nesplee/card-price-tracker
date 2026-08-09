@@ -132,3 +132,71 @@ def test_validate_and_clean_falls_back_to_first_available_variant() -> None:
 
     assert result.is_valid
     assert result.cleaned.average_sell_price == 3.5
+
+
+def test_validate_and_clean_skips_variant_present_but_without_usable_price() -> None:
+    # Bug réel trouvé en review (2026-08-09) : "normal" est présente dans le
+    # payload (priorité la plus haute) mais entièrement vide -- l'ancienne
+    # implémentation la sélectionnait quand même (présente = choisie), rejetant
+    # la carte alors que "reverseHolofoil", juste à côté dans le MÊME payload,
+    # a un vrai prix exploitable. La sélection doit ignorer les variantes sans
+    # prix utilisable et continuer à chercher, pas s'arrêter à la première
+    # clé présente.
+    result = validate_and_clean(
+        _make_payload(
+            tcgplayer={
+                "prices": {
+                    "normal": {"low": None, "mid": None, "market": None},
+                    "reverseHolofoil": {"low": 0.5, "mid": 1.0, "market": 0.8},
+                }
+            }
+        )
+    )
+
+    assert result.is_valid
+    assert result.cleaned.average_sell_price == 0.8
+
+
+def test_validate_and_clean_handles_null_variant_without_crashing() -> None:
+    # Bug réel trouvé en review (2026-08-09) : l'API peut renvoyer une
+    # variante explicitement à `null` en JSON (donc None une fois désérialisé
+    # par psycopg), pas seulement absente de la clé. L'ancienne implémentation
+    # renvoyait ce None tel quel, et l'appel `.get("market")` suivant levait
+    # AttributeError -- plantant tout clean_to_staging du jour (aucun
+    # try/except par carte dans src/transform/clean.py) pour une seule carte
+    # malformée. La sélection doit ignorer une variante None et continuer,
+    # pas planter.
+    result = validate_and_clean(
+        _make_payload(
+            tcgplayer={
+                "prices": {
+                    "normal": None,
+                    "holofoil": {"low": 6.0, "mid": 9.0, "market": 7.5},
+                }
+            }
+        )
+    )
+
+    assert result.is_valid
+    assert result.cleaned.average_sell_price == 7.5
+
+
+def test_validate_and_clean_rejects_when_all_variants_present_but_empty() -> None:
+    # Cas limite du fix : si TOUTES les variantes présentes sont vides/None,
+    # la carte doit toujours être rejetée (pas de régression sur la règle 3
+    # existante) -- le fix ne doit pas faire accepter des cartes qui n'ont
+    # vraiment aucun prix nulle part dans le payload.
+    result = validate_and_clean(
+        _make_payload(
+            tcgplayer={
+                "prices": {
+                    "normal": {"low": None, "mid": None, "market": None},
+                    "holofoil": None,
+                }
+            }
+        )
+    )
+
+    assert not result.is_valid
+    assert "prix" in result.rejection_reason
+    assert "tcgplayer" in result.rejection_reason

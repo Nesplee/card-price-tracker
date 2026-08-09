@@ -96,6 +96,29 @@ from src.transform.clean import clean_raw_to_staging
     # rapide) ~= 3h + 2x11 min ~= 3h22. 4h laisse ~38 min de marge réelle
     # au-dessus de ce total, pas seulement au-dessus d'une seule des trois
     # tâches.
+    #
+    # RISQUE CONNU, documenté et accepté (trouvé en review, 2026-08-09) : si
+    # dagrun_timeout coupe le DagRun PENDANT qu'extract_and_load_raw est
+    # encore en train de retenter, les pages déjà commitées dans
+    # raw.card_prices pour cette extracted_date restent orphelines --
+    # clean_to_staging et load_to_warehouse ne tournent jamais pour ce jour
+    # (le DagRun est déjà FAILED), et le run automatique du lendemain
+    # calcule une extracted_date DIFFÉRENTE (voir dag_run.start_date
+    # ci-dessous) : rien ne revient automatiquement chercher le jour
+    # abandonné. Scénario volontairement laissé sans détection automatique
+    # (complexité disproportionnée pour un cas qui exigerait une panne
+    # pokemontcg.io de plusieurs heures, pire que tout ce qui a été observé
+    # à ce jour) -- RÉCUPÉRATION MANUELLE, déjà éprouvée en production le
+    # 2026-08-09 pour combler un trou de données similaire (extracted_date
+    # 2026-08-08) : appeler directement run_extract_load(client, conn,
+    # date(...)) avec la date orpheline (reprend automatiquement via le
+    # checkpoint existant dans raw.card_prices), puis clean_raw_to_staging
+    # et load_staging_to_warehouse pour la même date. Voir
+    # docs/superpowers/plans/2026-08-08-dag-reliability.md pour le contexte
+    # de l'incident original (2026-08-08, sans lien avec ce risque précis --
+    # comblé à l'époque par la même procédure manuelle décrite ci-dessus,
+    # qui reste donc éprouvée et réutilisable si dagrun_timeout se déclenche
+    # un jour en cours de retries).
     dagrun_timeout=timedelta(hours=4),
 )
 def card_price_pipeline():
