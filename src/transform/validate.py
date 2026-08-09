@@ -82,19 +82,52 @@ class ValidationResult:
 _VARIANT_PRIORITY = ["normal", "holofoil", "reverseHolofoil", "1stEditionHolofoil"]
 
 
+# Champs de prix reconnus dans un bloc de variante TCGPlayer (voir le mapping
+# dans validate_and_clean : market/mid/low -> average_sell_price/trend_price/
+# low_price). Utilisés ici uniquement pour tester si UNE variante a un prix
+# exploitable, indépendamment du mapping final.
+_PRICE_FIELDS = ("market", "mid", "low")
+
+
+def _has_usable_price(candidate: object) -> bool:
+    """True si `candidate` est un dict de prix TCGPlayer avec au moins un prix
+    exploitable. Corrige un bug réel trouvé en review (2026-08-09) :
+    `candidate` peut valoir None en JSON (une variante explicitement "null",
+    pas juste absente de la clé) plutôt qu'un dict -- sans isinstance(dict),
+    `candidate.get(...)` lèverait AttributeError, plantant TOUT
+    clean_to_staging du jour (aucun try/except par carte dans
+    src/transform/clean.py) pour une seule carte malformée. isinstance()
+    rend cette fonction sûre face à N'IMPORTE QUELLE forme JSON inattendue
+    (None, liste, nombre, chaîne...), pas seulement le cas déjà rencontré."""
+    return isinstance(candidate, dict) and any(
+        candidate.get(field) is not None for field in _PRICE_FIELDS
+    )
+
+
 def _select_tcgplayer_variant(tcgplayer_prices: dict) -> dict:
     """Choisit quelle variante d'impression utiliser parmi celles disponibles
-    dans tcgplayer.prices, selon _VARIANT_PRIORITY. Retombe sur la première
-    variante disponible (ordre du payload d'origine, ex: "pokeBallPattern",
-    "masterBallPattern") si aucune des priorités nommées n'est présente —
-    ces variantes récentes ne sont volontairement pas traitées spécifiquement
-    en v1 (décision produit explicite, voir le design spec). Renvoie {} si
-    aucune variante du tout n'est disponible."""
+    dans tcgplayer.prices, selon _VARIANT_PRIORITY -- en ne retenant QUE les
+    variantes avec un prix réellement exploitable (voir _has_usable_price).
+    Corrige un second bug réel trouvé en review (2026-08-09) : la version
+    précédente retournait la première variante PRÉSENTE dans le payload,
+    même si elle n'avait aucun prix exploitable (ex: {"normal": {}} ou
+    {"normal": {"low": None, "mid": None, "market": None}}) -- une carte
+    dont la variante prioritaire existe mais est vide était alors rejetée
+    à tort ("aucun prix tcgplayer disponible"), alors qu'une variante moins
+    prioritaire du MÊME payload avait un vrai prix disponible juste à côté.
+
+    Retombe sur la première variante EXPLOITABLE (pas juste présente) dans
+    l'ordre du payload d'origine si aucune des priorités nommées n'a de prix
+    exploitable (ex: une variante récente type "pokeBallPattern", non gérée
+    spécifiquement en v1 -- décision produit explicite, voir le design spec).
+    Renvoie {} si aucune variante du tout n'a de prix exploitable."""
     for variant in _VARIANT_PRIORITY:
-        if variant in tcgplayer_prices:
-            return tcgplayer_prices[variant]
-    if tcgplayer_prices:
-        return next(iter(tcgplayer_prices.values()))
+        candidate = tcgplayer_prices.get(variant)
+        if _has_usable_price(candidate):
+            return candidate
+    for candidate in tcgplayer_prices.values():
+        if _has_usable_price(candidate):
+            return candidate
     return {}
 
 

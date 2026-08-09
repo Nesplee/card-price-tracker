@@ -16,6 +16,19 @@ set -euo pipefail
 # dans l'environnement de ce script, comme si on les avait tapées à la main.
 source .env
 
+# Vérification anticipée des mots de passe requis (bug réel trouvé en review,
+# 2026-08-09) : sans ce bloc, un .env incomplet (ex: DASHBOARD_READER_PASSWORD
+# absent sur un déploiement existant qui met à jour son .env après-coup) fait
+# planter le script sur `set -u` SEULEMENT à la toute dernière ligne -- après
+# que TOUTES les migrations SQL (dont la création du rôle SANS mot de passe)
+# aient déjà été appliquées et enregistrées dans schema_migrations. Résultat :
+# un rôle créé mais sans mot de passe, et un rejeu du script qui saute la
+# migration déjà marquée "appliquée" au lieu de la retenter -- un état bancal
+# qui ne se corrige pas tout seul. `${VAR:?message}` fait échouer le script
+# IMMÉDIATEMENT si la variable est vide/absente, avant la moindre migration.
+: "${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD manquant dans .env}"
+: "${DASHBOARD_READER_PASSWORD:?DASHBOARD_READER_PASSWORD manquant dans .env}"
+
 # Fichier compose à utiliser : premier argument du script si fourni, sinon
 # "docker-compose.yml" par défaut (usage local inchangé). Permet de réutiliser
 # ce même script en prod avec "./scripts/apply_migrations.sh docker-compose.prod.yml".
