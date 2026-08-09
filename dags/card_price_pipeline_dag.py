@@ -53,6 +53,22 @@ from src.transform.clean import clean_raw_to_staging
     # run manqué n'a pas de sens à rattraper a posteriori -- contrairement à
     # un pipeline qui traiterait des données historiques par date.
     catchup=False,
+    # max_active_runs=1 (ajouté le 2026-08-09, review finale du plan DAG
+    # reliability) : empêche deux DagRuns de tourner en même temps pour ce
+    # DAG (défaut Airflow : 16). Constaté en conditions réelles le jour même
+    # de ce correctif : un déclenchement manuel + une reprise de run bloqué
+    # + le nouveau run automatique se sont retrouvés à cibler la MÊME
+    # extracted_date en parallèle (extract_and_load_raw calcule sa date via
+    # dag_run.start_date, "aujourd'hui" pour n'importe quel run qui
+    # s'exécute maintenant). Sans risque de données -- _resume_page +
+    # l'UPSERT de load_cards rendent ça idempotent, vérifié empiriquement,
+    # aucune ligne dupliquée -- mais chaque run concurrent relit son propre
+    # compteur de reprise et refait des appels API déjà faits par l'autre :
+    # du gaspillage pur contre une source déjà instable, sans aucun
+    # bénéfice. max_active_runs=1 sérialise les runs de ce DAG (un DagRun
+    # supplémentaire reste simplement en file d'attente au lieu de
+    # s'exécuter en parallèle) sans changer aucun comportement fonctionnel.
+    max_active_runs=1,
 )
 def card_price_pipeline():
     # retries=60 (porté de 20 à 60 le 2026-08-08, voir
@@ -68,10 +84,21 @@ def card_price_pipeline():
     # moyenne), mais 21 tentatives n'ont pas suffi à couvrir les ~80 pages
     # du catalogue -- il en aurait fallu environ 35 à ce rythme. 60 laisse
     # une marge confortable pour une panne encore pire, tout en restant
-    # borné. Coût dans le pire cas : ~30 minutes de délai cumulé
-    # (60 x retry_delay=30s), sans aucun risque de donnée : le mécanisme de
-    # checkpoint (commit par page, voir src/extract/pipeline.py) garantit
-    # qu'aucune tentative ne repart de zéro ni ne duplique.
+    # borné, sans aucun risque de donnée : le mécanisme de checkpoint
+    # (commit par page, voir src/extract/pipeline.py) garantit qu'aucune
+    # tentative ne repart de zéro ni ne duplique.
+    #
+    # Pire cas RÉEL (corrigé le 2026-08-09, review finale) : ce n'est PAS
+    # "60 x retry_delay=30s = ~30 minutes" -- ce calcul ne comptait que les
+    # pauses entre tentatives, pas le temps de travail de chaque tentative.
+    # Mesure empirique tirée de l'incident lui-même : 21 tentatives en ~26
+    # minutes, soit ~74s par tentative (30s de pause + ~44s de travail
+    # réel) -- au même rythme, 61 tentatives ~= 75 minutes. En pire cas
+    # théorique (pannes lentes par timeout plutôt que 500 immédiats, voir
+    # PokemonTcgClient : jusqu'à ~54s perdus sur une seule page avant
+    # d'abandonner), l'ordre de grandeur monte à 1h30-3h. execution_timeout
+    # ci-dessous plafonne explicitement ce pire cas plutôt que de le laisser
+    # illimité.
     #
     # retry_delay=30s (pas les 5 minutes par défaut d'Airflow) : la reprise
     # est immédiate et peu coûteuse grâce au checkpoint par page (aucun
@@ -90,28 +117,53 @@ def card_price_pipeline():
     # visibilité pour rien. Elles gardent donc retries=2 (une valeur modeste,
     # pour absorber un aléa transitoire de connexion à la DB locale, sans
     # cacher un vrai bug pendant longtemps).
-    @task(retries=60, retry_delay=timedelta(seconds=30))
+    # execution_timeout=timedelta(hours=2) (ajouté le 2026-08-09, review
+    # finale) : plafonne explicitement le pire cas corrigé ci-dessus
+    # (jusqu'à 1h30-3h, pas ~30 min comme l'ancien calcul le laissait
+    # penser). Sans plafond, une panne pokemontcg.io exceptionnellement
+    # lente pourrait faire tourner cette tâche indéfiniment en
+    # `up_for_retry` -- un état qui n'apparaît PAS comme rouge dans
+    # l'interface Airflow, donc silencieux. 2h laisse de la marge sur
+    # l'estimation haute (3h) tout en garantissant qu'un run anormalement
+    # bloqué finit par échouer visiblement plutôt que de tourner sans fin.
+    @task(retries=60, retry_delay=timedelta(seconds=30), execution_timeout=timedelta(hours=2))
     def extract_and_load_raw(dag_run: DagRun) -> str:
         # dag_run: DagRun -- paramètre injecté AUTOMATIQUEMENT par Airflow
         # (TaskFlow reconnaît "dag_run" comme nom de paramètre spécial et le
         # peuple avec l'objet DagRun courant, sans rien à configurer côté
         # appel, voir l'invocation extract_and_load_raw() en bas de fichier
-        # -- inchangée). extracted_date = dag_run.start_date.date() (et NON
-        # PLUS datetime.now(UTC).date(), voir
+        # -- inchangée). extracted_date se base sur dag_run.start_date (et
+        # NON PLUS uniquement datetime.now(UTC).date() comme avant ce
+        # correctif, voir
         # docs/superpowers/specs/2026-08-08-dag-reliability-design.md) :
-        # dag_run.start_date est FIXÉ UNE SEULE FOIS à la création du
-        # DagRun et ne change JAMAIS entre les tentatives d'une même tâche
-        # -- contrairement à datetime.now(), qui se réévalue à CHAQUE
-        # tentative. Avec retries=60 (voir ci-dessus), une séquence de
-        # retries peut désormais durer assez longtemps pour traverser
-        # minuit UTC ; recalculer "aujourd'hui" à chaque tentative aurait
-        # alors changé extracted_date en cours de route, cassant le
-        # checkpoint (_resume_page compte les lignes déjà chargées pour
-        # L'ANCIENNE date, en trouve zéro pour la nouvelle, et repart de la
-        # page 1 -- perdant toute la progression déjà faite pour la date
-        # d'origine). dag_run.start_date élimine ce risque : la valeur
-        # reste identique du début à la toute dernière tentative, quelle
-        # que soit la durée totale du run.
+        # dag_run.start_date reste FIXE entre les tentatives d'une même
+        # tâche une fois le DagRun repassé en RUNNING -- contrairement à
+        # datetime.now(), qui se réévalue à CHAQUE tentative. Avec
+        # retries=60 (voir ci-dessus), une séquence de retries peut
+        # désormais durer assez longtemps pour traverser minuit UTC ;
+        # recalculer "aujourd'hui" à chaque tentative aurait alors changé
+        # extracted_date en cours de route, cassant le checkpoint
+        # (_resume_page compte les lignes déjà chargées pour L'ANCIENNE
+        # date, en trouve zéro pour la nouvelle, et repart de la page 1 --
+        # perdant toute la progression déjà faite pour la date d'origine).
+        # dag_run.start_date élimine ce risque : la valeur reste identique
+        # du début à la toute dernière tentative, quelle que soit la durée
+        # totale du run.
+        #
+        # `or datetime.now(UTC)` (ajouté le 2026-08-09, review finale) :
+        # dag_run.start_date peut valoir None -- pas seulement avant la
+        # toute première exécution, mais aussi juste après un `airflow
+        # tasks clear` (utilisé pour rejouer un run bloqué, voir
+        # docs/superpowers/plans/2026-08-08-dag-reliability.md, Task 2).
+        # Vérifié dans le code source d'Airflow 2.9.3
+        # (airflow/models/taskinstance.py:clear_task_instances) : un clear
+        # remet le DagRun en QUEUED et met start_date à None ; c'est le
+        # SCHEDULER qui le repeuple au passage QUEUED -> RUNNING
+        # (airflow/jobs/scheduler_job_runner.py). Entre les deux, si cette
+        # tâche s'exécutait, dag_run.start_date.date() lèverait
+        # AttributeError sur None. Le repli sur datetime.now(UTC) couvre
+        # cette fenêtre sans rien changer au cas normal (start_date déjà
+        # peuplé dans l'immense majorité des exécutions).
         # ÉCART DÉLIBÉRÉ par rapport à une réécriture "en dur" de la boucle
         # de pagination + checkpoint ICI dans le DAG : on réutilise
         # run_extract_load() (src/extract/pipeline.py, Task 4) plutôt que de
@@ -134,7 +186,7 @@ def card_price_pipeline():
         # fichier pour le détail. Le même choix est déjà fait, pour la même
         # raison, dans scripts/run_extract_load.py (le point d'entrée manuel
         # équivalent hors Airflow).
-        extracted_date = dag_run.start_date.date()
+        extracted_date = (dag_run.start_date or datetime.now(UTC)).date()
         client = PokemonTcgClient(load_pokemontcg_config())
         conn = psycopg.connect(load_db_config().dsn)
         try:
