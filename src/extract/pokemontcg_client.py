@@ -159,6 +159,18 @@ class PokemonTcgClient:
         # n'ait pas à connaître ce détail du format de réponse de l'API.
         return response.json()["data"]
 
+    def fetch_sets(self) -> list[dict]:
+        """Récupère la liste complète des sets pokemontcg.io (id, name, ...).
+        Lève PokemonTcgApiError si l'API reste indisponible après épuisement
+        des tentatives -- même politique de retry que fetch_cards_page, voir
+        son commentaire pour le détail (backoff exponentiel, 4 tentatives)."""
+        try:
+            response = self._retrying(self._do_get, "/sets", {})
+        except requests.RequestException as exc:
+            logger.error("Échec définitif de l'appel API après retries: %s", exc)
+            raise PokemonTcgApiError("Impossible de récupérer la liste des sets") from exc
+        return response.json()["data"]
+
     def _do_get(self, path: str, params: dict) -> requests.Response:
         # Construit l'URL complète en concaténant l'URL de base (configurable,
         # ex. pour pointer vers un mock en test) et le chemin de la ressource
