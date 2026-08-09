@@ -69,6 +69,20 @@ from src.transform.clean import clean_raw_to_staging
     # supplémentaire reste simplement en file d'attente au lieu de
     # s'exécuter en parallèle) sans changer aucun comportement fonctionnel.
     max_active_runs=1,
+    # dagrun_timeout=timedelta(hours=3) (ajouté le 2026-08-09, round 2 de la
+    # review finale -- CORRECTIF d'un premier essai erroné) : plafonne la
+    # durée CUMULÉE d'un DagRun entier, retries inclus. Nécessaire ici et
+    # PAS interchangeable avec execution_timeout (voir le commentaire sur
+    # extract_and_load_raw ci-dessous) : execution_timeout est un plafond
+    # PAR TENTATIVE, remis à zéro à chaque nouveau retry -- il ne borne en
+    # rien la durée totale d'une tâche qui échoue rapidement (~1 min) puis
+    # retente jusqu'à 60 fois. dagrun_timeout, lui, s'applique au DagRun
+    # dans son ensemble : passé 3h (marge au-dessus de l'estimation haute du
+    # pire cas, ~1h30-3h, voir extract_and_load_raw), Airflow marque le
+    # DagRun en échec même s'il est encore en train de retenter -- le seul
+    # mécanisme qui transforme réellement un run bloqué en signal visible
+    # (rouge) plutôt qu'un état "up_for_retry" indéfini.
+    dagrun_timeout=timedelta(hours=3),
 )
 def card_price_pipeline():
     # retries=60 (porté de 20 à 60 le 2026-08-08, voir
@@ -96,9 +110,13 @@ def card_price_pipeline():
     # réel) -- au même rythme, 61 tentatives ~= 75 minutes. En pire cas
     # théorique (pannes lentes par timeout plutôt que 500 immédiats, voir
     # PokemonTcgClient : jusqu'à ~54s perdus sur une seule page avant
-    # d'abandonner), l'ordre de grandeur monte à 1h30-3h. execution_timeout
-    # ci-dessous plafonne explicitement ce pire cas plutôt que de le laisser
-    # illimité.
+    # d'abandonner), l'ordre de grandeur monte à 1h30-3h. C'est
+    # dagrun_timeout (voir le décorateur @dag ci-dessus), PAS
+    # execution_timeout ci-dessous, qui plafonne ce pire cas CUMULÉ --
+    # execution_timeout ne borne qu'une seule tentative à la fois, voir son
+    # propre commentaire pour le détail de cette distinction (round 2 de
+    # cette review a corrigé une première version erronée de ce
+    # commentaire, qui attribuait ce rôle à execution_timeout).
     #
     # retry_delay=30s (pas les 5 minutes par défaut d'Airflow) : la reprise
     # est immédiate et peu coûteuse grâce au checkpoint par page (aucun
@@ -118,14 +136,18 @@ def card_price_pipeline():
     # pour absorber un aléa transitoire de connexion à la DB locale, sans
     # cacher un vrai bug pendant longtemps).
     # execution_timeout=timedelta(hours=2) (ajouté le 2026-08-09, review
-    # finale) : plafonne explicitement le pire cas corrigé ci-dessus
-    # (jusqu'à 1h30-3h, pas ~30 min comme l'ancien calcul le laissait
-    # penser). Sans plafond, une panne pokemontcg.io exceptionnellement
-    # lente pourrait faire tourner cette tâche indéfiniment en
-    # `up_for_retry` -- un état qui n'apparaît PAS comme rouge dans
-    # l'interface Airflow, donc silencieux. 2h laisse de la marge sur
-    # l'estimation haute (3h) tout en garantissant qu'un run anormalement
-    # bloqué finit par échouer visiblement plutôt que de tourner sans fin.
+    # finale) : NE plafonne PAS le pire cas cumulé (~1h30-3h sur l'ensemble
+    # des 60 tentatives, voir commentaire ci-dessus) -- c'est un plafond PAR
+    # TENTATIVE, remis à zéro à chaque nouveau retry (vérifié : c'est le
+    # comportement documenté d'Airflow, pas une supposition -- une première
+    # version de ce commentaire affirmait à tort le contraire, corrigée au
+    # round 2 de cette review). Sa seule utilité réelle ici : protéger
+    # contre UNE tentative qui resterait bloquée indéfiniment sans jamais
+    # lever d'exception (ex: un appel réseau qui ne "timeout" pas
+    # proprement côté librairie) -- un cas marginal vu que chaque tentative
+    # observée en pratique dure ~44-74s, mais un filet de sécurité peu
+    # coûteux à garder. Le plafond qui borne réellement le CUMUL de toutes
+    # les tentatives est dagrun_timeout, sur le décorateur @dag ci-dessus.
     @task(retries=60, retry_delay=timedelta(seconds=30), execution_timeout=timedelta(hours=2))
     def extract_and_load_raw(dag_run: DagRun) -> str:
         # dag_run: DagRun -- paramètre injecté AUTOMATIQUEMENT par Airflow
