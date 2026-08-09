@@ -62,3 +62,8 @@ done
 # secret ne transite jamais par un fichier versionné (les migrations SQL).
 $ADMIN_PSQL -c "ALTER ROLE pipeline_app WITH PASSWORD '${POSTGRES_APP_PASSWORD}';"
 echo "Mot de passe de pipeline_app synchronisé avec .env"
+
+# Synchronise le mot de passe du rôle de lecture dashboard_reader (créé sans
+# mot de passe dans la migration SQL) avec la valeur actuelle de .env.
+$ADMIN_PSQL -c "ALTER ROLE dashboard_reader WITH PASSWORD '${DASHBOARD_READER_PASSWORD}';"
+echo "Mot de passe de dashboard_reader synchronisé avec .env"
