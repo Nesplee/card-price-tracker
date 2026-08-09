@@ -69,20 +69,34 @@ from src.transform.clean import clean_raw_to_staging
     # supplémentaire reste simplement en file d'attente au lieu de
     # s'exécuter en parallèle) sans changer aucun comportement fonctionnel.
     max_active_runs=1,
-    # dagrun_timeout=timedelta(hours=3) (ajouté le 2026-08-09, round 2 de la
-    # review finale -- CORRECTIF d'un premier essai erroné) : plafonne la
-    # durée CUMULÉE d'un DagRun entier, retries inclus. Nécessaire ici et
-    # PAS interchangeable avec execution_timeout (voir le commentaire sur
-    # extract_and_load_raw ci-dessous) : execution_timeout est un plafond
-    # PAR TENTATIVE, remis à zéro à chaque nouveau retry -- il ne borne en
-    # rien la durée totale d'une tâche qui échoue rapidement (~1 min) puis
-    # retente jusqu'à 60 fois. dagrun_timeout, lui, s'applique au DagRun
-    # dans son ensemble : passé 3h (marge au-dessus de l'estimation haute du
-    # pire cas, ~1h30-3h, voir extract_and_load_raw), Airflow marque le
-    # DagRun en échec même s'il est encore en train de retenter -- le seul
-    # mécanisme qui transforme réellement un run bloqué en signal visible
-    # (rouge) plutôt qu'un état "up_for_retry" indéfini.
-    dagrun_timeout=timedelta(hours=3),
+    # dagrun_timeout=timedelta(hours=4) (ajouté le 2026-08-09, round 3 de la
+    # review finale -- valeur corrigée d'un round 2 qui n'avait AUCUNE marge
+    # réelle, voir plus bas) : plafonne la durée CUMULÉE d'un DagRun entier,
+    # retries inclus. Nécessaire ici et PAS interchangeable avec
+    # execution_timeout (voir le commentaire sur extract_and_load_raw
+    # ci-dessous) : execution_timeout est un plafond PAR TENTATIVE, remis à
+    # zéro à chaque nouveau retry -- il ne borne en rien la durée totale
+    # d'une tâche qui échoue rapidement (~1 min) puis retente jusqu'à 60
+    # fois. dagrun_timeout, lui, s'applique au DagRun dans son ensemble :
+    # passé ce délai, Airflow marque le DagRun en échec (les task instances
+    # encore en cours passent à SKIPPED, pas FAILED -- distinction sans
+    # conséquence ici, ce fichier ne définit aucun on_failure_callback qui
+    # dépendrait de l'état précis de la tâche) même si une tâche est encore
+    # en train de retenter -- le seul mécanisme qui transforme réellement un
+    # run bloqué en signal terminal visible plutôt qu'un état "up_for_retry"
+    # indéfini.
+    #
+    # Calcul de marge (round 3 -- le round 2 fixait 3h, exactement
+    # l'estimation haute d'extract_and_load_raw SEULE, donc sans AUCUNE
+    # marge dès qu'on compte le reste du DagRun) : pire cas
+    # extract_and_load_raw ~3h (voir son commentaire plus bas) + pire cas
+    # clean_to_staging et load_to_warehouse (retries=2 chacun, PAS de
+    # retry_delay explicite -> défaut Airflow 5 min par retry, soit jusqu'à
+    # ~10 min de pure attente par tâche en plus d'une exécution SQL locale
+    # rapide) ~= 3h + 2x11 min ~= 3h22. 4h laisse ~38 min de marge réelle
+    # au-dessus de ce total, pas seulement au-dessus d'une seule des trois
+    # tâches.
+    dagrun_timeout=timedelta(hours=4),
 )
 def card_price_pipeline():
     # retries=60 (porté de 20 à 60 le 2026-08-08, voir
