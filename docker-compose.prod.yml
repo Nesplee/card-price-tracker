@@ -135,6 +135,48 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  # metabase : UI d'exploration de la base de données (Mois 3, voir
+  # docs/superpowers/specs/2026-08-09-metabase-db-ui-design.md). Stockage
+  # interne H2 (métadonnées Metabase -- comptes, dashboards sauvegardés --
+  # PAS une copie des données du pipeline) sur un volume nommé persistant.
+  # Aucun depends_on : Metabase démarre et devient "healthy" de façon
+  # autonome (serveur Jetty + assistant de configuration), la connexion à
+  # "db" se fait plus tard, via son assistant web, pas au démarrage du
+  # conteneur.
+  metabase:
+    image: metabase/metabase:v0.50.32
+    environment:
+      # MB_DB_FILE : sans cette variable, Metabase stocke son fichier H2
+      # dans le système de fichiers éphémère du conteneur (perdu à chaque
+      # recréation). En la pointant vers un chemin sous le volume monté
+      # ci-dessous, les comptes/dashboards Metabase survivent à un
+      # `docker compose down`/`up` -- piège documenté de Metabase en Docker,
+      # vérifié explicitement pour ne pas le reproduire ici.
+      MB_DB_FILE: /metabase-data/metabase.db
+    volumes:
+      - metabase_data:/metabase-data
+    # 127.0.0.1 uniquement : jamais exposé sur l'interface publique du VPS,
+    # identique au pattern déjà en place pour airflow-webserver (port 8080).
+    # Accès uniquement via tunnel SSH (voir Task 3 pour la commande exacte).
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      # curl confirmé présent dans l'image officielle metabase/metabase
+      # (Alpine, vérifié directement avant d'écrire ce plan). /api/health
+      # répond dès que le serveur Jetty interne est prêt -- PAS besoin
+      # qu'une connexion à une base externe soit configurée au préalable
+      # (ça, c'est l'étape manuelle du Task 3).
+      test: ["CMD", "curl", "--fail", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # start_period plus long que les autres services (60s pour Airflow) :
+      # Metabase est une application JVM, son démarrage à froid est
+      # nettement plus lent qu'un serveur Python/Airflow.
+      start_period: 120s
+    restart: unless-stopped
+
 volumes:
   card_tracker_pg_data:
   airflow_pg_data:
+  metabase_data:
