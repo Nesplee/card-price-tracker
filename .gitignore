@@ -14,3 +14,9 @@ __pycache__/
 # docker-compose.yml pour le mécanisme complet).
 logs/*
 !logs/.gitkeep
+
+# Export de collection personnelle (Mois 3, import collection) : données
+# personnelles (ce que l'utilisateur possède, ce qu'il a payé) -- jamais
+# commitées dans ce repo portfolio. Voir
+# docs/superpowers/specs/2026-08-09-personal-collection-import-design.md.
+export.csv
