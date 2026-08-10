@@ -36,6 +36,11 @@ class CleanedCard:
     name: str
     set_id: str
     set_name: str
+    # series : le "bloc" Pokémon TCG (ex: "Scarlet & Violet" regroupe
+    # plusieurs sets individuels comme "Paldea Evolved", "Obsidian
+    # Flames"...). Optionnel côté source comme rarity -- son absence
+    # n'est pas assez grave pour rejeter toute la carte.
+    series: str | None
     # rarity : optionnel côté source (certaines cartes promo n'ont pas de
     # rareté renseignée), donc `str | None` plutôt que `str`. Contrairement
     # aux prix, l'absence de rarity n'est pas assez grave pour rejeter toute
@@ -156,6 +161,12 @@ def validate_and_clean(payload: dict) -> ValidationResult:
     set_info = payload.get("set") or {}
     set_id = set_info.get("id")
     set_name = set_info.get("name")
+    # series : le "bloc" Pokémon TCG (ex: "Scarlet & Violet"), lu depuis le
+    # même sous-objet "set" que set_id/set_name. Contrairement à ces deux
+    # derniers, son absence ne fait pas partie de la Règle 2 ci-dessous
+    # (pas de rejet de la carte si series manque -- même tolérance que
+    # rarity, voir le champ correspondant sur CleanedCard).
+    series = set_info.get("series")
     if not set_id or not set_name:
         return ValidationResult(cleaned=None, rejection_reason="informations de set manquantes")
 
@@ -220,6 +231,7 @@ def validate_and_clean(payload: dict) -> ValidationResult:
             name=name.strip(),
             set_id=set_id,
             set_name=set_name.strip(),
+            series=series,
             # rarity n'est soumis à aucune règle de validation (voir le
             # commentaire sur le champ dans CleanedCard) : on le transmet tel
             # quel, y compris s'il vaut None.

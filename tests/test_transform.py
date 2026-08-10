@@ -200,3 +200,24 @@ def test_validate_and_clean_rejects_when_all_variants_present_but_empty() -> Non
     assert not result.is_valid
     assert "prix" in result.rejection_reason
     assert "tcgplayer" in result.rejection_reason
+
+
+def test_validate_and_clean_extracts_series() -> None:
+    # series est le "bloc" Pokémon TCG (ex: "Scarlet & Violet" regroupe
+    # plusieurs sets/séries individuelles). Présent dans payload["set"]
+    # exactement comme set_id/set_name.
+    result = validate_and_clean(
+        _make_payload(set={"id": "sv2", "name": "Paldea Evolved", "series": "Scarlet & Violet"})
+    )
+
+    assert result.is_valid
+    assert result.cleaned.series == "Scarlet & Violet"
+
+
+def test_validate_and_clean_accepts_missing_series() -> None:
+    # series absent du payload.set ne doit pas rejeter la carte (même
+    # tolérance que rarity) -- juste series=None dans le résultat.
+    result = validate_and_clean(_make_payload(set={"id": "base1", "name": "Base"}))
+
+    assert result.is_valid
+    assert result.cleaned.series is None

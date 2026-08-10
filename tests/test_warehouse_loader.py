@@ -69,6 +69,7 @@ def _seed_card() -> CleanedCard:
         name="Alakazam",
         set_id="base1",
         set_name="Base",
+        series="Base",
         rarity="Rare Holo",
         average_sell_price=12.5,
         trend_price=13.0,

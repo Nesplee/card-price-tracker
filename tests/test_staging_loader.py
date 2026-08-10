@@ -65,6 +65,7 @@ def test_load_staging_is_idempotent_for_same_day(db_connection) -> None:
         name="Alakazam",
         set_id="base1",
         set_name="Base",
+        series="Base",
         rarity="Rare Holo",
         average_sell_price=12.5,
         trend_price=13.0,
