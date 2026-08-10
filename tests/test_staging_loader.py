@@ -80,6 +80,11 @@ def test_load_staging_is_idempotent_for_same_day(db_connection) -> None:
         (count,) = cur.fetchone()
     assert count == 1
 
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT series FROM staging.card_prices WHERE card_id = %s;", ("base1-1",))
+        (series,) = cur.fetchone()
+    assert series == "Base"
+
 
 def test_load_quarantine_records_rejected_rows(db_connection) -> None:
     # load_quarantine() reçoit une liste de tuples (payload_original, raison)
