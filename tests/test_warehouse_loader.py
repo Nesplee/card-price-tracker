@@ -95,6 +95,11 @@ def test_load_staging_to_warehouse_inserts_fact(db_connection) -> None:
     assert dim_count == 1
     assert fact_count == 1
 
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT series FROM prod.dim_card WHERE card_id = %s;", ("base1-1",))
+        (series,) = cur.fetchone()
+    assert series == "Base"
+
 
 def test_load_staging_to_warehouse_is_idempotent(db_connection) -> None:
     # Rejouer le chargement du MÊME jour ne doit PAS créer un deuxième fait :
