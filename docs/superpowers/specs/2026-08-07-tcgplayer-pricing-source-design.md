@@ -1,6 +1,6 @@
 # Card Price Tracker — Bascule CardMarket → TCGPlayer comme source de prix — Design
 
-**Statut :** approuvé par l'utilisateur (2026-08-07), en attente de plan d'implémentation.
+**Statut :** implémenté et déployé en production (2026-08-07). Backfill exécuté sans réappel API : `tcgplayer` 19693 lignes, `cardmarket` 19085 lignes conservées intactes.
 
 ## Contexte et problème
 

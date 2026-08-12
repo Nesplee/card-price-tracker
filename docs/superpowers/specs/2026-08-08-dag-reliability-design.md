@@ -1,6 +1,6 @@
 # Card Price Tracker — Fiabilité du DAG face aux pannes prolongées de pokemontcg.io — Design
 
-**Statut :** approuvé par l'utilisateur (2026-08-08), en attente de plan d'implémentation.
+**Statut :** implémenté et déployé en production (2026-08-08/09). `dagrun_timeout` finalement fixé à 4h (pas 3h comme envisagé initialement — la marge réelle a été corrigée sur 2 rounds de review, voir mémoire projet).
 
 ## Contexte et problème
 

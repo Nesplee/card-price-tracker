@@ -1,6 +1,6 @@
 # Card Price Tracker — Dashboard interactif Metabase — Design
 
-**Statut :** approuvé par l'utilisateur (2026-08-10), en attente de plan d'implémentation.
+**Statut :** implémenté et déployé en production (2026-08-12). Le schéma (`series`) et les 3 panneaux + 4 filtres du dashboard sont en place et vérifiés. Voir "Mise à jour post-implémentation" en fin de document pour l'écart avec la construction manuelle initialement prévue.
 
 ## Contexte et problème
 
@@ -43,6 +43,8 @@ Toutes les requêtes filtrent explicitement `platform_name = 'tcgplayer'` (déci
 
 Metabase se configure principalement via son interface web (assistants "New Question"/"New Dashboard"), pas par du code versionné — même nature que la configuration initiale du compte admin (plan Metabase, hors scope de l'automatisation). Le plan d'implémentation couvre : (a) le changement de schéma comme tâches de développement classiques (migration + code + tests, suivant le pattern déjà établi), et (b) un guide pas à pas avec le SQL exact de chaque panneau, pour assemblage manuel dans l'UI Metabase une fois le schéma déployé.
 
+*(Voir "Mise à jour post-implémentation" : ce point (b) a finalement été automatisé via l'API REST de Metabase plutôt qu'assemblé manuellement, à la demande explicite de l'utilisateur.)*
+
 ## Vérification prévue
 
 - Tests unitaires sur `validate_and_clean()` : `series` correctement extrait/absent (fonction pure, même pattern que les tests existants de `tests/test_transform.py`).
@@ -54,4 +56,14 @@ Metabase se configure principalement via son interface web (assistants "New Ques
 
 - Historique de prix plus profond que ce qui existe déjà (2026-08-07 et après) — pas de reconstruction rétroactive, impossible (l'API ne renvoie que les prix courants).
 - Filtre plateforme CardMarket/EUR dans le dashboard — TCGPlayer/USD uniquement pour cette version.
-- Toute automatisation de la construction Metabase elle-même (comme pour son compte admin) — reste un assemblage manuel guidé, pas un artefact versionné.
+- ~~Toute automatisation de la construction Metabase elle-même (comme pour son compte admin) — reste un assemblage manuel guidé, pas un artefact versionné.~~ Revu en cours d'implémentation, voir ci-dessous.
+
+## Mise à jour post-implémentation (2026-08-12)
+
+Le point "hors scope" sur l'automatisation de la construction Metabase a été revu en cours de route : l'utilisateur a explicitement demandé ("Tu ne peux pas gérer toi même les dashboards ?") que la construction soit automatisée plutôt que documentée comme un guide manuel pour assemblage dans l'UI. Ce point n'avait pas été anticipé au moment du design — arbitré directement avec l'utilisateur au moment où il s'est posé, pas décidé unilatéralement.
+
+**Ce qui a réellement été fait** (au lieu du guide pas-à-pas prévu au point (b) de la section "Construction dans Metabase") : construction via l'API REST de Metabase (clé API fournie par l'utilisateur, stockée dans `.env` non commité), depuis l'intérieur du conteneur `airflow-scheduler` (seul point du réseau Docker avec accès à la fois à `metabase:3000` et à `curl`). Dashboard id=2 "Card Price Tracker — Dashboard" : 3 cartes (questions Metabase) correspondant exactement aux 3 panneaux du design, 4 filtres croisés correspondant exactement aux filtres globaux prévus. Chaque carte vérifiée individuellement contre `psql` avant assemblage, puis le dashboard assemblé vérifié end-to-end (propagation réelle des filtres depuis le dashboard vers les cartes, pas seulement testée carte par carte).
+
+**Écart technique découvert en cours de route, non anticipé par le design** : le filtre booléen "Collection uniquement" ne peut pas être implémenté par un tag de paramètre Metabase placé dans un commentaire SQL (`--{{tag}}`) — rejeté explicitement par le moteur de requête Metabase. Contournement : utiliser le tag comme un vrai prédicat SQL toujours-vrai-si-présent (`AND {{collection_uniquement}} IS NOT NULL`), vérifié empiriquement par comparaison de `row_count` avec/sans filtre.
+
+Cette configuration Metabase (cartes + dashboard) n'est pas versionnée dans le repo (nature déclarative, vit dans la base H2 interne de Metabase, comme prévu au design initial) — seul le schéma SQL sous-jacent (migration 009) et le code de propagation (`validate.py`, `staging_loader.py`, `warehouse_loader.py`) le sont.

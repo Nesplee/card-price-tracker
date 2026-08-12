@@ -1,7 +1,7 @@
 # Card Price Tracker — Design
 
-**Date** : 2026-08-05 (mis à jour 2026-08-07)
-**Statut** : Mois 1 et Mois 2 exécutés (branche `month-1-foundations`, pas encore mergée dans `main` — Task 5 du Mois 1, provisioning VM, bloquée par une limite de capacité côté Oracle Cloud, indépendante du code). Voir la section « État réel — écarts et leçons » en bas de ce document, et `.superpowers/sdd/*/progress.md` pour le détail tâche par tâche.
+**Date** : 2026-08-05 (mis à jour 2026-08-12)
+**Statut** : Mois 1, 2 et 3 terminés. Mois 1+2 mergés dans `main` (PR #1). Mois 3 (Task 1 à 4, y compris le stretch dashboard) terminé sur `month-3-deployment`. Provisioning VM finalement fait sur **OVH** (pas Oracle Cloud — capacité Always Free indisponible après 368+ tentatives, voir section Infra dans la mémoire projet). Voir la section « État réel — écarts et leçons » en bas de ce document, `.superpowers/sdd/*/progress.md` pour le détail tâche par tâche, et les specs dédiées des chantiers hors-mois (TCGPlayer, fiabilité DAG, Metabase, collection perso, dashboard interactif) pour le détail du Mois 3.
 
 ## Contexte
 

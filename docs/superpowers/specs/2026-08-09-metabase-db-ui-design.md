@@ -1,6 +1,6 @@
 # Card Price Tracker — UI d'exploration de la base de données (Metabase) — Design
 
-**Statut :** approuvé par l'utilisateur (2026-08-09), en attente de plan d'implémentation.
+**Statut :** implémenté et déployé en production (2026-08-09). Accès confirmé via tunnel SSH. La construction du dashboard lui-même (questions/panneaux) est traitée séparément — voir `2026-08-10-interactive-dashboard-design.md`, finalement automatisée via l'API REST de Metabase plutôt qu'assemblée manuellement dans l'UI.
 
 ## Contexte et problème
 
