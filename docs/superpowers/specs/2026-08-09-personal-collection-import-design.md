@@ -1,6 +1,6 @@
 # Card Price Tracker — Import de la collection personnelle (CSV) — Design
 
-**Statut :** approuvé par l'utilisateur (2026-08-09), en attente de plan d'implémentation.
+**Statut :** implémenté et déployé en production (2026-08-09/12). Import réel exécuté : 729 candidats → 562 cartes matchées dans `prod.dim_owned_card` (77%), 167 en quarantaine (voir mémoire projet pour le détail des motifs).
 
 ## Contexte et problème
 
