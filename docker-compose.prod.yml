@@ -176,6 +176,37 @@ services:
       start_period: 120s
     restart: unless-stopped
 
+  # dashboard-api : API FastAPI en lecture seule pour le dashboard sur mesure
+  # (voir docs/superpowers/specs/2026-08-13-custom-dashboard-design.md).
+  # Se connecte via dashboard_reader (migration 007), jamais pipeline_app.
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    volumes:
+      - ./src:/app/src
+      - ./.env:/app/.env:ro
+    # 127.0.0.1 uniquement -- même pattern que airflow-webserver/metabase,
+    # jamais exposé sur l'interface publique du VPS.
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      # Pas de curl dans l'image python:3.11-slim (contrairement à
+      # metabase/metabase) -- urllib.request est dans la stdlib Python, évite
+      # d'installer un paquet supplémentaire juste pour le healthcheck.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
 volumes:
   card_tracker_pg_data:
   airflow_pg_data:
