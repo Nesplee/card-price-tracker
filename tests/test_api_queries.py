@@ -134,3 +134,70 @@ def test_collection_value_history_excludes_unknown_cost_rows(db_connection):
     by_date = {row["date_id"]: float(row["total_value"]) for row in rows}
     assert by_date[date(2026, 8, 1)] == 20.00  # 2 * 10.00
     assert by_date[date(2026, 8, 2)] == 24.00  # 2 * 12.00
+
+
+def test_search_cards_includes_priceless_cards(db_connection):
+    # Une nouvelle carte (base1-3) sans aucune observation de prix tcgplayer
+    # doit quand même apparaître dans les résultats de recherche, avec
+    # current_price = None. Cela teste la correction LEFT JOIN LATERAL.
+    with psycopg.connect(_admin_dsn()) as admin_conn:
+        # Ajouter une carte sans prix
+        admin_conn.execute(
+            "INSERT INTO prod.dim_card (card_id, name, set_id, set_name, rarity, series) "
+            "VALUES ('base1-3', 'Charizard', 'base1', 'Base Set', 'Rare Holo', 'Base')"
+        )
+        admin_conn.commit()
+
+    rows, total = search_cards(db_connection)
+    assert total == 3  # Alakazam, Blastoise, Charizard
+    by_card = {row["card_id"]: row for row in rows}
+    assert "base1-3" in by_card
+    assert by_card["base1-3"]["current_price"] is None
+
+
+def test_get_owned_cards_includes_priceless_owned_card(db_connection):
+    # Une carte possédée sans observation de prix tcgplayer doit quand même
+    # apparaître dans "Ma Collection", avec current_price = None.
+    # Cela teste la correction LEFT JOIN LATERAL dans get_owned_cards().
+    with psycopg.connect(_admin_dsn()) as admin_conn:
+        # Ajouter une carte et l'ajouter à la collection, mais sans prix
+        admin_conn.execute(
+            "INSERT INTO prod.dim_card (card_id, name, set_id, set_name, rarity, series) "
+            "VALUES ('base1-4', 'Venusaur', 'base1', 'Base Set', 'Rare Holo', 'Base')"
+        )
+        admin_conn.execute(
+            "INSERT INTO prod.dim_owned_card (card_id, variance, grade, quantity, average_cost_paid) "
+            "VALUES ('base1-4', 'Normal', '', 1, 15.00)"
+        )
+        admin_conn.commit()
+
+    rows = get_owned_cards(db_connection)
+    by_card = {row["card_id"]: row for row in rows}
+    assert "base1-4" in by_card
+    assert by_card["base1-4"]["current_price"] is None
+    assert by_card["base1-4"]["average_cost_paid"] == 15.00
+
+
+def test_search_cards_pagination_total_correct_on_out_of_range_page(db_connection):
+    # Avec 3 résultats totaux et page_size=2, il y a 2 pages.
+    # Demander page=5 doit quand même retourner total=3 (pas 0), même
+    # si rows est vide. Cela teste la correction : deux requêtes séparées
+    # pour count et résultats paginés.
+    with psycopg.connect(_admin_dsn()) as admin_conn:
+        # Ajouter 2 cartes supplémentaires pour avoir 4 au total
+        admin_conn.execute(
+            "INSERT INTO prod.dim_card (card_id, name, set_id, set_name, rarity, series) "
+            "VALUES ('base1-3', 'Charizard', 'base1', 'Base Set', 'Rare Holo', 'Base'), "
+            "('base1-4', 'Venusaur', 'base1', 'Base Set', 'Rare Holo', 'Base')"
+        )
+        admin_conn.commit()
+
+    # Page 1 avec page_size=2
+    rows_page1, total = search_cards(db_connection, page=1, page_size=2)
+    assert len(rows_page1) == 2
+    assert total == 4  # Alakazam, Blastoise, Charizard, Venusaur
+
+    # Page 3 avec page_size=2 (hors limites: offset=4, il n'y a que 4 cartes)
+    rows_page3, total = search_cards(db_connection, page=3, page_size=2)
+    assert len(rows_page3) == 0  # Pas de résultat à cette page
+    assert total == 4  # Mais le total doit quand même être correct
