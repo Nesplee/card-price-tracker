@@ -14,6 +14,8 @@ dependencies = [
     "psycopg[binary]>=3.1",
     "python-dotenv>=1.0",
     "tenacity>=8.2",
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
 ]
 
 # Dépendances de développement (installez avec : pip install -e ".[dev]")
@@ -23,6 +25,9 @@ dev = [
     "pytest>=8.0",
     # responses : mock les appels HTTP pour tester sans vraie API (isoler les tests)
     "responses>=0.25",
+    # httpx : requis par fastapi.testclient.TestClient pour simuler des
+    # requêtes HTTP contre l'app FastAPI sans lancer de vrai serveur.
+    "httpx>=0.27",
     # ruff : linter ultra-rapide (détecte les erreurs de style et logique)
     "ruff>=0.4",
     # black : formateur de code (met automatiquement le code au format standard)
