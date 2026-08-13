@@ -56,25 +56,40 @@ def search_cards(
     page: int = 1,
     page_size: int = 25,
 ) -> tuple[list[dict], int]:
-    # JOIN LATERAL : pour chaque carte de dim_card, va chercher SA propre
+    # LEFT JOIN LATERAL : pour chaque carte de dim_card, va chercher SA propre
     # dernière observation de prix (ORDER BY date_id DESC LIMIT 1) -- contrairement
-    # à un JOIN classique, la sous-requête est ré-évaluée pour chaque ligne de
-    # dim_card, ce qui est exactement ce qu'il faut pour "le prix le plus
-    # récent PAR carte" (pas un seul prix global).
-    # COUNT(*) OVER() : calcule le nombre total de résultats (avant LIMIT/OFFSET)
-    # dans la même requête, pour éviter un second aller-retour réseau juste
-    # pour la pagination.
+    # à un JOIN classique (INNER), un LEFT JOIN garde les cartes même si elles n'ont
+    # pas d'observation de prix (latest.average_sell_price sera NULL dans ce cas).
+    # Deux requêtes séparées : une pour le COUNT(*) (sans LIMIT/OFFSET, donc toujours
+    # exact même si la page demandée est hors limite), une pour les résultats paginés.
     where_sql, params = _card_filters(search, series, set_name, rarity, price_min, price_max)
     params["platform"] = _PLATFORM
     params["limit"] = page_size
     params["offset"] = (page - 1) * page_size
+
+    # Requête 1 : décompte total indépendant de la pagination
+    count_sql = f"""
+        SELECT COUNT(*) AS total_count
+        FROM prod.dim_card c
+        LEFT JOIN LATERAL (
+            SELECT fph.average_sell_price
+            FROM prod.fact_price_history fph
+            JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
+            WHERE fph.card_id = c.card_id AND p.platform_name = %(platform)s
+            ORDER BY fph.date_id DESC
+            LIMIT 1
+        ) latest ON true
+        WHERE {where_sql}
+    """
+    total = conn.execute(count_sql, params).fetchone()["total_count"]
+
+    # Requête 2 : résultats paginés
     sql = f"""
         SELECT
             c.card_id, c.name, c.series, c.set_name, c.rarity,
-            latest.average_sell_price AS current_price,
-            COUNT(*) OVER() AS total_count
+            latest.average_sell_price AS current_price
         FROM prod.dim_card c
-        JOIN LATERAL (
+        LEFT JOIN LATERAL (
             SELECT fph.average_sell_price
             FROM prod.fact_price_history fph
             JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
@@ -87,7 +102,6 @@ def search_cards(
         LIMIT %(limit)s OFFSET %(offset)s
     """
     rows = conn.execute(sql, params).fetchall()
-    total = rows[0]["total_count"] if rows else 0
     return rows, total
 
 
@@ -116,6 +130,8 @@ def get_owned_cards(conn) -> list[dict]:
     # cas vient du CSV importé (coût non renseigné saisi comme "0.0000"), pas
     # d'un vrai achat gratuit. Voir la mise en garde déjà posée sur le
     # dashboard Metabase (docs/superpowers/specs/2026-08-10-interactive-dashboard-design.md).
+    # LEFT JOIN LATERAL : une carte possédée sans observation de prix tcgplayer
+    # doit toujours apparaître dans "Ma Collection", avec current_price = NULL.
     return conn.execute(
         """
         SELECT
@@ -125,7 +141,7 @@ def get_owned_cards(conn) -> list[dict]:
             latest.average_sell_price AS current_price
         FROM prod.dim_owned_card o
         JOIN prod.dim_card c ON c.card_id = o.card_id
-        JOIN LATERAL (
+        LEFT JOIN LATERAL (
             SELECT fph.average_sell_price
             FROM prod.fact_price_history fph
             JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
