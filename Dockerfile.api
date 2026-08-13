@@ -1,0 +1,16 @@
+# Image de l'API FastAPI du dashboard (src/api/). Même logique que
+# Dockerfile.airflow : seules les dépendances tierces sont installées dans
+# l'image, le code (src/) arrive par volume monté (docker-compose.prod.yml)
+# pour éviter de reconstruire l'image à chaque modification.
+FROM python:3.11-slim
+
+COPY pyproject.toml /app/pyproject.toml
+WORKDIR /app
+
+# Guillemets obligatoires sur chaque contrainte de version -- même piège que
+# Dockerfile.airflow (RUN passe par "sh -c", ">=" non quoté serait interprété
+# comme une redirection shell plutôt qu'une comparaison pip).
+RUN pip install --no-cache-dir \
+    "fastapi>=0.111" "uvicorn[standard]>=0.30" "psycopg[binary]>=3.1" "python-dotenv>=1.0"
+
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
