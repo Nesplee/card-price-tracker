@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Déployer le pipeline (Postgres + Airflow) sur la VM Oracle Cloud provisionnée au Mois 1, vérifier qu'il tourne automatiquement chaque jour sans intervention manuelle, et livrer un repo GitHub présentable pour candidater.
+**Goal:** Déployer le pipeline (Postgres + Airflow) sur le VPS OVH provisionné au Mois 1 (initialement prévu sur Oracle Cloud, basculé sur OVH suite à indisponibilité prolongée de capacité — voir `infra/ovh_vps_setup.md`), vérifier qu'il tourne automatiquement chaque jour sans intervention manuelle, et livrer un repo GitHub présentable pour candidater.
 
 **Architecture:** Même stack applicative que le Mois 2 (Postgres + Airflow en Docker Compose), déployée sur la VM plutôt qu'en local. Aucun port n'est exposé publiquement au-delà de SSH : Postgres n'est joignable que depuis le réseau Docker interne, et l'UI Airflow n'est liée qu'à `127.0.0.1` sur la VM (accès via tunnel SSH). Ce choix évite d'avoir à ouvrir de nouvelles règles de firewall ce mois-ci — la surface d'exposition reste celle durcie au Mois 1.
 
@@ -27,7 +27,7 @@ card-price-tracker/
 ├── scripts/
 │   └── apply_migrations.sh          # modifié : accepte le fichier compose en argument
 ├── infra/
-│   └── oracle_vm_setup.md           # complété avec les étapes de déploiement
+│   └── ovh_vps_setup.md             # complété avec les étapes de déploiement
 └── README.md                        # réécrit, portfolio-ready
 ```
 
@@ -60,6 +60,8 @@ Run: `./scripts/apply_migrations.sh`
 Expected : comportement identique à avant (utilise `docker-compose.yml` par défaut), toutes les migrations déjà appliquées → uniquement des lignes "Skip".
 
 - [ ] **Step 3: Créer `docker-compose.prod.yml`**
+
+**Correction 2026-08-07** : ce plan a été rédigé le même jour que celui du Mois 2, avant les correctifs sortis de l'implémentation réelle du Mois 2 (voir `docker-compose.yml` local actuel). Le YAML ci-dessous a été mis à jour pour reprendre ces correctifs déjà prouvés, plutôt que de les reproduire à l'identique et les refaire découvrir en prod : `AIRFLOW__WEBSERVER__SECRET_KEY` partagé (sans quoi la récupération des logs de tâches entre webserver et scheduler échoue silencieusement), volume `./logs` partagé + `user: "${AIRFLOW_UID:-50000}:0"` (sans quoi `PermissionError` à l'écriture, et logs perdus au moindre redémarrage de conteneur — critique sur une VM headless où l'UI web est le seul moyen de déboguer à distance), `POSTGRES_HOST`/`POSTGRES_PORT` explicites sur les services Airflow (sans quoi `.env` fournit `POSTGRES_HOST=localhost`, qui à l'intérieur d'un conteneur pointe vers lui-même, pas vers le service `db`), et `depends_on: airflow-init: condition: service_completed_successfully` en forme longue (pas juste attendre le démarrage du conteneur, mais la fin réelle de la migration).
 
 ```yaml
 services:
@@ -109,19 +111,25 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.airflow
+    user: "${AIRFLOW_UID:-50000}:0"
     depends_on:
-      - airflow-init
+      airflow-init:
+        condition: service_completed_successfully
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       PYTHONPATH: /opt/airflow
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     command: webserver
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
+      - ./logs:/opt/airflow/logs
       - ./.env:/opt/airflow/.env:ro
     restart: unless-stopped
 
@@ -129,17 +137,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.airflow
+    user: "${AIRFLOW_UID:-50000}:0"
     depends_on:
-      - airflow-init
+      airflow-init:
+        condition: service_completed_successfully
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       PYTHONPATH: /opt/airflow
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
     command: scheduler
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
+      - ./logs:/opt/airflow/logs
       - ./.env:/opt/airflow/.env:ro
     restart: unless-stopped
 
@@ -148,14 +162,14 @@ volumes:
   airflow_pg_data:
 ```
 
-Note : contrairement à `docker-compose.yml` (dev local), `db` et `airflow-db` n'ont **aucun port publié** — ni Postgres ni les métadonnées Airflow ne sont joignables depuis l'extérieur de la VM, uniquement via le réseau Docker interne entre conteneurs. `airflow-webserver` n'est lié qu'à `127.0.0.1:8080`, donc invisible depuis l'extérieur de la VM elle-même — accès uniquement via tunnel SSH (Task 2).
+Note : contrairement à `docker-compose.yml` (dev local), `db` et `airflow-db` n'ont **aucun port publié** — ni Postgres ni les métadonnées Airflow ne sont joignables depuis l'extérieur de la VM, uniquement via le réseau Docker interne entre conteneurs. `airflow-webserver` n'est lié qu'à `127.0.0.1:8080`, donc invisible depuis l'extérieur de la VM elle-même — accès uniquement via tunnel SSH (Task 2). Le volume `./logs` reste interne à la VM (jamais exposé publiquement), il sert uniquement au débogage via SSH/tunnel.
 
 - [ ] **Step 4: Cloner le repo sur la VM et préparer `.env`**
 
-Sur la VM :
+**Fait en amont (2026-08-07)** : le repo GitHub est privé, donc un clone anonyme `https://` ne fonctionne pas. Une deploy key dédiée (lecture seule, scopée à ce seul repo) a été générée sur la VM (`~/.ssh/github_deploy_key`) et enregistrée côté GitHub. Voir `infra/ovh_vps_setup.md` pour le détail. Le clone a déjà été fait :
 ```bash
-ssh -i /path/to/key.pem ubuntu@<IP_PUBLIQUE>
-git clone https://github.com/<ton-user>/card-price-tracker.git
+ssh card-tracker-vm   # alias configuré dans ~/.ssh/config local
+git clone git@github.com:Nesplee/card-price-tracker.git
 cd card-price-tracker
 cp .env.example .env
 # éditer .env avec vim/nano : mots de passe de prod (différents du local), clé API pokemontcg.io
@@ -246,7 +260,7 @@ Expected : tous les services (`db`, `airflow-db`, `airflow-webserver`, `airflow-
 
 **Files:**
 - Create/Rewrite: `README.md`
-- Modify: `infra/oracle_vm_setup.md` (compléter avec les étapes de déploiement)
+- Modify: `infra/ovh_vps_setup.md` (compléter avec les étapes de déploiement)
 
 **Interfaces:**
 - Consomme : rien (documentation).
@@ -260,7 +274,7 @@ Expected : tous les services (`db`, `airflow-db`, `airflow-webserver`, `airflow-
 Pipeline de données de bout en bout qui suit l'évolution quotidienne des prix
 de cartes Pokémon (source CardMarket, via l'API pokemontcg.io), avec une
 architecture raw → staging → production en schéma en étoile, orchestrée par
-Airflow et tournant automatiquement chaque jour sur une VM Oracle Cloud.
+Airflow et tournant automatiquement chaque jour sur un VPS OVH.
 
 ## Architecture
 
@@ -286,7 +300,7 @@ met à jour les lignes de ce jour sans dupliquer ni affecter l'historique.
 ## Stack
 
 Python 3.11, PostgreSQL 16, Apache Airflow 2.9 (LocalExecutor), Docker Compose,
-GitHub Actions (tests + lint), déployé sur une VM Oracle Cloud Free Tier.
+GitHub Actions (tests + lint), déployé sur un VPS OVH.
 
 ## Lancer en local
 
@@ -311,11 +325,11 @@ black --check .
 
 ## Déploiement
 
-Voir `infra/oracle_vm_setup.md` pour le provisioning de la VM et le
+Voir `infra/ovh_vps_setup.md` pour le provisioning du VPS et le
 déploiement de la stack en production (`docker-compose.prod.yml`).
 ```
 
-- [ ] **Step 2: Compléter `infra/oracle_vm_setup.md`**
+- [ ] **Step 2: Compléter `infra/ovh_vps_setup.md`**
 
 Ajouter une section "Déploiement (Mois 3)" reprenant les commandes des Tasks 1-2 de ce plan (clone, `.env`, `docker compose -f docker-compose.prod.yml up -d`, tunnel SSH pour l'UI), pour que la procédure soit reproductible sans redevoir consulter ce plan d'implémentation.
 
@@ -336,7 +350,7 @@ Expected : tout s'exécute sans erreur ni étape manquante non documentée.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add README.md infra/oracle_vm_setup.md
+git add README.md infra/ovh_vps_setup.md
 git commit -m "docs: portfolio-ready README and completed deployment runbook"
 git push
 ```

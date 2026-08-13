@@ -65,6 +65,7 @@ def test_load_staging_is_idempotent_for_same_day(db_connection) -> None:
         name="Alakazam",
         set_id="base1",
         set_name="Base",
+        series="Base",
         rarity="Rare Holo",
         average_sell_price=12.5,
         trend_price=13.0,
@@ -78,6 +79,11 @@ def test_load_staging_is_idempotent_for_same_day(db_connection) -> None:
         cur.execute("SELECT count(*) FROM staging.card_prices WHERE card_id = 'base1-1';")
         (count,) = cur.fetchone()
     assert count == 1
+
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT series FROM staging.card_prices WHERE card_id = %s;", ("base1-1",))
+        (series,) = cur.fetchone()
+    assert series == "Base"
 
 
 def test_load_quarantine_records_rejected_rows(db_connection) -> None:

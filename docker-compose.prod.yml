@@ -1,0 +1,182 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - card_tracker_pg_data:/var/lib/postgresql/data
+      - ./migrations:/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  airflow-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # airflow-init : conteneur "a usage unique" (voir docker-compose.yml local
+  # pour le detail complet) -- pas de healthcheck ici, une verification de
+  # sante n'a de sens que pour un service cense rester UP en continu.
+  airflow-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: /opt/airflow
+    entrypoint: /bin/bash
+    # IMPORTANT -- les lignes de continuation ci-dessous DOIVENT rester a LA
+    # MEME indentation (6 espaces) que la premiere ("-c ..."). En YAML, un
+    # scalaire replie (">") ne fusionne les retours a la ligne en espaces QUE
+    # si l'indentation est constante -- une ligne plus indentee est traitee
+    # litteralement, retour a la ligne inclus. C'est exactement le bug deja
+    # rencontre et corrige sur le docker-compose.yml local (Mois 2) :
+    # une sur-indentation ici avait casse la commande en plusieurs
+    # instructions bash distinctes ("airflow users create" sans ses
+    # arguments -e/-f/-l/-r, puis "--firstname ..." execute comme une
+    # commande inconnue). Reproduit puis corrige ici, meme cause, meme fix.
+    command: >
+      -c "airflow db migrate &&
+      airflow users create --username admin --password ${AIRFLOW_ADMIN_PASSWORD}
+      --firstname Admin --lastname User --role Admin --email admin@example.com"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./.env:/opt/airflow/.env:ro
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    user: "${AIRFLOW_UID:-50000}:0"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: /opt/airflow
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+    command: webserver
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./logs:/opt/airflow/logs
+      - ./.env:/opt/airflow/.env:ro
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    user: "${AIRFLOW_UID:-50000}:0"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@airflow-db/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: /opt/airflow
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+    command: scheduler
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./logs:/opt/airflow/logs
+      - ./.env:/opt/airflow/.env:ro
+    # Pas de --hostname sur ce check (contrairement a un premier essai) : ce
+    # filtre comparait le hostname du conteneur au hostname enregistre par
+    # Airflow en base pour ce job, et les deux ne correspondaient pas
+    # (constate en prod : "No alive jobs found" alors que le scheduler
+    # tournait parfaitement -- 2 pipelines complets reussis pendant que ce
+    # healthcheck le signalait a tort comme "unhealthy"). Un seul conteneur
+    # scheduler existe dans ce deploiement, donc verifier "au moins un
+    # SchedulerJob actif" (sans filtrer par hostname) est suffisant et fiable.
+    healthcheck:
+      test: ["CMD", "airflow", "jobs", "check", "--job-type", "SchedulerJob"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  # metabase : UI d'exploration de la base de données (Mois 3, voir
+  # docs/superpowers/specs/2026-08-09-metabase-db-ui-design.md). Stockage
+  # interne H2 (métadonnées Metabase -- comptes, dashboards sauvegardés --
+  # PAS une copie des données du pipeline) sur un volume nommé persistant.
+  # Aucun depends_on : Metabase démarre et devient "healthy" de façon
+  # autonome (serveur Jetty + assistant de configuration), la connexion à
+  # "db" se fait plus tard, via son assistant web, pas au démarrage du
+  # conteneur.
+  metabase:
+    image: metabase/metabase:v0.50.32
+    environment:
+      # MB_DB_FILE : sans cette variable, Metabase stocke son fichier H2
+      # dans le système de fichiers éphémère du conteneur (perdu à chaque
+      # recréation). En la pointant vers un chemin sous le volume monté
+      # ci-dessous, les comptes/dashboards Metabase survivent à un
+      # `docker compose down`/`up` -- piège documenté de Metabase en Docker,
+      # vérifié explicitement pour ne pas le reproduire ici.
+      MB_DB_FILE: /metabase-data/metabase.db
+    volumes:
+      - metabase_data:/metabase-data
+    # 127.0.0.1 uniquement : jamais exposé sur l'interface publique du VPS,
+    # identique au pattern déjà en place pour airflow-webserver (port 8080).
+    # Accès uniquement via tunnel SSH (voir Task 3 pour la commande exacte).
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      # curl confirmé présent dans l'image officielle metabase/metabase
+      # (Alpine, vérifié directement avant d'écrire ce plan). /api/health
+      # répond dès que le serveur Jetty interne est prêt -- PAS besoin
+      # qu'une connexion à une base externe soit configurée au préalable
+      # (ça, c'est l'étape manuelle du Task 3).
+      test: ["CMD", "curl", "--fail", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # start_period plus long que les autres services (60s pour Airflow) :
+      # Metabase est une application JVM, son démarrage à froid est
+      # nettement plus lent qu'un serveur Python/Airflow.
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  card_tracker_pg_data:
+  airflow_pg_data:
+  metabase_data:

@@ -45,11 +45,12 @@ logger = logging.getLogger(__name__)
 # la date de création de la ligne, qui reste implicite ici : dim_card n'a pas
 # de colonne created_at séparée).
 _UPSERT_DIM_CARD_SQL = """
-    INSERT INTO prod.dim_card (card_id, name, set_id, set_name, rarity)
-    VALUES (%(card_id)s, %(name)s, %(set_id)s, %(set_name)s, %(rarity)s)
+    INSERT INTO prod.dim_card (card_id, name, set_id, set_name, series, rarity)
+    VALUES (%(card_id)s, %(name)s, %(set_id)s, %(set_name)s, %(series)s, %(rarity)s)
     ON CONFLICT (card_id) DO UPDATE SET
         name = EXCLUDED.name, set_id = EXCLUDED.set_id,
-        set_name = EXCLUDED.set_name, rarity = EXCLUDED.rarity,
+        set_name = EXCLUDED.set_name, series = EXCLUDED.series,
+        rarity = EXCLUDED.rarity,
         updated_at = now()
 """
 
@@ -107,7 +108,7 @@ def load_staging_to_warehouse(
     conn: Connection,
     extracted_date: date,
     source: str = "pokemontcg.io",
-    platform_name: str = "cardmarket",
+    platform_name: str = "tcgplayer",
 ) -> int:
     """Charge staging.card_prices vers le star schema. Les dimensions
     (dim_card, dim_date) sont upsertées avant le fait pour respecter les
@@ -133,7 +134,7 @@ def load_staging_to_warehouse(
         # staging_loader.py).
         cur.execute(
             """
-            SELECT card_id, name, set_id, set_name, rarity,
+            SELECT card_id, name, set_id, set_name, series, rarity,
                    average_sell_price, trend_price, low_price
             FROM staging.card_prices
             WHERE extracted_date = %s AND source = %s
@@ -175,6 +176,7 @@ def load_staging_to_warehouse(
             name,
             set_id,
             set_name,
+            series,
             rarity,
             average_sell_price,
             trend_price,
@@ -187,6 +189,7 @@ def load_staging_to_warehouse(
                     "name": name,
                     "set_id": set_id,
                     "set_name": set_name,
+                    "series": series,
                     "rarity": rarity,
                 },
             )

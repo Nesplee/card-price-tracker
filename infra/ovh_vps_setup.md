@@ -48,7 +48,7 @@ Default: deny (incoming), allow (outgoing), disabled (routed)
 22/tcp (OpenSSH (v6)) ALLOW IN    Anywhere (v6)
 ```
 
-Les ports Postgres (5432) et Airflow (8080) seront ouverts explicitement au Mois 3, au moment du déploiement réel — pas avant, pour limiter la surface d'attaque tant que rien n'est encore déployé dessus.
+**Mise à jour (Mois 3)** : décision finalement prise de ne JAMAIS ouvrir les ports Postgres (5432) ni Airflow (8080) dans UFW, même après déploiement — voir la section Déploiement ci-dessous. Ces services restent liés à `127.0.0.1` sur le VPS (jamais sur l'interface publique) et accessibles uniquement via tunnel SSH. Le firewall reste donc identique à l'état de fin de Mois 1 (seul le port 22 exposé), pour toute la durée du projet.
 
 ## Docker
 
@@ -64,3 +64,68 @@ Vérifié avec `docker compose version` (v5.4.0) et `docker run --rm hello-world
 ## État à la fin de cette tâche
 
 VPS actif, joignable en SSH par clé uniquement, durci (pas de mot de passe, pas de root SSH, firewall restreint à SSH), Docker + Docker Compose opérationnels. Prêt à servir de cible de déploiement au Mois 3 — aucun service applicatif (Postgres, Airflow) n'est encore installé dessus, conformément au séquencement décidé lors du brainstorming initial (infra provisionnée tôt, déploiement réel repoussé au Mois 3 une fois le pipeline stabilisé en local).
+
+---
+
+## Déploiement (Mois 3)
+
+### Alias SSH pratique
+
+Ajouté dans `~/.ssh/config` (machine de développement), pour éviter de retaper l'IP/utilisateur/clé à chaque connexion :
+
+```
+Host card-tracker-vm
+    HostName 164.132.243.29
+    User ubuntu
+    IdentityFile ~/.ssh/card-tracker-vm.pem
+```
+
+Toutes les commandes ci-dessous supposent cet alias.
+
+### Premier déploiement
+
+```bash
+ssh card-tracker-vm
+git clone <url-du-repo> card-price-tracker
+cd card-price-tracker
+cp .env.example .env   # remplir toutes les valeurs (jamais commité)
+```
+
+Démarrage de la stack complète (Postgres applicatif, Postgres métadonnées Airflow, Airflow webserver + scheduler, Metabase) :
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+./scripts/apply_migrations.sh docker-compose.prod.yml
+```
+
+### Mises à jour ultérieures
+
+Le code Python (`src/`, `dags/`) est monté en volume dans les conteneurs Airflow déjà en cours d'exécution — un simple `git pull` suffit, **pas besoin de rebuild ni de redémarrage** pour que le nouveau code soit pris en compte au prochain déclenchement du DAG :
+
+```bash
+ssh card-tracker-vm
+cd card-price-tracker
+git pull
+```
+
+Si une migration SQL a été ajoutée : `./scripts/apply_migrations.sh docker-compose.prod.yml`.
+Si `docker-compose.prod.yml` a changé (nouveau service, image mise à jour) : `docker compose -f docker-compose.prod.yml up -d`.
+
+### Accéder aux interfaces web (Airflow, Metabase)
+
+Aucun des deux n'est exposé publiquement (voir Firewall ci-dessus) — accès uniquement via tunnel SSH, un port local par service :
+
+```bash
+ssh -L 8080:localhost:8080 card-tracker-vm   # UI Airflow -> http://localhost:8080
+ssh -L 3000:localhost:3000 card-tracker-vm   # UI Metabase -> http://localhost:3000
+```
+
+Si le port local choisi est déjà occupé par autre chose sur ta machine, changer uniquement le premier nombre (ex: `-L 3001:localhost:3000`) — le port distant (après le `:`) ne doit jamais changer.
+
+### Vérifier l'état de la stack
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+```
+
+Tous les services persistants (`db`, `airflow-db`, `airflow-webserver`, `airflow-scheduler`, `metabase`) doivent afficher `Up ... (healthy)`. `airflow-init` est un conteneur à usage unique (migration + création du compte admin) : il apparaît `Exited (0)` après son passage, ce qui est l'état normal, pas une erreur.
