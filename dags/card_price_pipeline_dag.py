@@ -13,6 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import psycopg
 from airflow.decorators import dag, task
+from airflow.models import DagRun
 
 from src.common.config import load_db_config, load_pokemontcg_config
 from src.common.db import get_connection
@@ -23,7 +24,15 @@ from src.transform.clean import clean_raw_to_staging
 
 
 @dag(
-    schedule="@daily",
+    # schedule="0 7 * * *" (cron : minute=0, heure=7, tous les jours) plutôt
+    # que le raccourci "@daily" (équivalent à "0 0 * * *", minuit UTC) :
+    # décision utilisateur de décaler le déclenchement automatique à 7h00
+    # UTC. Valeur FIXE en UTC (pas de fuseau horaire local type
+    # Europe/Zurich) : le DAG reste entièrement en UTC comme le reste de ce
+    # fichier (voir start_date ci-dessous) -- ça évite toute complication
+    # liée au changement d'heure été/hiver suisse, qui décalerait sinon
+    # l'heure UTC réelle du déclenchement de 1h selon la saison.
+    schedule="0 7 * * *",
     # start_date DANS LE PASSÉ (pas dans le futur) : ÉCART DÉLIBÉRÉ par
     # rapport à la brief initiale (qui proposait 2026-09-01). Vérifié
     # empiriquement lors du test manuel de ce DAG (Step 5) : avec une
@@ -44,44 +53,176 @@ from src.transform.clean import clean_raw_to_staging
     # run manqué n'a pas de sens à rattraper a posteriori -- contrairement à
     # un pipeline qui traiterait des données historiques par date.
     catchup=False,
+    # max_active_runs=1 (ajouté le 2026-08-09, review finale du plan DAG
+    # reliability) : empêche deux DagRuns de tourner en même temps pour ce
+    # DAG (défaut Airflow : 16). Constaté en conditions réelles le jour même
+    # de ce correctif : un déclenchement manuel + une reprise de run bloqué
+    # + le nouveau run automatique se sont retrouvés à cibler la MÊME
+    # extracted_date en parallèle (extract_and_load_raw calcule sa date via
+    # dag_run.start_date, "aujourd'hui" pour n'importe quel run qui
+    # s'exécute maintenant). Sans risque de données -- _resume_page +
+    # l'UPSERT de load_cards rendent ça idempotent, vérifié empiriquement,
+    # aucune ligne dupliquée -- mais chaque run concurrent relit son propre
+    # compteur de reprise et refait des appels API déjà faits par l'autre :
+    # du gaspillage pur contre une source déjà instable, sans aucun
+    # bénéfice. max_active_runs=1 sérialise les runs de ce DAG (un DagRun
+    # supplémentaire reste simplement en file d'attente au lieu de
+    # s'exécuter en parallèle) sans changer aucun comportement fonctionnel.
+    max_active_runs=1,
+    # dagrun_timeout=timedelta(hours=4) (ajouté le 2026-08-09, round 3 de la
+    # review finale -- valeur corrigée d'un round 2 qui n'avait AUCUNE marge
+    # réelle, voir plus bas) : plafonne la durée CUMULÉE d'un DagRun entier,
+    # retries inclus. Nécessaire ici et PAS interchangeable avec
+    # execution_timeout (voir le commentaire sur extract_and_load_raw
+    # ci-dessous) : execution_timeout est un plafond PAR TENTATIVE, remis à
+    # zéro à chaque nouveau retry -- il ne borne en rien la durée totale
+    # d'une tâche qui échoue rapidement (~1 min) puis retente jusqu'à 60
+    # fois. dagrun_timeout, lui, s'applique au DagRun dans son ensemble :
+    # passé ce délai, Airflow marque le DagRun en échec (les task instances
+    # encore en cours passent à SKIPPED, pas FAILED -- distinction sans
+    # conséquence ici, ce fichier ne définit aucun on_failure_callback qui
+    # dépendrait de l'état précis de la tâche) même si une tâche est encore
+    # en train de retenter -- le seul mécanisme qui transforme réellement un
+    # run bloqué en signal terminal visible plutôt qu'un état "up_for_retry"
+    # indéfini.
+    #
+    # Calcul de marge (round 3 -- le round 2 fixait 3h, exactement
+    # l'estimation haute d'extract_and_load_raw SEULE, donc sans AUCUNE
+    # marge dès qu'on compte le reste du DagRun) : pire cas
+    # extract_and_load_raw ~3h (voir son commentaire plus bas) + pire cas
+    # clean_to_staging et load_to_warehouse (retries=2 chacun, PAS de
+    # retry_delay explicite -> défaut Airflow 5 min par retry, soit jusqu'à
+    # ~10 min de pure attente par tâche en plus d'une exécution SQL locale
+    # rapide) ~= 3h + 2x11 min ~= 3h22. 4h laisse ~38 min de marge réelle
+    # au-dessus de ce total, pas seulement au-dessus d'une seule des trois
+    # tâches.
+    #
+    # RISQUE CONNU, documenté et accepté (trouvé en review, 2026-08-09) : si
+    # dagrun_timeout coupe le DagRun PENDANT qu'extract_and_load_raw est
+    # encore en train de retenter, les pages déjà commitées dans
+    # raw.card_prices pour cette extracted_date restent orphelines --
+    # clean_to_staging et load_to_warehouse ne tournent jamais pour ce jour
+    # (le DagRun est déjà FAILED), et le run automatique du lendemain
+    # calcule une extracted_date DIFFÉRENTE (voir dag_run.start_date
+    # ci-dessous) : rien ne revient automatiquement chercher le jour
+    # abandonné. Scénario volontairement laissé sans détection automatique
+    # (complexité disproportionnée pour un cas qui exigerait une panne
+    # pokemontcg.io de plusieurs heures, pire que tout ce qui a été observé
+    # à ce jour) -- RÉCUPÉRATION MANUELLE, déjà éprouvée en production le
+    # 2026-08-09 pour combler un trou de données similaire (extracted_date
+    # 2026-08-08) : appeler directement run_extract_load(client, conn,
+    # date(...)) avec la date orpheline (reprend automatiquement via le
+    # checkpoint existant dans raw.card_prices), puis clean_raw_to_staging
+    # et load_staging_to_warehouse pour la même date. Voir
+    # docs/superpowers/plans/2026-08-08-dag-reliability.md pour le contexte
+    # de l'incident original (2026-08-08, sans lien avec ce risque précis --
+    # comblé à l'époque par la même procédure manuelle décrite ci-dessus,
+    # qui reste donc éprouvée et réutilisable si dagrun_timeout se déclenche
+    # un jour en cours de retries).
+    dagrun_timeout=timedelta(hours=4),
 )
 def card_price_pipeline():
-    # retries=20 SCOPÉ À CETTE SEULE TÂCHE (pas à default_args du DAG comme
-    # avant une review de code) : valeur augmentée après un run réel qui a
-    # échoué avec retries=2 (3 tentatives au total), non pas à cause d'un bug
-    # mais de l'instabilité mesurée de pokemontcg.io (~37% d'échecs 5xx
-    # observés au Mois 1) sur une extraction de ~80 pages. La preuve concrète
-    # (logs du run manuel__2026-08-06T19:01:11) montre que le mécanisme
-    # checkpoint+reprise (src/extract/pipeline.py) fonctionne bien À TRAVERS
-    # les retries Airflow -- chaque nouvelle tentative reprend exactement où
-    # la précédente s'est arrêtée ("Reprise détectée [...] page 40"), sans
-    # jamais repartir de zéro ni dupliquer. Le seul problème était le NOMBRE
-    # de tentatives, pas la logique de reprise elle-même : avec seulement 3
-    # tentatives, la probabilité de traverser ~80 pages à 37% d'échec par
-    # page est trop faible. 20 tentatives, combinées au coût quasi nul d'un
-    # retry (reprise immédiate, pas de perte), rend un run complet bien plus
-    # probable sans risque de corruption -- au pire, encore plus de retries
-    # manuels seraient nécessaires, jamais de résultat incorrect.
+    # retries=60 (porté de 20 à 60 le 2026-08-08, voir
+    # docs/superpowers/specs/2026-08-08-dag-reliability-design.md) SCOPÉ À
+    # CETTE SEULE TÂCHE (pas à default_args du DAG comme avant une review de
+    # code) : valeur augmentée après un run réel (scheduled__2026-08-07) qui
+    # a épuisé ses 20 retries (21 tentatives au total) sans finir
+    # l'extraction, à cause d'une panne pokemontcg.io large et prolongée
+    # cette nuit-là (erreurs 500/502 sur des pages différentes selon les
+    # tentatives : page 1, 28, 49...). Preuve concrète tirée des logs de ce
+    # run : chaque tentative progressait bien via le checkpoint (page 1 ->
+    # 28 -> 49 sur 21 tentatives, ~2,3 pages gagnées par tentative en
+    # moyenne), mais 21 tentatives n'ont pas suffi à couvrir les ~80 pages
+    # du catalogue -- il en aurait fallu environ 35 à ce rythme. 60 laisse
+    # une marge confortable pour une panne encore pire, tout en restant
+    # borné, sans aucun risque de donnée : le mécanisme de checkpoint
+    # (commit par page, voir src/extract/pipeline.py) garantit qu'aucune
+    # tentative ne repart de zéro ni ne duplique.
+    #
+    # Pire cas RÉEL (corrigé le 2026-08-09, review finale) : ce n'est PAS
+    # "60 x retry_delay=30s = ~30 minutes" -- ce calcul ne comptait que les
+    # pauses entre tentatives, pas le temps de travail de chaque tentative.
+    # Mesure empirique tirée de l'incident lui-même : 21 tentatives en ~26
+    # minutes, soit ~74s par tentative (30s de pause + ~44s de travail
+    # réel) -- au même rythme, 61 tentatives ~= 75 minutes. En pire cas
+    # théorique (pannes lentes par timeout plutôt que 500 immédiats, voir
+    # PokemonTcgClient : jusqu'à ~54s perdus sur une seule page avant
+    # d'abandonner), l'ordre de grandeur monte à 1h30-3h. C'est
+    # dagrun_timeout (voir le décorateur @dag ci-dessus), PAS
+    # execution_timeout ci-dessous, qui plafonne ce pire cas CUMULÉ --
+    # execution_timeout ne borne qu'une seule tentative à la fois, voir son
+    # propre commentaire pour le détail de cette distinction (round 2 de
+    # cette review a corrigé une première version erronée de ce
+    # commentaire, qui attribuait ce rôle à execution_timeout).
     #
     # retry_delay=30s (pas les 5 minutes par défaut d'Airflow) : la reprise
     # est immédiate et peu coûteuse grâce au checkpoint par page (aucun
     # travail perdu, on repart de la dernière page confirmée) -- attendre 5
     # minutes entre chaque tentative n'apporterait rien ici (l'API ne "guérit"
     # pas parce qu'on attend plus longtemps que 30s) et multiplierait juste
-    # inutilement la durée totale d'un run qui doit déjà absorber jusqu'à 20
+    # inutilement la durée totale d'un run qui doit déjà absorber jusqu'à 60
     # tentatives.
     #
-    # Pourquoi retries=20 N'EST PAS mis sur les 3 tâches (via default_args du
+    # Pourquoi retries=60 N'EST PAS mis sur les 3 tâches (via default_args du
     # DAG, comme c'était le cas avant) : clean_to_staging et load_to_warehouse
     # ci-dessous sont des opérations SQL locales, rapides et déterministes --
     # elles n'appellent aucune API externe instable. Si l'une d'elles échoue,
     # c'est très probablement un vrai bug (pas un aléa réseau), et le laisser
-    # masqué derrière 20 tentatives x le délai entre essais retarderait sa
+    # masqué derrière 60 tentatives x le délai entre essais retarderait sa
     # visibilité pour rien. Elles gardent donc retries=2 (une valeur modeste,
     # pour absorber un aléa transitoire de connexion à la DB locale, sans
     # cacher un vrai bug pendant longtemps).
-    @task(retries=20, retry_delay=timedelta(seconds=30))
-    def extract_and_load_raw() -> str:
+    # execution_timeout=timedelta(hours=2) (ajouté le 2026-08-09, review
+    # finale) : NE plafonne PAS le pire cas cumulé (~1h30-3h sur l'ensemble
+    # des 60 tentatives, voir commentaire ci-dessus) -- c'est un plafond PAR
+    # TENTATIVE, remis à zéro à chaque nouveau retry (vérifié : c'est le
+    # comportement documenté d'Airflow, pas une supposition -- une première
+    # version de ce commentaire affirmait à tort le contraire, corrigée au
+    # round 2 de cette review). Sa seule utilité réelle ici : protéger
+    # contre UNE tentative qui resterait bloquée indéfiniment sans jamais
+    # lever d'exception (ex: un appel réseau qui ne "timeout" pas
+    # proprement côté librairie) -- un cas marginal vu que chaque tentative
+    # observée en pratique dure ~44-74s, mais un filet de sécurité peu
+    # coûteux à garder. Le plafond qui borne réellement le CUMUL de toutes
+    # les tentatives est dagrun_timeout, sur le décorateur @dag ci-dessus.
+    @task(retries=60, retry_delay=timedelta(seconds=30), execution_timeout=timedelta(hours=2))
+    def extract_and_load_raw(dag_run: DagRun) -> str:
+        # dag_run: DagRun -- paramètre injecté AUTOMATIQUEMENT par Airflow
+        # (TaskFlow reconnaît "dag_run" comme nom de paramètre spécial et le
+        # peuple avec l'objet DagRun courant, sans rien à configurer côté
+        # appel, voir l'invocation extract_and_load_raw() en bas de fichier
+        # -- inchangée). extracted_date se base sur dag_run.start_date (et
+        # NON PLUS uniquement datetime.now(UTC).date() comme avant ce
+        # correctif, voir
+        # docs/superpowers/specs/2026-08-08-dag-reliability-design.md) :
+        # dag_run.start_date reste FIXE entre les tentatives d'une même
+        # tâche une fois le DagRun repassé en RUNNING -- contrairement à
+        # datetime.now(), qui se réévalue à CHAQUE tentative. Avec
+        # retries=60 (voir ci-dessus), une séquence de retries peut
+        # désormais durer assez longtemps pour traverser minuit UTC ;
+        # recalculer "aujourd'hui" à chaque tentative aurait alors changé
+        # extracted_date en cours de route, cassant le checkpoint
+        # (_resume_page compte les lignes déjà chargées pour L'ANCIENNE
+        # date, en trouve zéro pour la nouvelle, et repart de la page 1 --
+        # perdant toute la progression déjà faite pour la date d'origine).
+        # dag_run.start_date élimine ce risque : la valeur reste identique
+        # du début à la toute dernière tentative, quelle que soit la durée
+        # totale du run.
+        #
+        # `or datetime.now(UTC)` (ajouté le 2026-08-09, review finale) :
+        # dag_run.start_date peut valoir None -- pas seulement avant la
+        # toute première exécution, mais aussi juste après un `airflow
+        # tasks clear` (utilisé pour rejouer un run bloqué, voir
+        # docs/superpowers/plans/2026-08-08-dag-reliability.md, Task 2).
+        # Vérifié dans le code source d'Airflow 2.9.3
+        # (airflow/models/taskinstance.py:clear_task_instances) : un clear
+        # remet le DagRun en QUEUED et met start_date à None ; c'est le
+        # SCHEDULER qui le repeuple au passage QUEUED -> RUNNING
+        # (airflow/jobs/scheduler_job_runner.py). Entre les deux, si cette
+        # tâche s'exécutait, dag_run.start_date.date() lèverait
+        # AttributeError sur None. Le repli sur datetime.now(UTC) couvre
+        # cette fenêtre sans rien changer au cas normal (start_date déjà
+        # peuplé dans l'immense majorité des exécutions).
         # ÉCART DÉLIBÉRÉ par rapport à une réécriture "en dur" de la boucle
         # de pagination + checkpoint ICI dans le DAG : on réutilise
         # run_extract_load() (src/extract/pipeline.py, Task 4) plutôt que de
@@ -104,7 +245,7 @@ def card_price_pipeline():
         # fichier pour le détail. Le même choix est déjà fait, pour la même
         # raison, dans scripts/run_extract_load.py (le point d'entrée manuel
         # équivalent hors Airflow).
-        extracted_date = datetime.now(UTC).date()
+        extracted_date = (dag_run.start_date or datetime.now(UTC)).date()
         client = PokemonTcgClient(load_pokemontcg_config())
         conn = psycopg.connect(load_db_config().dsn)
         try:

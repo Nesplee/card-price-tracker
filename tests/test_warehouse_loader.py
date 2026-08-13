@@ -69,6 +69,7 @@ def _seed_card() -> CleanedCard:
         name="Alakazam",
         set_id="base1",
         set_name="Base",
+        series="Base",
         rarity="Rare Holo",
         average_sell_price=12.5,
         trend_price=13.0,
@@ -93,6 +94,11 @@ def test_load_staging_to_warehouse_inserts_fact(db_connection) -> None:
         (fact_count,) = cur.fetchone()
     assert dim_count == 1
     assert fact_count == 1
+
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT series FROM prod.dim_card WHERE card_id = %s;", ("base1-1",))
+        (series,) = cur.fetchone()
+    assert series == "Base"
 
 
 def test_load_staging_to_warehouse_is_idempotent(db_connection) -> None:

@@ -107,3 +107,28 @@ def test_fetch_cards_page_fails_immediately_on_client_error(client: PokemonTcgCl
     # Un seul appel HTTP effectué : la preuve que le retry n'a pas eu lieu sur
     # cette erreur 4xx (contrairement aux 4 appels du test précédent sur 5xx).
     assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_fetch_sets_returns_data(client: PokemonTcgClient) -> None:
+    # Même logique que test_fetch_cards_page_returns_data : cas nominal, on
+    # vérifie que fetch_sets() extrait bien la liste sous la clé "data" de la
+    # réponse JSON.
+    responses.add(
+        responses.GET,
+        "https://api.pokemontcg.io/v2/sets",
+        json={
+            "data": [
+                {"id": "swsh6", "name": "Chilling Reign"},
+                {"id": "xy5", "name": "Primal Clash"},
+            ]
+        },
+        status=200,
+    )
+
+    sets = client.fetch_sets()
+
+    assert sets == [
+        {"id": "swsh6", "name": "Chilling Reign"},
+        {"id": "xy5", "name": "Primal Clash"},
+    ]
