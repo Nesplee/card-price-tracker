@@ -85,3 +85,18 @@ def load_pokemontcg_config() -> PokemonTcgConfig:
     # centraliser la lecture de la config (un seul endroit à modifier si le
     # nom de la variable d'environnement change un jour).
     return PokemonTcgConfig(api_key=_require_env("POKEMONTCG_API_KEY"))
+
+
+def load_dashboard_reader_config() -> DatabaseConfig:
+    # Même host/port/db que le pipeline (une seule base Postgres), mais un
+    # utilisateur distinct : dashboard_reader (migration 007), lecture seule
+    # sur prod uniquement. Ne JAMAIS réutiliser load_db_config() ici -- ce
+    # serait donner à l'API du dashboard les droits d'écriture de
+    # pipeline_app, qu'elle n'utilise jamais.
+    return DatabaseConfig(
+        host=_require_env("POSTGRES_HOST"),
+        port=int(_require_env("POSTGRES_PORT")),
+        dbname=_require_env("POSTGRES_DB"),
+        user="dashboard_reader",
+        password=_require_env("DASHBOARD_READER_PASSWORD"),
+    )
