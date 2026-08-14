@@ -81,9 +81,10 @@ complet : `docs/superpowers/specs/2026-08-08-dag-reliability-design.md`.
   `dashboard_reader` (lecture seule, scopé au seul schéma `prod`) pour
   l'exploration de données — jamais le même rôle pour les deux usages.
 - VPS de production : SSH par clé uniquement, firewall restreint au seul port
-  22. Airflow (8080) et Metabase (3000) ne sont **jamais exposés
-  publiquement** — accessibles uniquement via tunnel SSH depuis une machine
-  autorisée. PostgreSQL n'est jamais publié du tout.
+  22. Airflow (8080), Metabase (3000), ainsi que l'API (8000) et le frontend
+  (5173) du dashboard sur mesure, ne sont **jamais exposés publiquement** —
+  accessibles uniquement via tunnel SSH depuis une machine autorisée.
+  PostgreSQL n'est jamais publié du tout.
 - Aucun secret commité : mots de passe générés localement, synchronisés en
   base séparément du SQL versionné (`scripts/apply_migrations.sh`).
 
@@ -96,6 +97,23 @@ instance Metabase auto-hébergée, accessible via tunnel SSH :
 ssh -L 3000:localhost:3000 card-tracker-vm   # adapter l'alias SSH
 # puis http://localhost:3000
 ```
+
+## Dashboard sur mesure
+
+Une seconde interface, en lecture seule elle aussi, complète Metabase :
+une petite application web (API FastAPI + frontend React) dédiée à trois
+usages précis plutôt qu'à l'exploration libre — catalogue de cartes avec
+recherche et filtres, historique de prix détaillé par carte, et valeur de
+la collection personnelle. Même rôle Postgres en lecture seule
+(`dashboard_reader`) que Metabase, même politique d'accès : jamais exposée
+publiquement, uniquement via tunnel SSH.
+
+```bash
+ssh -L 5173:localhost:5173 card-tracker-vm   # adapter l'alias SSH
+# puis http://localhost:5173
+```
+
+Détail de la conception : `docs/superpowers/specs/2026-08-13-custom-dashboard-design.md`.
 
 ## Lancer en local
 

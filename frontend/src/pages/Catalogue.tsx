@@ -27,6 +27,15 @@ export function Catalogue() {
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }))
   }
 
+  // Fonction séparée dédiée à la pagination : contrairement à updateFilter,
+  // elle ne doit PAS réinitialiser la page à 1 (sinon on ne pourrait jamais
+  // avancer). Bug corrigé : updateFilter('page', N) écrivait [key]: value
+  // PUIS page: 1 dans le même objet littéral -- en JS, la dernière clé
+  // gagne, donc "page" valait toujours 1 quel que soit N.
+  function goToPage(page: number) {
+    setFilters((prev) => ({ ...prev, page }))
+  }
+
   return (
     <div>
       <h1>Catalogue</h1>
@@ -85,10 +94,12 @@ export function Catalogue() {
       </table>
 
       <p>{total} résultat(s)</p>
-      <button disabled={(filters.page ?? 1) <= 1} onClick={() => updateFilter('page', (filters.page ?? 1) - 1)}>
+      <button disabled={(filters.page ?? 1) <= 1} onClick={() => goToPage((filters.page ?? 1) - 1)}>
         Précédent
       </button>
-      <button onClick={() => updateFilter('page', (filters.page ?? 1) + 1)}>Suivant</button>
+      <button disabled={(filters.page ?? 1) * 25 >= total} onClick={() => goToPage((filters.page ?? 1) + 1)}>
+        Suivant
+      </button>
     </div>
   )
 }
