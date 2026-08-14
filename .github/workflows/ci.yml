@@ -49,6 +49,7 @@ jobs:
       POSTGRES_APP_USER: pipeline_app
       POSTGRES_APP_PASSWORD: pipeline_app_password
       POKEMONTCG_API_KEY: unused-in-ci
+      DASHBOARD_READER_PASSWORD: dashboard_reader_password
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

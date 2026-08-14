@@ -44,6 +44,12 @@ def client():
             "INSERT INTO prod.dim_card (card_id, name, set_id, set_name, rarity, series) "
             "VALUES ('base1-1', 'Alakazam', 'base1', 'Base Set', 'Rare Holo', 'Base')"
         )
+        admin_conn.execute(
+            "INSERT INTO prod.dim_date (date_id, year, month, day, day_of_week) "
+            "VALUES (%s, %s, %s, %s, %s) "
+            "ON CONFLICT (date_id) DO NOTHING",
+            (date(2026, 8, 1), 2026, 8, 1, date(2026, 8, 1).weekday()),
+        )
         platform_id = admin_conn.execute(
             "SELECT platform_id FROM prod.dim_platform WHERE platform_name = 'tcgplayer'"
         ).fetchone()[0]
