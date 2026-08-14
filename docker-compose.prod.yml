@@ -143,6 +143,19 @@ services:
   # autonome (serveur Jetty + assistant de configuration), la connexion à
   # "db" se fait plus tard, via son assistant web, pas au démarrage du
   # conteneur.
+  # metabase : UI d'exploration de la base de données (Mois 3, voir
+  # docs/superpowers/specs/2026-08-09-metabase-db-ui-design.md). Stockage
+  # interne H2 (métadonnées Metabase -- comptes, dashboards sauvegardés --
+  # PAS une copie des données du pipeline) sur un volume nommé persistant.
+  # Aucun depends_on : Metabase démarre et devient "healthy" de façon
+  # autonome (serveur Jetty + assistant de configuration), la connexion à
+  # "db" se fait plus tard, via son assistant web, pas au démarrage du
+  # conteneur.
+  #
+  # TLS via certificat Tailscale (voir
+  # docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md) :
+  # Jetty n'accepte pas de PEM brut, MB_JETTY_SSL_KEYSTORE pointe sur le
+  # keystore PKCS12 généré par scripts/renew_tailscale_cert.sh.
   metabase:
     image: metabase/metabase:v0.50.32
     environment:
@@ -153,20 +166,26 @@ services:
       # `docker compose down`/`up` -- piège documenté de Metabase en Docker,
       # vérifié explicitement pour ne pas le reproduire ici.
       MB_DB_FILE: /metabase-data/metabase.db
+      MB_JETTY_SSL: "true"
+      MB_JETTY_SSL_PORT: "3000"
+      MB_JETTY_SSL_KEYSTORE: /metabase-certs/keystore.p12
+      MB_JETTY_SSL_KEYSTORE_PASSWORD: ${METABASE_KEYSTORE_PASSWORD}
     volumes:
       - metabase_data:/metabase-data
-    # 127.0.0.1 uniquement : jamais exposé sur l'interface publique du VPS,
-    # identique au pattern déjà en place pour airflow-webserver (port 8080).
-    # Accès uniquement via tunnel SSH (voir Task 3 pour la commande exacte).
+      - ./tailscale-certs:/metabase-certs:ro
+    # ${TAILSCALE_IP:-127.0.0.1} : IP Tailscale du VPS en prod, 127.0.0.1 en
+    # local/dev (défaut si TAILSCALE_IP n'est pas défini). Jamais exposé sur
+    # l'interface publique -- seule l'adresse d'écoute contrôle l'accès (ufw
+    # ne gouverne pas les ports publiés par Docker).
     ports:
-      - "127.0.0.1:3000:3000"
+      - "${TAILSCALE_IP:-127.0.0.1}:3000:3000"
     healthcheck:
-      # curl confirmé présent dans l'image officielle metabase/metabase
-      # (Alpine, vérifié directement avant d'écrire ce plan). /api/health
-      # répond dès que le serveur Jetty interne est prêt -- PAS besoin
-      # qu'une connexion à une base externe soit configurée au préalable
-      # (ça, c'est l'étape manuelle du Task 3).
-      test: ["CMD", "curl", "--fail", "http://localhost:3000/api/health"]
+      # -k : le healthcheck interne tape sur "localhost", pas sur le nom
+      # Tailscale pour lequel le certificat est émis -- la vérification de
+      # nom d'hôte échouerait sinon. La vérification réelle du certificat se
+      # fait côté client (navigateur/mobile) via le vrai nom Tailscale, sans
+      # -k. Voir la spec pour le détail.
+      test: ["CMD", "curl", "--fail", "-k", "https://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -179,6 +198,11 @@ services:
   # dashboard-api : API FastAPI en lecture seule pour le dashboard sur mesure
   # (voir docs/superpowers/specs/2026-08-13-custom-dashboard-design.md).
   # Se connecte via dashboard_reader (migration 007), jamais pipeline_app.
+  #
+  # TLS via certificat Tailscale (voir
+  # docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md) :
+  # uvicorn consomme le PEM Tailscale directement, pas de conversion
+  # nécessaire (contrairement à Metabase).
   dashboard-api:
     build:
       context: .
@@ -202,15 +226,14 @@ services:
       DASHBOARD_READER_PASSWORD: ${DASHBOARD_READER_PASSWORD}
     volumes:
       - ./src:/app/src
-    # 127.0.0.1 uniquement -- même pattern que airflow-webserver/metabase,
-    # jamais exposé sur l'interface publique du VPS.
+      - ./tailscale-certs:/certs:ro
+    # ${TAILSCALE_IP:-127.0.0.1} : voir commentaire équivalent sur metabase.
     ports:
-      - "127.0.0.1:8000:8000"
+      - "${TAILSCALE_IP:-127.0.0.1}:8000:8000"
     healthcheck:
-      # Pas de curl dans l'image python:3.11-slim (contrairement à
-      # metabase/metabase) -- urllib.request est dans la stdlib Python, évite
-      # d'installer un paquet supplémentaire juste pour le healthcheck.
-      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      # -k : voir commentaire équivalent sur metabase (nom "localhost" vs
+      # nom du certificat).
+      test: ["CMD", "python3", "-c", "import ssl, urllib.request; ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE; urllib.request.urlopen('https://localhost:8000/api/health', context=ctx)"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -218,17 +241,25 @@ services:
     restart: unless-stopped
 
   # dashboard-frontend : build React statique servi par Nginx, proxy /api/
-  # vers dashboard-api (voir frontend/nginx.conf). Port 5173 choisi pour ne
-  # pas entrer en conflit avec le port de dev Vite (aussi 5173, mais jamais
-  # utilisé en même temps que ce conteneur sur la même machine).
+  # vers dashboard-api (voir frontend/nginx.conf). Port externe 5173
+  # inchangé (décision actée dans la spec) -- seul le port interne du
+  # conteneur change (80 -> 443, voir frontend/nginx.conf, Task 3).
+  #
+  # TLS via certificat Tailscale (voir
+  # docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md) :
+  # nginx consomme le PEM Tailscale directement.
   dashboard-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     depends_on:
       - dashboard-api
+    volumes:
+      - ./tailscale-certs:/certs:ro
+    # Mapping asymétrique : port externe 5173 (inchangé), port interne 443
+    # (nginx écoute désormais en HTTPS, voir Task 3).
     ports:
-      - "127.0.0.1:5173:80"
+      - "${TAILSCALE_IP:-127.0.0.1}:5173:443"
     restart: unless-stopped
 
 volumes:
