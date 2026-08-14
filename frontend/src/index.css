@@ -1,111 +1,332 @@
+/* Système de design du dashboard : tokens de couleur/typo + styles des
+   éléments partagés (nav, panneau de filtres, tableaux, boutons). Remplace
+   le CSS par défaut du template Vite (centré 1126px, hérité du splash page
+   de démo, jamais pensé pour un vrai tableau de données). */
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --bg: #fafaf8;
+  --surface: #ffffff;
+  --border: #e4e2dd;
+  --ink: #17181c;
+  --ink-muted: #6b6e76;
+  --accent: #2451ff;
+  --accent-ink: #ffffff;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* Couleurs de rareté : seul accent thématique de l'app, réutilisé comme
+     "point" devant chaque carte dans les tableaux (Catalogue, Ma collection)
+     -- encode une vraie information (la rareté), pas une décoration. */
+  --rarity-common: #9ca3af;
+  --rarity-uncommon: #16a34a;
+  --rarity-rare: #2451ff;
+  --rarity-holo: #a855f7;
+  --rarity-illustration: #d97706;
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  --radius: 8px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
-
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
+* {
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
+  padding: 0;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
 }
 
 h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 22px;
+  margin: 0 0 20px;
+  letter-spacing: -0.01em;
 }
-h2 {
+
+a {
+  color: inherit;
+}
+
+/* Barre de navigation : bandeau fin, wordmark en mono (signale "outil de
+   données" dès le premier repère visuel), pas de logo image. */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 14px 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.nav-brand {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.nav-links {
+  display: flex;
+  gap: 4px;
+}
+
+.nav-link {
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  text-decoration: none;
+}
+
+.nav-link:hover {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.nav-link.active {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 32px;
+}
+
+/* Panneau de filtres : les champs sont regroupés dans une surface bordée
+   avec un label visible au-dessus de chaque champ (un simple placeholder
+   ne suffit pas à identifier un champ une fois rempli). */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+}
+
+.filter-field label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+input {
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+input[type='number'] {
+  width: 90px;
+}
+
+button {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--ink-muted);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr:hover {
+  background: var(--bg);
+}
+
+td a {
+  text-decoration: none;
+  font-weight: 500;
+}
+
+td a:hover {
+  text-decoration: underline;
+}
+
+/* Colonnes de prix : alignées à droite, en mono -- les chiffres tabulaires
+   s'alignent visuellement en colonne, signale "c'est une valeur mesurée". */
+.cell-price {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+th.cell-price {
+  text-align: right;
+}
+
+/* Point de rareté : le seul élément de "signature" de l'app, répété devant
+   chaque nom de carte dans les tableaux. */
+.rarity-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.card-name-cell {
+  display: flex;
+  align-items: center;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.pagination-count {
+  font-size: 12px;
+  color: var(--ink-muted);
+  margin-right: auto;
+}
+
+[role='alert'] {
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+[role='note'] {
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+/* Tuiles de statistiques (Ma collection) : chiffres clés en display font,
+   surface bordée cohérente avec le reste de l'app. */
+.stat-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.stat-tile {
+  flex: 1;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.stat-value {
+  font-family: var(--font-display);
   font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
-  margin: 0;
+  font-weight: 600;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
-
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+.chart-panel {
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }

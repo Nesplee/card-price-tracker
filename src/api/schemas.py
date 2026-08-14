@@ -45,6 +45,7 @@ class OwnedCard(BaseModel):
     name: str
     series: str | None
     set_name: str
+    rarity: str | None
     variance: str
     grade: str
     quantity: int

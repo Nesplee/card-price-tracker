@@ -152,7 +152,7 @@ def get_owned_cards(
     return conn.execute(
         f"""
         SELECT
-            o.id, o.card_id, c.name, c.series, c.set_name, o.variance, o.grade,
+            o.id, o.card_id, c.name, c.series, c.set_name, c.rarity, o.variance, o.grade,
             o.quantity, o.average_cost_paid,
             (o.average_cost_paid IS NULL OR o.average_cost_paid = 0) AS cost_unknown,
             latest.average_sell_price AS current_price

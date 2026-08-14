@@ -20,21 +20,23 @@ export function DetailCarte() {
   }, [cardId])
 
   if (error) return <p role="alert">{error}</p>
-  if (!history) return <p>Chargement...</p>
+  if (!history) return <p className="page">Chargement...</p>
 
   return (
-    <div>
+    <div className="page">
       <h1>{history.name}</h1>
-      <ResponsiveContainer width="100%" height={400}>
-        <LineChart data={history.history}>
-          <XAxis dataKey="date_id" />
-          <YAxis />
-          <Tooltip />
-          <Line type="monotone" dataKey="average_sell_price" name="Prix moyen" stroke="#2563eb" />
-          <Line type="monotone" dataKey="trend_price" name="Tendance" stroke="#16a34a" />
-          <Line type="monotone" dataKey="low_price" name="Prix bas" stroke="#dc2626" />
-        </LineChart>
-      </ResponsiveContainer>
+      <div className="chart-panel">
+        <ResponsiveContainer width="100%" height={380}>
+          <LineChart data={history.history}>
+            <XAxis dataKey="date_id" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} />
+            <Tooltip />
+            <Line type="monotone" dataKey="average_sell_price" name="Prix moyen" stroke="#2451ff" />
+            <Line type="monotone" dataKey="trend_price" name="Tendance" stroke="#16a34a" />
+            <Line type="monotone" dataKey="low_price" name="Prix bas" stroke="#d97706" />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   )
 }

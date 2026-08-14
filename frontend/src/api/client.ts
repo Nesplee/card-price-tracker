@@ -38,6 +38,7 @@ export interface OwnedCard {
   name: string
   series: string | null
   set_name: string
+  rarity: string | null
   variance: string
   grade: string
   quantity: number
@@ -92,8 +93,10 @@ export async function fetchCardHistory(cardId: string): Promise<CardHistory> {
   return response.json()
 }
 
-export async function fetchCollection(): Promise<{ items: OwnedCard[] }> {
-  const response = await fetch('/api/collection')
+export async function fetchCollection(
+  filters: Omit<CardFilters, 'page'> = {},
+): Promise<{ items: OwnedCard[] }> {
+  const response = await fetch(`/api/collection?${buildQuery(filters)}`)
   if (!response.ok) {
     throw new Error(`Erreur API /api/collection : ${response.status}`)
   }

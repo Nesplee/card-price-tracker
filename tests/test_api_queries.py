@@ -127,6 +127,15 @@ def test_get_owned_cards_flags_zero_cost_as_unknown(db_connection):
     assert by_card["base1-2"]["cost_unknown"] is True
 
 
+def test_get_owned_cards_includes_rarity(db_connection):
+    # Nécessaire pour afficher le point de couleur par rareté (signature
+    # visuelle du dashboard) sur la vue "Ma collection", comme sur le
+    # Catalogue.
+    rows = get_owned_cards(db_connection)
+    by_card = {row["card_id"]: row for row in rows}
+    assert by_card["base1-1"]["rarity"] == "Rare Holo"
+
+
 def test_collection_value_history_excludes_unknown_cost_rows(db_connection):
     # base1-2 (coût 0 = inconnu) ne doit jamais entrer dans l'agrégat de
     # valeur -- seule base1-1 (coût connu, quantity=2) doit compter.
