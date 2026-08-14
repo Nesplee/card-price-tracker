@@ -109,6 +109,18 @@ def test_collection_computes_market_value_and_gain_loss(client):
     assert item["gain_loss"] == 4.00  # 2 * (10.00 - 8.00)
 
 
+def test_collection_accepts_filters(client):
+    # "Ma collection" doit se filtrer comme le Catalogue -- une carte qui ne
+    # matche pas le filtre disparaît de la réponse.
+    response = client.get("/api/collection", params={"search": "Alakazam"})
+    assert response.status_code == 200
+    assert len(response.json()["items"]) == 1
+
+    response = client.get("/api/collection", params={"search": "Charizard"})
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
 def test_collection_value_history(client):
     response = client.get("/api/collection/value-history")
     assert response.status_code == 200

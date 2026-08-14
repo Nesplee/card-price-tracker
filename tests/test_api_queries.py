@@ -178,6 +178,44 @@ def test_get_owned_cards_includes_priceless_owned_card(db_connection):
     assert by_card["base1-4"]["average_cost_paid"] == 15.00
 
 
+def test_search_cards_rarity_filter_matches_partially(db_connection):
+    # Retour utilisateur : chercher "Illustration" doit trouver une carte de
+    # rareté "Illustration Rare" -- une correspondance exacte (c.rarity =
+    # %(rarity)s) ne le permettait pas. Même logique que le filtre "search"
+    # sur le nom, déjà en ILIKE '%...%'.
+    with psycopg.connect(_admin_dsn()) as admin_conn:
+        admin_conn.execute(
+            "INSERT INTO prod.dim_card (card_id, name, set_id, set_name, rarity, series) "
+            "VALUES ('sv1-1', 'Sprigatito', 'sv1', 'Scarlet & Violet', "
+            "'Illustration Rare', 'Scarlet & Violet')"
+        )
+        admin_conn.commit()
+
+    rows, total = search_cards(db_connection, rarity="Illustration")
+    assert total == 1
+    assert rows[0]["card_id"] == "sv1-1"
+
+
+def test_search_cards_series_and_set_name_filters_match_partially(db_connection):
+    # Même logique que le filtre rareté ci-dessus : "Base" doit trouver
+    # "Base Set" (série ou nom de set), pas seulement une égalité stricte.
+    rows, total = search_cards(db_connection, series="Bas", set_name="Base S")
+    assert total == 2  # Alakazam et Blastoise, tous deux série "Base"/set "Base Set"
+
+
+def test_get_owned_cards_filters_by_search_and_rarity(db_connection):
+    # "Ma collection" doit pouvoir se filtrer comme le Catalogue -- même
+    # comportement de correspondance partielle sur rarity/series/set_name.
+    rows = get_owned_cards(db_connection, search="Alakazam")
+    assert [row["card_id"] for row in rows] == ["base1-1"]
+
+    rows = get_owned_cards(db_connection, rarity="Rare Holo")
+    assert {row["card_id"] for row in rows} == {"base1-1", "base1-2"}
+
+    rows = get_owned_cards(db_connection, price_min=40)
+    assert [row["card_id"] for row in rows] == ["base1-2"]
+
+
 def test_search_cards_pagination_total_correct_on_out_of_range_page(db_connection):
     # Avec 3 résultats totaux et page_size=2, il y a 2 pages.
     # Demander page=5 doit quand même retourner total=3 (pas 0), même

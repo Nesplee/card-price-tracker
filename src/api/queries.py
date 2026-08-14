@@ -27,14 +27,17 @@ def _card_filters(
         conditions.append("c.name ILIKE %(search)s")
         params["search"] = f"%{search}%"
     if series:
-        conditions.append("c.series = %(series)s")
-        params["series"] = series
+        # ILIKE '%...%' plutôt qu'une égalité stricte : un utilisateur qui
+        # tape "Illustration" doit trouver "Illustration Rare" sans connaître
+        # le libellé exact -- même logique que "search" sur le nom ci-dessus.
+        conditions.append("c.series ILIKE %(series)s")
+        params["series"] = f"%{series}%"
     if set_name:
-        conditions.append("c.set_name = %(set_name)s")
-        params["set_name"] = set_name
+        conditions.append("c.set_name ILIKE %(set_name)s")
+        params["set_name"] = f"%{set_name}%"
     if rarity:
-        conditions.append("c.rarity = %(rarity)s")
-        params["rarity"] = rarity
+        conditions.append("c.rarity ILIKE %(rarity)s")
+        params["rarity"] = f"%{rarity}%"
     if price_min is not None:
         conditions.append("latest.average_sell_price >= %(price_min)s")
         params["price_min"] = price_min
@@ -125,15 +128,29 @@ def get_card_history(conn, card_id: str) -> tuple[dict, list[dict]] | None:
     return card, history
 
 
-def get_owned_cards(conn) -> list[dict]:
+def get_owned_cards(
+    conn,
+    *,
+    search: str | None = None,
+    series: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    price_min: float | None = None,
+    price_max: float | None = None,
+) -> list[dict]:
     # cost_unknown : average_cost_paid NULL OU littéralement 0 -- ce dernier
     # cas vient du CSV importé (coût non renseigné saisi comme "0.0000"), pas
     # d'un vrai achat gratuit. Voir la mise en garde déjà posée sur le
     # dashboard Metabase (docs/superpowers/specs/2026-08-10-interactive-dashboard-design.md).
     # LEFT JOIN LATERAL : une carte possédée sans observation de prix tcgplayer
     # doit toujours apparaître dans "Ma Collection", avec current_price = NULL.
+    # Réutilise _card_filters (mêmes filtres/mêmes correspondances partielles
+    # que le Catalogue) -- alias de table identiques (c./latest.) donc la
+    # clause WHERE générée s'applique sans modification.
+    where_sql, params = _card_filters(search, series, set_name, rarity, price_min, price_max)
+    params["platform"] = _PLATFORM
     return conn.execute(
-        """
+        f"""
         SELECT
             o.id, o.card_id, c.name, c.series, c.set_name, o.variance, o.grade,
             o.quantity, o.average_cost_paid,
@@ -149,9 +166,10 @@ def get_owned_cards(conn) -> list[dict]:
             ORDER BY fph.date_id DESC
             LIMIT 1
         ) latest ON true
+        WHERE {where_sql}
         ORDER BY c.name
         """,
-        {"platform": _PLATFORM},
+        params,
     ).fetchall()
 
 

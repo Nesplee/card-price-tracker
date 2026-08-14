@@ -79,8 +79,26 @@ def card_history(card_id: str, conn=Depends(get_api_connection)) -> CardHistoryR
 
 
 @app.get("/api/collection", response_model=CollectionResponse)
-def collection(conn=Depends(get_api_connection)) -> CollectionResponse:
-    rows = queries.get_owned_cards(conn)
+def collection(
+    conn=Depends(get_api_connection),
+    search: str | None = None,
+    series: str | None = None,
+    set_name: str | None = None,
+    rarity: str | None = None,
+    price_min: float | None = None,
+    price_max: float | None = None,
+) -> CollectionResponse:
+    if price_min is not None and price_max is not None and price_min > price_max:
+        raise HTTPException(status_code=422, detail="price_min doit être <= price_max")
+    rows = queries.get_owned_cards(
+        conn,
+        search=search,
+        series=series,
+        set_name=set_name,
+        rarity=rarity,
+        price_min=price_min,
+        price_max=price_max,
+    )
     items = []
     for row in rows:
         current_price = row["current_price"]
