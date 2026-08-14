@@ -1,6 +1,6 @@
 # Card Price Tracker — Dashboard sur mesure — Design
 
-**Statut :** en conception, pas encore implémenté.
+**Statut :** implémenté et déployé en production (2026-08-14). Voir "Mise à jour post-implémentation" en fin de document pour le round de retouches UX/design fait juste après le premier déploiement.
 
 ## Contexte et problème
 
@@ -63,3 +63,17 @@ Toutes les vues filtrent explicitement `platform_name = 'tcgplayer'` (même déc
 - Tests frontend automatisés (composants React) — vérification manuelle suffisante à ce stade.
 - Retrait ou dépréciation du dashboard Metabase existant — reste disponible en parallèle pour l'exploration SQL ad-hoc.
 - Filtre plateforme CardMarket/EUR — TCGPlayer/USD uniquement, comme pour le dashboard Metabase.
+
+## Mise à jour post-implémentation (2026-08-14)
+
+Implémenté selon le plan (`docs/superpowers/plans/2026-08-13-custom-dashboard.md`, exécuté en Subagent-Driven Development, 12 tâches) : API FastAPI (`src/api/`, 4 endpoints + health check, lecture seule via `dashboard_reader`), frontend React/Vite (3 vues), déployés en production sur le VPS via `docker-compose.prod.yml` (`dashboard-api`, `dashboard-frontend`), accès privé par tunnel SSH uniquement, comme prévu.
+
+La review finale (whole-branch) a trouvé et corrigé un bug critique (pagination du Catalogue cassée par un écrasement de clé d'objet en JS) et 3 défauts hérités tels quels du plan lui-même : mise en cache DNS de nginx sans re-résolution (502 silencieux si l'API est redéployée seule), montage de tout le `.env` dans `dashboard-api` (exposition inutile du mot de passe superuser Postgres), README jamais mis à jour. Le correctif nginx lui-même contenait une régression (perte du chemin/query string), détectée et corrigée dans un second passage, vérifiée avec un vrai conteneur nginx + backend mock (pas de simple lecture de code). ~12 findings mineurs (CSS de template Vite non nettoyée, etc.) ont été différés puis en réalité traités dans le round de retouches ci-dessous.
+
+**Retouches UX/design (2026-08-14, hors scope initial du plan, faites juste après le premier retour utilisateur sur le dashboard déployé)** : trois défauts signalés par l'utilisateur après avoir réellement utilisé le dashboard —
+
+1. **Filtres absents sur "Ma collection"** — `get_owned_cards()`/`GET /api/collection` acceptent désormais les mêmes filtres que le Catalogue (réutilisation de `_card_filters()`), plus l'ajout du champ `rarity` (absent du SELECT initial, nécessaire pour la signature visuelle ci-dessous).
+2. **Recherche trop stricte** — les filtres bloc/série/rareté utilisaient une égalité exacte (`c.rarity = %(rarity)s`) ; passés en `ILIKE '%...%'` comme le champ recherche par nom l'était déjà (ex : chercher "Illustration" trouve désormais "Illustration Rare").
+3. **Rendu visuel jugé peu abouti** — le CSS était resté celui du splash page par défaut de Vite (jamais pensé pour un tableau de données : `#root` centré à largeur fixe 1126px, etc.), avec des fichiers de template inutilisés encore présents (`App.css`, assets react/vite/hero). Reconstruit avec un vrai système de design (skill `frontend-design`) : palette claire sobre, typographie à 3 rôles (Space Grotesk pour les titres, Inter pour l'UI, IBM Plex Mono pour les prix), et une signature visuelle cohérente — un point de couleur par rareté devant chaque carte, dans les deux tableaux (Catalogue et Ma collection). Composant `FilterBar` factorisé entre les deux vues (elles exposent désormais exactement les mêmes filtres).
+
+Vérifié : 68/68 tests backend (dont 4 nouveaux couvrant la correspondance partielle et les filtres de `get_owned_cards`), build TypeScript propre, comportement réel confirmé via `curl` à travers le proxy Vite avec de vraies données de prod (recherche "Illustration" → "Illustration Rare"/"Special Illustration Rare"). **Pas de vérification visuelle en navigateur possible dans cet environnement** (Chromium non installable sans mot de passe sudo) — limitation déjà rencontrée sur les tâches précédentes du plan initial, compensée par la vérification API réelle + relecture du code.
