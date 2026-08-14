@@ -53,6 +53,8 @@ DOMAIN=annonces-vps.tail094416.ts.net
 
 Programmé via `sudo crontab -e` sur le VPS, même cadence que `DE_ANNONCES` (`0 4 * * 1`, chaque lundi 4h) — nécessite `root` pour `tailscale cert`.
 
+**Alerte en cas d'échec** : le script utilise `set -euo pipefail` (échoue bruyamment dès la première commande en erreur, pas d'étape silencieusement sautée). Cron envoie un mail automatiquement à l'échec d'une commande programmée, **à condition qu'un MTA local (`postfix`/`sendmail`) soit configuré sur le VPS** — à vérifier lors de l'implémentation ; sinon configurer `MAILTO` dans la crontab avec une adresse externe, ou a minima documenter qu'aucune alerte n'existe si cette vérification échoue. Pas de monitoring actif au-delà de ce mail d'échec cron (suffisant pour un usage perso — le risque réel est le silence, pas la fréquence des pannes).
+
 ## Sécurité / vérification
 
 - Le firewall `ufw` du VPS ne gouverne pas les ports publiés par Docker (deux systèmes séparés) — l'adresse d'écoute (`127.0.0.1` vs IP Tailscale) reste le seul mécanisme de contrôle d'accès, pas une règle de firewall. Rappel déjà établi pour `n8n`, vrai ici aussi.
