@@ -189,9 +189,19 @@ services:
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      # POSTGRES_DB / DASHBOARD_READER_PASSWORD : injectees directement par
+      # Compose (interpolation ${VAR} depuis le .env de l'hote, cote hote
+      # uniquement) plutot que de monter le fichier .env entier dans le
+      # conteneur. dashboard-api n'a besoin QUE de ces 4 variables (voir
+      # load_dashboard_reader_config() dans src/common/config.py) -- monter
+      # tout .env lui donnerait aussi acces au mot de passe superuser
+      # Postgres, a la cle API PokemonTCG et aux secrets Airflow, alors que
+      # ce conteneur est le seul du stack a parser des query strings fournies
+      # par un utilisateur.
+      POSTGRES_DB: ${POSTGRES_DB}
+      DASHBOARD_READER_PASSWORD: ${DASHBOARD_READER_PASSWORD}
     volumes:
       - ./src:/app/src
-      - ./.env:/app/.env:ro
     # 127.0.0.1 uniquement -- même pattern que airflow-webserver/metabase,
     # jamais exposé sur l'interface publique du VPS.
     ports:
