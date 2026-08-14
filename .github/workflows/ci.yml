@@ -78,6 +78,10 @@ jobs:
           # donc explicitement ici, à la valeur attendue par POSTGRES_APP_PASSWORD
           # ci-dessus, pour que load_db_config() puisse s'authentifier en CI.
           PGPASSWORD=$POSTGRES_ADMIN_PASSWORD psql -h localhost -U $POSTGRES_ADMIN_USER -d $POSTGRES_DB -c "ALTER ROLE pipeline_app WITH PASSWORD '${POSTGRES_APP_PASSWORD}';"
+          # Même chose pour dashboard_reader (migration 007) : LOGIN sans mot
+          # de passe utilisable tant qu'on ne le fixe pas explicitement ici,
+          # à la valeur attendue par DASHBOARD_READER_PASSWORD ci-dessus.
+          PGPASSWORD=$POSTGRES_ADMIN_PASSWORD psql -h localhost -U $POSTGRES_ADMIN_USER -d $POSTGRES_DB -c "ALTER ROLE dashboard_reader WITH PASSWORD '${DASHBOARD_READER_PASSWORD}';"
       - run: ruff check .
       - run: black --check .
       - run: pytest
