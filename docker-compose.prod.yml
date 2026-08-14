@@ -158,8 +158,13 @@ services:
       # `docker compose down`/`up` -- piège documenté de Metabase en Docker,
       # vérifié explicitement pour ne pas le reproduire ici.
       MB_DB_FILE: /metabase-data/metabase.db
+      # MB_JETTY_SSL_PORT != MB_JETTY_PORT (défaut 3000) : Jetty AJOUTE un
+      # connecteur SSL, il ne remplace pas le connecteur HTTP existant --
+      # les deux se disputeraient le port 3000 si on les faisait coïncider.
+      # Port interne 8443, mapping externe asymétrique vers 3000 (même
+      # pattern que dashboard-frontend, voir plus bas).
       MB_JETTY_SSL: "true"
-      MB_JETTY_SSL_PORT: "3000"
+      MB_JETTY_SSL_PORT: "8443"
       MB_JETTY_SSL_KEYSTORE: /metabase-certs/keystore.p12
       MB_JETTY_SSL_KEYSTORE_PASSWORD: ${METABASE_KEYSTORE_PASSWORD}
     volumes:
@@ -170,14 +175,14 @@ services:
     # l'interface publique -- seule l'adresse d'écoute contrôle l'accès (ufw
     # ne gouverne pas les ports publiés par Docker).
     ports:
-      - "${TAILSCALE_IP:-127.0.0.1}:3000:3000"
+      - "${TAILSCALE_IP:-127.0.0.1}:3000:8443"
     healthcheck:
       # -k : le healthcheck interne tape sur "localhost", pas sur le nom
       # Tailscale pour lequel le certificat est émis -- la vérification de
       # nom d'hôte échouerait sinon. La vérification réelle du certificat se
       # fait côté client (navigateur/mobile) via le vrai nom Tailscale, sans
       # -k. Voir la spec pour le détail.
-      test: ["CMD", "curl", "--fail", "-k", "https://localhost:3000/api/health"]
+      test: ["CMD", "curl", "--fail", "-k", "https://localhost:8443/api/health"]
       interval: 30s
       timeout: 10s
       retries: 5
