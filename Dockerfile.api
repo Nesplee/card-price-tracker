@@ -13,4 +13,9 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     "fastapi>=0.111" "uvicorn[standard]>=0.30" "psycopg[binary]>=3.1" "python-dotenv>=1.0"
 
+# --ssl-keyfile/--ssl-certfile : certificat Tailscale monté par
+# docker-compose.prod.yml sur /certs (voir
+# docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md).
+# uvicorn consomme le PEM directement, pas de conversion nécessaire
+# (contrairement à Metabase/Jetty).
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--ssl-keyfile", "/certs/key.pem", "--ssl-certfile", "/certs/cert.pem"]
