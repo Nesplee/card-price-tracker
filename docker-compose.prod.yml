@@ -207,6 +207,20 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # dashboard-frontend : build React statique servi par Nginx, proxy /api/
+  # vers dashboard-api (voir frontend/nginx.conf). Port 5173 choisi pour ne
+  # pas entrer en conflit avec le port de dev Vite (aussi 5173, mais jamais
+  # utilisé en même temps que ce conteneur sur la même machine).
+  dashboard-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - dashboard-api
+    ports:
+      - "127.0.0.1:5173:80"
+    restart: unless-stopped
+
 volumes:
   card_tracker_pg_data:
   airflow_pg_data:
