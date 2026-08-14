@@ -81,9 +81,13 @@ complet : `docs/superpowers/specs/2026-08-08-dag-reliability-design.md`.
   `dashboard_reader` (lecture seule, scopé au seul schéma `prod`) pour
   l'exploration de données — jamais le même rôle pour les deux usages.
 - VPS de production : SSH par clé uniquement, firewall restreint au seul port
-  22. Airflow (8080), Metabase (3000), ainsi que l'API (8000) et le frontend
-  (5173) du dashboard sur mesure, ne sont **jamais exposés publiquement** —
-  accessibles uniquement via tunnel SSH depuis une machine autorisée.
+  22. Airflow (8080) reste accessible uniquement via tunnel SSH depuis une
+  machine autorisée. Metabase (3000) ainsi que l'API (8000) et le frontend
+  (5173) du dashboard sur mesure sont **jamais exposés sur l'interface
+  publique** — accessibles en HTTPS via le tailnet Tailscale (certificat
+  Let's Encrypt émis pour le nom MagicDNS du VPS), qui joue le même rôle
+  d'accès restreint qu'un tunnel SSH sans nécessiter de tunnel actif. Voir
+  `docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md`.
   PostgreSQL n'est jamais publié du tout.
 - Aucun secret commité : mots de passe générés localement, synchronisés en
   base séparément du SQL versionné (`scripts/apply_migrations.sh`).
@@ -91,12 +95,16 @@ complet : `docs/superpowers/specs/2026-08-08-dag-reliability-design.md`.
 ## Explorer les données (Metabase)
 
 Un rôle Postgres dédié en lecture seule (`dashboard_reader`) alimente une
-instance Metabase auto-hébergée, accessible via tunnel SSH :
+instance Metabase auto-hébergée, accessible en HTTPS via le tailnet
+Tailscale (certificat Let's Encrypt émis pour le nom MagicDNS du VPS, pas
+de tunnel SSH à ouvrir) :
 
-```bash
-ssh -L 3000:localhost:3000 card-tracker-vm   # adapter l'alias SSH
-# puis http://localhost:3000
 ```
+https://annonces-vps.tail094416.ts.net:3000
+```
+
+Accessible uniquement depuis une machine membre du même tailnet. Détail de
+la conception : `docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md`.
 
 ## Dashboard sur mesure
 
@@ -106,14 +114,14 @@ usages précis plutôt qu'à l'exploration libre — catalogue de cartes avec
 recherche et filtres, historique de prix détaillé par carte, et valeur de
 la collection personnelle. Même rôle Postgres en lecture seule
 (`dashboard_reader`) que Metabase, même politique d'accès : jamais exposée
-publiquement, uniquement via tunnel SSH.
+publiquement, accessible en HTTPS via le tailnet Tailscale :
 
-```bash
-ssh -L 5173:localhost:5173 card-tracker-vm   # adapter l'alias SSH
-# puis http://localhost:5173
+```
+https://annonces-vps.tail094416.ts.net:5173
 ```
 
-Détail de la conception : `docs/superpowers/specs/2026-08-13-custom-dashboard-design.md`.
+Détail de la conception : `docs/superpowers/specs/2026-08-13-custom-dashboard-design.md`
+et `docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md`.
 
 ## Lancer en local
 

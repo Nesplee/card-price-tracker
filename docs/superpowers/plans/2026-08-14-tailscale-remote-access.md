@@ -462,13 +462,24 @@ Expected: `card-price-tracker-metabase-1`, `card-price-tracker-dashboard-api-1`,
 
 - [ ] **Step 6: Vérifier l'accessibilité HTTPS depuis un appareil du tailnet**
 
-Depuis le PC (`fedora`) ou le mobile (`iphone173`) sur le tailnet :
+Depuis le PC (`fedora`) ou le mobile (`iphone173`) sur le tailnet. Utiliser le
+nom MagicDNS, pas l'IP Tailscale : le certificat est émis pour
+`annonces-vps.tail094416.ts.net`, pas pour l'IP -- interroger par IP ferait
+échouer la vérification du nom d'hôte par construction, ce qui invaliderait
+ce test.
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" https://100.116.232.89:3000/
-curl -s -o /dev/null -w "%{http_code}\n" https://100.116.232.89:8000/api/health
-curl -s -o /dev/null -w "%{http_code}\n" https://100.116.232.89:5173/
+curl -s -o /dev/null -w "%{http_code}\n" https://annonces-vps.tail094416.ts.net:3000/
+curl -s -o /dev/null -w "%{http_code}\n" https://annonces-vps.tail094416.ts.net:8000/api/health
+curl -s -o /dev/null -w "%{http_code}\n" https://annonces-vps.tail094416.ts.net:5173/
+# Test de non-régression pour la vérification TLS entre nginx
+# (dashboard-frontend) et dashboard-api (voir frontend/nginx.conf,
+# proxy_ssl_trusted_certificate/proxy_ssl_verify_depth) : sans ce fix,
+# nginx échoue à valider le certificat de dashboard-api en HTTPS interne et
+# renvoie 502 sur toute requête /api/, même si dashboard-api lui-même est
+# joignable directement sur le port 8000 ci-dessus.
+curl -s -o /dev/null -w "%{http_code}\n" https://annonces-vps.tail094416.ts.net:5173/api/health
 ```
-Expected: un code HTTP pour chaque commande (200/302/etc.), pas de timeout, pas d'erreur de certificat.
+Expected: un code HTTP pour chaque commande (200/302/etc.), pas de timeout, pas d'erreur de certificat. En particulier, la dernière commande (`/api/health` via le frontend) doit renvoyer 200, pas 502.
 
 - [ ] **Step 7: Vérifier l'absence d'exposition publique**
 

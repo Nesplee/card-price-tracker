@@ -24,3 +24,9 @@ export.csv
 # Worktrees créés par le workflow Subagent-Driven Development
 # (superpowers:using-git-worktrees) — scratch local, jamais commité.
 .worktrees/
+
+# Certificats Tailscale (accès HTTPS permanent, voir
+# docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md) :
+# contient key.pem (clé privée TLS) et le keystore PKCS12 dérivé -- jamais
+# commité, régénéré sur le VPS par scripts/renew_tailscale_cert.sh.
+tailscale-certs/
