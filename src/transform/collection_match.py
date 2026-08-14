@@ -101,9 +101,9 @@ def read_collection_csv(path: str) -> list[CollectionRow]:
                     grade=record["Grade"] or "",
                     rarity=record["Rarity"],
                     quantity=int(record["Quantity"]),
-                    average_cost_paid=float(record["Average Cost Paid"])
-                    if record["Average Cost Paid"]
-                    else None,
+                    average_cost_paid=(
+                        float(record["Average Cost Paid"]) if record["Average Cost Paid"] else None
+                    ),
                     market_price_at_export=float(market_price_raw) if market_price_raw else None,
                 )
             )

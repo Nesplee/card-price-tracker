@@ -11,16 +11,16 @@ import psycopg
 import pytest
 from psycopg.rows import dict_row
 
-# Import from src.common.config triggers load_dotenv() at module import time,
-# which populates os.environ with .env variables before tests try to access them.
-from src.common.config import load_dashboard_reader_config  # noqa: F401
-
 from src.api.queries import (
     get_card_history,
     get_collection_value_history,
     get_owned_cards,
     search_cards,
 )
+
+# Import from src.common.config triggers load_dotenv() at module import time,
+# which populates os.environ with .env variables before tests try to access them.
+from src.common.config import load_dashboard_reader_config  # noqa: F401
 
 
 def _admin_dsn() -> str:
@@ -57,8 +57,7 @@ def db_connection():
             "INSERT INTO prod.dim_date (date_id, year, month, day, day_of_week) "
             "VALUES (%s, %s, %s, %s, %s), (%s, %s, %s, %s, %s) "
             "ON CONFLICT (date_id) DO NOTHING",
-            (date_1, 2026, 8, 1, date_1.weekday(),
-             date_2, 2026, 8, 2, date_2.weekday()),
+            (date_1, 2026, 8, 1, date_1.weekday(), date_2, 2026, 8, 2, date_2.weekday()),
         )
         admin_conn.execute(
             "INSERT INTO prod.dim_card (card_id, name, set_id, set_name, rarity, series) "
@@ -78,10 +77,18 @@ def db_connection():
             "('base1-1', %s, %s, 10.00, 11.00, 9.00), "
             "('base1-1', %s, %s, 12.00, 12.50, 10.00), "
             "('base1-2', %s, %s, 50.00, 52.00, 45.00)",
-            (date(2026, 8, 1), platform_id, date(2026, 8, 2), platform_id, date(2026, 8, 2), platform_id),
+            (
+                date(2026, 8, 1),
+                platform_id,
+                date(2026, 8, 2),
+                platform_id,
+                date(2026, 8, 2),
+                platform_id,
+            ),
         )
         admin_conn.execute(
-            "INSERT INTO prod.dim_owned_card (card_id, variance, grade, quantity, average_cost_paid) "
+            "INSERT INTO prod.dim_owned_card "
+            "(card_id, variance, grade, quantity, average_cost_paid) "
             "VALUES ('base1-1', 'Normal', '', 2, 8.00), ('base1-2', 'Normal', '', 1, 0.00)"
         )
         admin_conn.commit()
@@ -175,7 +182,8 @@ def test_get_owned_cards_includes_priceless_owned_card(db_connection):
             "VALUES ('base1-4', 'Venusaur', 'base1', 'Base Set', 'Rare Holo', 'Base')"
         )
         admin_conn.execute(
-            "INSERT INTO prod.dim_owned_card (card_id, variance, grade, quantity, average_cost_paid) "
+            "INSERT INTO prod.dim_owned_card "
+            "(card_id, variance, grade, quantity, average_cost_paid) "
             "VALUES ('base1-4', 'Normal', '', 1, 15.00)"
         )
         admin_conn.commit()

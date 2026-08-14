@@ -54,7 +54,8 @@ def client():
             (date(2026, 8, 1), platform_id),
         )
         admin_conn.execute(
-            "INSERT INTO prod.dim_owned_card (card_id, variance, grade, quantity, average_cost_paid) "
+            "INSERT INTO prod.dim_owned_card "
+            "(card_id, variance, grade, quantity, average_cost_paid) "
             "VALUES ('base1-1', 'Normal', '', 2, 8.00)"
         )
         admin_conn.commit()
