@@ -12,6 +12,7 @@ set -euo pipefail
 CERT_DIR=/home/ubuntu/card-price-tracker/tailscale-certs
 DOMAIN=annonces-vps.tail094416.ts.net
 KEYSTORE_PASSWORD="${METABASE_KEYSTORE_PASSWORD:?METABASE_KEYSTORE_PASSWORD doit être exporté avant d\'appeler ce script}"
+export KEYSTORE_PASSWORD
 
 OLD_HASH=$(sha256sum "$CERT_DIR/cert.pem" | awk '{print $1}')
 
@@ -28,7 +29,7 @@ if [ "$OLD_HASH" != "$NEW_HASH" ]; then
   openssl pkcs12 -export \
   -in "$CERT_DIR/cert.pem" -inkey "$CERT_DIR/key.pem" \
   -out "$CERT_DIR/keystore.p12" \
-  -passout "pass:$KEYSTORE_PASSWORD"
+  -passout env:KEYSTORE_PASSWORD
   chown ubuntu:ubuntu "$CERT_DIR/keystore.p12"
 
   echo "$(date): redémarrage dashboard-frontend, dashboard-api, metabase"
