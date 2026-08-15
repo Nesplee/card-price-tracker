@@ -81,12 +81,11 @@ complet : `docs/superpowers/specs/2026-08-08-dag-reliability-design.md`.
   `dashboard_reader` (lecture seule, scopé au seul schéma `prod`) pour
   l'exploration de données — jamais le même rôle pour les deux usages.
 - VPS de production : SSH par clé uniquement, firewall restreint au seul port
-  22. Airflow (8080) reste accessible uniquement via tunnel SSH depuis une
-  machine autorisée. Metabase (3000) ainsi que l'API (8000) et le frontend
-  (5173) du dashboard sur mesure sont **jamais exposés sur l'interface
-  publique** — accessibles en HTTPS via le tailnet Tailscale (certificat
-  Let's Encrypt émis pour le nom MagicDNS du VPS), qui joue le même rôle
-  d'accès restreint qu'un tunnel SSH sans nécessiter de tunnel actif. Voir
+  22. Airflow (8080), Metabase (3000), l'API (8000) et le frontend (5173) du
+  dashboard sur mesure sont **jamais exposés sur l'interface publique** —
+  accessibles en HTTPS via le tailnet Tailscale (certificat Let's Encrypt
+  émis pour le nom MagicDNS du VPS), qui joue le même rôle d'accès restreint
+  qu'un tunnel SSH sans nécessiter de tunnel actif. Voir
   `docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md`.
   PostgreSQL n'est jamais publié du tout.
 - Aucun secret commité : mots de passe générés localement, synchronisés en

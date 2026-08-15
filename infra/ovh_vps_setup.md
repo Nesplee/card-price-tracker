@@ -111,16 +111,19 @@ git pull
 Si une migration SQL a été ajoutée : `./scripts/apply_migrations.sh docker-compose.prod.yml`.
 Si `docker-compose.prod.yml` a changé (nouveau service, image mise à jour) : `docker compose -f docker-compose.prod.yml up -d`.
 
-### Accéder aux interfaces web (Airflow, Metabase)
+### Accéder aux interfaces web (Airflow, Metabase, dashboard)
 
-Aucun des deux n'est exposé publiquement (voir Firewall ci-dessus) — accès uniquement via tunnel SSH, un port local par service :
+Aucune de ces interfaces n'est exposée publiquement (voir Firewall ci-dessus)
+— accès en HTTPS via le tailnet Tailscale (certificat Let's Encrypt émis
+pour le nom MagicDNS du VPS), depuis n'importe quel appareil membre du même
+tailnet, sans tunnel SSH à ouvrir. Détail de la conception :
+`docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md`.
 
-```bash
-ssh -L 8080:localhost:8080 card-tracker-vm   # UI Airflow -> http://localhost:8080
-ssh -L 3000:localhost:3000 card-tracker-vm   # UI Metabase -> http://localhost:3000
 ```
-
-Si le port local choisi est déjà occupé par autre chose sur ta machine, changer uniquement le premier nombre (ex: `-L 3001:localhost:3000`) — le port distant (après le `:`) ne doit jamais changer.
+https://annonces-vps.tail094416.ts.net:8080   # UI Airflow
+https://annonces-vps.tail094416.ts.net:3000   # UI Metabase
+https://annonces-vps.tail094416.ts.net:5173   # Dashboard sur mesure
+```
 
 ### Vérifier l'état de la stack
 

@@ -72,6 +72,17 @@ Programmé via `sudo crontab -e` sur le VPS, même cadence que `DE_ANNONCES` (`0
 
 ## Hors scope (rappel)
 
-- `airflow-webserver` (port 8080) — inchangé, pas dans le périmètre de cette demande.
 - Partage du certificat avec `DE_ANNONCES` — décision explicite de garder les deux projets isolés, quitte à dupliquer le script de renouvellement.
 - Authentification applicative supplémentaire (Tailscale ACLs par device, etc.) — le tailnet actuel a 3 appareils de confiance (`annonces-vps`, `fedora`, `iphone173`), aucune restriction supplémentaire demandée.
+
+## Mise à jour post-implémentation — migration d'`airflow-webserver` (2026-08-15)
+
+Demande explicite de l'utilisateur après le déploiement initial, pour ne plus dépendre du tunnel SSH sur Airflow non plus. `airflow-webserver` (gunicorn, comme uvicorn pour `dashboard-api`) consomme le PEM directement — pas de conversion keystore comme pour Jetty/Metabase :
+
+- `AIRFLOW__WEBSERVER__WEB_SERVER_SSL_CERT: /certs/cert.pem` / `AIRFLOW__WEBSERVER__WEB_SERVER_SSL_KEY: /certs/key.pem`, montage `./tailscale-certs:/certs:ro`.
+- Port symétrique `${TAILSCALE_IP:-127.0.0.1}:8080:8080` (pas de translation de port, contrairement à Metabase/dashboard-frontend qui devaient contourner une collision Jetty ou garder un port externe historique).
+- Healthcheck `curl -k https://localhost:8080/health` : contrairement à Jetty (Metabase), gunicorn n'impose pas de correspondance stricte SNI/certificat côté serveur — pas besoin de l'astuce `--resolve` découverte lors du déploiement réel de Metabase.
+
+**Piège anticipé avant déploiement** (appris du crash-loop Metabase, pas redécouvert en prod cette fois) : `airflow-webserver` tourne avec `user: "${AIRFLOW_UID:-50000}:0"` (gid 0, convention de l'image officielle Airflow), alors que `key.pem` est en `600` (lisible seulement par `ubuntu`, propriétaire hôte). `scripts/renew_tailscale_cert.sh` fait maintenant `chgrp 0 key.pem && chmod 640 key.pem` après chaque émission/renouvellement — accès accordé via le groupe (gid 0) plutôt qu'en rendant la clé privée lisible par tout le monde (option 644 écartée ici : contrairement à `keystore.p12`, `key.pem` n'est pas protégé par un mot de passe).
+
+`airflow-webserver` ajouté à la liste des conteneurs redémarrés par le script au renouvellement du certificat.

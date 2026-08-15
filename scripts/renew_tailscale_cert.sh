@@ -18,6 +18,16 @@ OLD_HASH=$(sha256sum "$CERT_DIR/cert.pem" | awk '{print $1}')
 
 tailscale cert --cert-file="$CERT_DIR/cert.pem" --key-file="$CERT_DIR/key.pem" "$DOMAIN"
 chown ubuntu:ubuntu "$CERT_DIR"/cert.pem "$CERT_DIR"/key.pem
+# group root (gid 0), 640 : airflow-webserver tourne en "AIRFLOW_UID:0"
+# (convention de l'image officielle Airflow) et lit key.pem directement
+# (comme dashboard-api, pas de keystore) -- sans ce chgrp/chmod il ne peut
+# pas lire un fichier 600 appartenant à "ubuntu" (même défaut que celui
+# corrigé pour keystore.p12 ci-dessous, mais ici on garde la clé privée
+# fermée à "other" plutôt que 644, dashboard-api/metabase n'en ont pas besoin
+# via cette permission -- dashboard-api tourne en root, metabase ne lit que
+# keystore.p12).
+chgrp 0 "$CERT_DIR/key.pem"
+chmod 640 "$CERT_DIR/key.pem"
 
 NEW_HASH=$(sha256sum "$CERT_DIR/cert.pem" | awk '{print $1}')
 
@@ -38,6 +48,6 @@ if [ "$OLD_HASH" != "$NEW_HASH" ]; then
   # passe du PKCS12 reste la protection réelle du contenu.
   chmod 644 "$CERT_DIR/keystore.p12"
 
-  echo "$(date): redémarrage dashboard-frontend, dashboard-api, metabase"
-  cd /home/ubuntu/card-price-tracker && docker compose -f docker-compose.prod.yml restart dashboard-frontend dashboard-api metabase
+  echo "$(date): redémarrage dashboard-frontend, dashboard-api, metabase, airflow-webserver"
+  cd /home/ubuntu/card-price-tracker && docker compose -f docker-compose.prod.yml restart dashboard-frontend dashboard-api metabase airflow-webserver
 fi
