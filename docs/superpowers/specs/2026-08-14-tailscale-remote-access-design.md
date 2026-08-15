@@ -86,3 +86,18 @@ Demande explicite de l'utilisateur après le déploiement initial, pour ne plus 
 **Piège anticipé avant déploiement** (appris du crash-loop Metabase, pas redécouvert en prod cette fois) : `airflow-webserver` tourne avec `user: "${AIRFLOW_UID:-50000}:0"` (gid 0, convention de l'image officielle Airflow), alors que `key.pem` est en `600` (lisible seulement par `ubuntu`, propriétaire hôte). `scripts/renew_tailscale_cert.sh` fait maintenant `chgrp 0 key.pem && chmod 640 key.pem` après chaque émission/renouvellement — accès accordé via le groupe (gid 0) plutôt qu'en rendant la clé privée lisible par tout le monde (option 644 écartée ici : contrairement à `keystore.p12`, `key.pem` n'est pas protégé par un mot de passe).
 
 `airflow-webserver` ajouté à la liste des conteneurs redémarrés par le script au renouvellement du certificat.
+
+Confirmé après déploiement : `healthy`, `200` en HTTPS via le tailnet sur `https://annonces-vps.tail094416.ts.net:8080`, injoignable depuis l'IP publique du VPS (`164.132.243.29:8080`).
+
+## Incident annexe — récupération d'accès admin Metabase (2026-08-15)
+
+Sans lien direct avec Tailscale, mais découvert et traité pendant cette session : l'utilisateur avait perdu ses identifiants admin Metabase (compte créé manuellement le 2026-08-09, jamais stocké dans `.env`/le repo par conception — voir `docs/superpowers/specs/2026-08-09-metabase-db-ui-design.md`). Le flux "mot de passe oublié" est inopérant sur cette instance (pas de SMTP configuré).
+
+Procédure de récupération utilisée (CLI officielle `reset-password`, cf. [Metabase Discourse](https://discourse.metabase.com/t/reset-admin-account-without-email/12821)) :
+
+1. Lister les comptes existants en lecture seule via un shell H2 direct sur le fichier applicatif de Metabase (conteneur arrêté le temps de la requête, pour éviter tout accès concurrent sur le fichier H2) — email admin retrouvé : `nesplee.tcg@proton.me`.
+2. `java -jar metabase.jar reset-password <email>` dans un conteneur jetable monté sur le même volume.
+
+**Piège découvert** : le fichier applicatif H2 de cette instance vit à un chemin imbriqué non standard — `/metabase-data/metabase.db/metabase.db.mv.db` (un répertoire `metabase.db` contenant lui-même `metabase.db.mv.db`), pas `/metabase-data/metabase.db.mv.db` comme le suggérerait la variable `MB_DB_FILE=/metabase-data/metabase.db` réellement configurée dans `docker-compose.prod.yml`. Une première tentative de `reset-password` avec `MB_DB_FILE=/metabase-data/metabase.db` (valeur telle quelle) n'a donc PAS trouvé la vraie base : Metabase, ne trouvant rien à ce chemin, a silencieusement initialisé une base H2 fraîche et vide au même niveau (`/metabase-data/metabase.db.mv.db`, propriétaire `root`, 366 migrations Liquibase exécutées from scratch) plutôt que d'échouer bruyamment — d'où un premier `reset-password` en erreur `No user found`, sans aucun risque pour les vraies données (fichier distinct, jamais écrit). Deuxième tentative avec `MB_DB_FILE=/metabase-data/metabase.db/metabase.db` (chemin réel) : succès (`No unrun migrations found`, confirmant la connexion à la vraie base). Le fichier H2 parasite issu du premier essai a été nettoyé manuellement par l'utilisateur ensuite (commande de suppression bloquée par le garde-fou de sécurité de l'agent sur les écritures au volume Docker de production, comportement attendu).
+
+Cause probable du chemin imbriqué : artefact de l'historique de ce volume (créé le 2026-08-09, avant toute intervention Tailscale), non élucidée plus avant — sans impact tant que `MB_DB_FILE` reste inchangé dans `docker-compose.prod.yml` et que toute intervention CLI future sur ce fichier utilise le chemin imbriqué exact ci-dessus.
