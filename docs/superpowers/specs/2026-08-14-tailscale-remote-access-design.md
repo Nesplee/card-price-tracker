@@ -1,6 +1,6 @@
 # Card Price Tracker — Accès permanent via Tailscale (Metabase + dashboard) — Design
 
-**Statut :** design validé, pas encore implémenté.
+**Statut :** implémenté et déployé en production (2026-08-15). Accès HTTPS confirmé via le tailnet (Metabase, dashboard-api, dashboard-frontend), y compris depuis mobile. Deux bugs découverts uniquement au déploiement réel (ni le design ni la revue de code ne les avaient anticipés) : permissions du keystore Metabase (uid non-root du process Java vs uid hôte propriétaire du fichier) et SNI rejeté par Jetty sur le healthcheck interne — voir `.superpowers/sdd/2026-08-14-tailscale-remote-access/progress.md` section "Task 5" pour le détail. L'alerte mail en cas d'échec de renouvellement de certificat (cron) reste non fonctionnelle : aucun MTA installé sur le VPS, laissé tel quel sur décision explicite de l'utilisateur.
 
 ## Contexte et problème
 

@@ -31,7 +31,7 @@
 
 Ce script ne peut pas être testé par une suite pytest (il appelle `tailscale cert`, une commande qui nécessite root et une session Tailscale authentifiée, indisponibles en CI/local). La vérification se fait par relecture + un test syntaxique bash (`bash -n`) + une exécution manuelle documentée dans la section Vérification du Task 1.
 
-- [ ] **Step 1: Écrire le script**
+- [x] **Step 1: Écrire le script**
 
 ```bash
 #!/usr/bin/env bash
@@ -72,16 +72,16 @@ if [ "$OLD_HASH" != "$NEW_HASH" ]; then
 fi
 ```
 
-- [ ] **Step 2: Vérifier la syntaxe bash**
+- [x] **Step 2: Vérifier la syntaxe bash**
 
 Run: `bash -n scripts/renew_tailscale_cert.sh`
 Expected: aucune sortie (pas d'erreur de syntaxe).
 
-- [ ] **Step 3: Rendre le script exécutable**
+- [x] **Step 3: Rendre le script exécutable**
 
 Run: `chmod +x scripts/renew_tailscale_cert.sh`
 
-- [ ] **Step 4: Ajouter la nouvelle variable à `.env.example`**
+- [x] **Step 4: Ajouter la nouvelle variable à `.env.example`**
 
 Ajouter après le bloc `DASHBOARD_READER_PASSWORD` existant :
 
@@ -95,7 +95,7 @@ METABASE_KEYSTORE_PASSWORD=changeme_metabase_keystore
 TAILSCALE_IP=changeme_tailscale_ip
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/renew_tailscale_cert.sh .env.example
@@ -117,7 +117,7 @@ git commit -m "feat: script de renouvellement du certificat Tailscale + keystore
 
 Pas de suite pytest pour un fichier Compose — vérification par `docker compose config` (valide la syntaxe/interpolation) et par les vérifications opérationnelles du Task 5 (déploiement réel).
 
-- [ ] **Step 1: Modifier le service `metabase`**
+- [x] **Step 1: Modifier le service `metabase`**
 
 Remplacer le bloc `metabase:` actuel (lignes 146-177) par :
 
@@ -175,7 +175,7 @@ Remplacer le bloc `metabase:` actuel (lignes 146-177) par :
     restart: unless-stopped
 ```
 
-- [ ] **Step 2: Modifier le service `dashboard-api`**
+- [x] **Step 2: Modifier le service `dashboard-api`**
 
 Remplacer le bloc `dashboard-api:` actuel (lignes 179-218) par :
 
@@ -226,7 +226,7 @@ Remplacer le bloc `dashboard-api:` actuel (lignes 179-218) par :
     restart: unless-stopped
 ```
 
-- [ ] **Step 3: Modifier le service `dashboard-frontend`**
+- [x] **Step 3: Modifier le service `dashboard-frontend`**
 
 Remplacer le bloc `dashboard-frontend:` actuel (lignes 220-233) par :
 
@@ -254,12 +254,12 @@ Remplacer le bloc `dashboard-frontend:` actuel (lignes 220-233) par :
     restart: unless-stopped
 ```
 
-- [ ] **Step 4: Valider la syntaxe du fichier Compose**
+- [x] **Step 4: Valider la syntaxe du fichier Compose**
 
 Run: `TAILSCALE_IP=127.0.0.1 METABASE_KEYSTORE_PASSWORD=test POSTGRES_DB=x DASHBOARD_READER_PASSWORD=x POSTGRES_ADMIN_USER=x POSTGRES_ADMIN_PASSWORD=x AIRFLOW_DB_PASSWORD=x AIRFLOW_ADMIN_PASSWORD=x AIRFLOW_SECRET_KEY=x docker compose -f docker-compose.prod.yml config --quiet`
 Expected: aucune sortie, code de sortie 0 (fichier syntaxiquement et sémantiquement valide).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docker-compose.prod.yml
@@ -278,7 +278,7 @@ git commit -m "feat: TLS Tailscale + adresse d'écoute paramétrable pour metaba
 
 Pas de suite pytest (config nginx) — vérification par `nginx -t` à l'intérieur du conteneur buildé, et par un test HTTPS réel en Task 5.
 
-- [ ] **Step 1: Modifier `nginx.conf`**
+- [x] **Step 1: Modifier `nginx.conf`**
 
 ```nginx
 # Sert le build statique React (dist/) et proxifie /api/ vers le conteneur
@@ -345,12 +345,12 @@ server {
 }
 ```
 
-- [ ] **Step 2: Builder l'image et valider la config nginx**
+- [x] **Step 2: Builder l'image et valider la config nginx**
 
 Run: `docker build -t dashboard-frontend-test -f frontend/Dockerfile frontend/ && docker run --rm dashboard-frontend-test nginx -t`
 Expected: `nginx: configuration file /etc/nginx/nginx.conf test is successful` (l'absence des fichiers `/certs/*.pem` au moment du test est attendue et sans effet sur `nginx -t`, qui valide la syntaxe, pas l'existence des fichiers référencés à l'exécution).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/nginx.conf
@@ -367,7 +367,7 @@ git commit -m "feat: nginx écoute en HTTPS (certificat Tailscale), proxy HTTPS 
 **Interfaces:**
 - Consumes: `/certs/cert.pem`, `/certs/key.pem` (montés par Task 2).
 
-- [ ] **Step 1: Modifier la commande `CMD`**
+- [x] **Step 1: Modifier la commande `CMD`**
 
 ```dockerfile
 # Image de l'API FastAPI du dashboard (src/api/). Même logique que
@@ -393,7 +393,7 @@ RUN pip install --no-cache-dir \
 CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--ssl-keyfile", "/certs/key.pem", "--ssl-certfile", "/certs/cert.pem"]
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add Dockerfile.api
@@ -409,7 +409,7 @@ git commit -m "feat: dashboard-api sert en HTTPS via le certificat Tailscale mon
 **Interfaces:**
 - Consumes : tout ce qui précède (Tasks 1-4).
 
-- [ ] **Step 1: Créer le dossier de certificats et émettre le certificat initial**
+- [x] **Step 1: Créer le dossier de certificats et émettre le certificat initial**
 
 Sur le VPS :
 ```bash
@@ -422,7 +422,7 @@ sudo chown ubuntu:ubuntu /home/ubuntu/card-price-tracker/tailscale-certs/*.pem
 ```
 Expected: deux fichiers `cert.pem`/`key.pem` créés, propriétaire `ubuntu`.
 
-- [ ] **Step 2: Ajouter les nouvelles variables au `.env` du VPS**
+- [x] **Step 2: Ajouter les nouvelles variables au `.env` du VPS**
 
 Éditer `/home/ubuntu/card-price-tracker/.env`, ajouter :
 ```
@@ -430,7 +430,7 @@ TAILSCALE_IP=100.116.232.89
 METABASE_KEYSTORE_PASSWORD=<générer via: python3 -c "import secrets; print(secrets.token_hex(30))">
 ```
 
-- [ ] **Step 3: Générer le keystore Metabase initial**
+- [x] **Step 3: Générer le keystore Metabase initial**
 
 Sur le VPS (charge `METABASE_KEYSTORE_PASSWORD` depuis `.env`) :
 ```bash
@@ -449,7 +449,7 @@ chmod 644 tailscale-certs/keystore.p12
 ```
 Expected: `tailscale-certs/keystore.p12` créé, lisible par le process Metabase (644).
 
-- [ ] **Step 4: Pull + build + recréer uniquement les 3 conteneurs concernés**
+- [x] **Step 4: Pull + build + recréer uniquement les 3 conteneurs concernés**
 
 ```bash
 cd /home/ubuntu/card-price-tracker
@@ -458,14 +458,14 @@ docker compose -f docker-compose.prod.yml up -d --build dashboard-frontend dashb
 ```
 Expected: les 3 conteneurs redémarrent, `airflow-*` et `db` restent inchangés (pas dans la commande).
 
-- [ ] **Step 5: Vérifier que les 3 conteneurs sont `healthy`**
+- [x] **Step 5: Vérifier que les 3 conteneurs sont `healthy`**
 
 ```bash
 docker ps --format '{{.Names}}\t{{.Status}}'
 ```
 Expected: `card-price-tracker-metabase-1`, `card-price-tracker-dashboard-api-1`, `card-price-tracker-dashboard-frontend-1` tous `Up ... (healthy)` (dashboard-frontend n'a pas de healthcheck défini, `Up` suffit pour lui).
 
-- [ ] **Step 6: Vérifier l'accessibilité HTTPS depuis un appareil du tailnet**
+- [x] **Step 6: Vérifier l'accessibilité HTTPS depuis un appareil du tailnet**
 
 Depuis le PC (`fedora`) ou le mobile (`iphone173`) sur le tailnet. Utiliser le
 nom MagicDNS, pas l'IP Tailscale : le certificat est émis pour
@@ -486,7 +486,7 @@ curl -s -o /dev/null -w "%{http_code}\n" https://annonces-vps.tail094416.ts.net:
 ```
 Expected: un code HTTP pour chaque commande (200/302/etc.), pas de timeout, pas d'erreur de certificat. En particulier, la dernière commande (`/api/health` via le frontend) doit renvoyer 200, pas 502.
 
-- [ ] **Step 7: Vérifier l'absence d'exposition publique**
+- [x] **Step 7: Vérifier l'absence d'exposition publique**
 
 Depuis une machine hors tailnet (ou en testant l'IP publique du VPS) :
 ```bash
@@ -496,12 +496,12 @@ curl -s -o /dev/null -w "%{http_code}\n" --max-time 5 https://164.132.243.29:517
 ```
 Expected: timeout sur les 3 (pas de réponse) — confirme que ces ports ne sont pas exposés sur l'interface publique.
 
-- [ ] **Step 8: Vérifier qu'aucun avertissement de certificat n'apparaît**
+- [x] **Step 8: Vérifier qu'aucun avertissement de certificat n'apparaît**
 
 Ouvrir `https://annonces-vps.tail094416.ts.net:3000`, `:8000/api/health`, `:5173` dans un navigateur (PC ou mobile).
 Expected: cadenas HTTPS valide, aucun avertissement de certificat (le certificat Tailscale est signé par une CA publiquement reconnue).
 
-- [ ] **Step 9: Installer le script de renouvellement dans le cron root**
+- [x] **Step 9: Installer le script de renouvellement dans le cron root**
 
 ```bash
 sudo crontab -e
@@ -511,7 +511,7 @@ Ajouter :
 0 4 * * 1 METABASE_KEYSTORE_PASSWORD=<valeur> /home/ubuntu/card-price-tracker/scripts/renew_tailscale_cert.sh >> /var/log/tailscale-cert-renew.log 2>&1
 ```
 
-- [ ] **Step 10: Vérifier qu'un MTA local existe pour que cron puisse envoyer un mail d'échec**
+- [x] **Step 10: Vérifier qu'un MTA local existe pour que cron puisse envoyer un mail d'échec**
 
 ```bash
 which sendmail postfix 2>/dev/null || echo "AUCUN MTA LOCAL -- ajouter MAILTO=<adresse externe> en tête de la crontab root"
@@ -521,7 +521,7 @@ Si aucun MTA n'est trouvé, ajouter en première ligne de `sudo crontab -e` :
 MAILTO=<adresse email de l'utilisateur>
 ```
 
-- [ ] **Step 11: Test à blanc du script de renouvellement (sans attendre le cron)**
+- [x] **Step 11: Test à blanc du script de renouvellement (sans attendre le cron)**
 
 ```bash
 cd /home/ubuntu/card-price-tracker
