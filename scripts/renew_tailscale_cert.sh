@@ -31,6 +31,12 @@ if [ "$OLD_HASH" != "$NEW_HASH" ]; then
   -out "$CERT_DIR/keystore.p12" \
   -passout env:KEYSTORE_PASSWORD
   chown ubuntu:ubuntu "$CERT_DIR/keystore.p12"
+  # 644, pas 600 (défaut d'openssl) : le process Java de Metabase tourne
+  # dans le conteneur sous un uid non-root (2000) distinct du uid hôte
+  # "ubuntu" propriétaire du fichier -- avec 600 il ne peut pas lire le
+  # keystore et Metabase crash-loop en AccessDeniedException. Le mot de
+  # passe du PKCS12 reste la protection réelle du contenu.
+  chmod 644 "$CERT_DIR/keystore.p12"
 
   echo "$(date): redémarrage dashboard-frontend, dashboard-api, metabase"
   cd /home/ubuntu/card-price-tracker && docker compose -f docker-compose.prod.yml restart dashboard-frontend dashboard-api metabase

@@ -441,8 +441,13 @@ openssl pkcs12 -export \
   -out tailscale-certs/keystore.p12 \
   -passout "pass:$METABASE_KEYSTORE_PASSWORD"
 chown ubuntu:ubuntu tailscale-certs/keystore.p12
+# 644, pas 600 (défaut d'openssl) : le process Java de Metabase tourne dans
+# le conteneur sous un uid non-root distinct du uid hôte "ubuntu"
+# propriétaire du fichier -- avec 600 il ne peut pas lire le keystore et
+# Metabase crash-loop en AccessDeniedException (observé en Task 5 réelle).
+chmod 644 tailscale-certs/keystore.p12
 ```
-Expected: `tailscale-certs/keystore.p12` créé.
+Expected: `tailscale-certs/keystore.p12` créé, lisible par le process Metabase (644).
 
 - [ ] **Step 4: Pull + build + recréer uniquement les 3 conteneurs concernés**
 
