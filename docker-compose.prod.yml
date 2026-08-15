@@ -177,12 +177,15 @@ services:
     ports:
       - "${TAILSCALE_IP:-127.0.0.1}:3000:8443"
     healthcheck:
-      # -k : le healthcheck interne tape sur "localhost", pas sur le nom
-      # Tailscale pour lequel le certificat est émis -- la vérification de
-      # nom d'hôte échouerait sinon. La vérification réelle du certificat se
-      # fait côté client (navigateur/mobile) via le vrai nom Tailscale, sans
-      # -k. Voir la spec pour le détail.
-      test: ["CMD", "curl", "--fail", "-k", "https://localhost:8443/api/health"]
+      # --resolve force curl à envoyer le SNI "annonces-vps.tail094416.ts.net"
+      # (celui du certificat) tout en résolvant vers 127.0.0.1 -- Jetty rejette
+      # en 400 "Invalid SNI" toute requête TLS dont le SNI ne correspond à
+      # aucun certificat connu (observé en Task 5 réelle : taper "localhost"
+      # comme -k le laissait supposer suffisant échouait avec ce message,
+      # -k ne désactive que la vérification cliente, pas le contrôle SNI
+      # serveur de Jetty). La vérification réelle du certificat se fait côté
+      # client (navigateur/mobile) via le vrai nom Tailscale, sans -k.
+      test: ["CMD", "curl", "--fail", "-k", "--resolve", "annonces-vps.tail094416.ts.net:8443:127.0.0.1", "https://annonces-vps.tail094416.ts.net:8443/api/health"]
       interval: 30s
       timeout: 10s
       retries: 5
