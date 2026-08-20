@@ -330,3 +330,20 @@ th.cell-price {
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
+
+.range-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.range-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.range-btn.active {
+  background: var(--ink);
+  color: var(--surface);
+  border-color: var(--ink);
+}
