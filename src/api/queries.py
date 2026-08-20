@@ -174,11 +174,11 @@ def get_owned_cards(
 
 
 def get_collection_value_history(conn) -> list[dict]:
-    # Exclut les lignes cost_unknown (voir get_owned_cards ci-dessus) : la
-    # spec (docs/superpowers/specs/2026-08-13-custom-dashboard-design.md)
-    # demande explicitement de ne pas les inclure, pour ne pas fausser la
-    # courbe de valeur avec des cartes dont le coût réel n'est simplement pas
-    # connu (même biais que celui déjà identifié sur le dashboard Metabase).
+    # total_value = valeur de marché (quantity * average_sell_price), qui ne
+    # dépend jamais du coût d'achat -- donc pas de filtre cost_unknown ici
+    # (voir get_owned_cards ci-dessus), contrairement à ce que faisait cette
+    # requête auparavant. Un coût d'achat inconnu n'a jamais empêché de
+    # connaître le prix de marché actuel d'une carte.
     return conn.execute(
         """
         SELECT fph.date_id, SUM(o.quantity * fph.average_sell_price) AS total_value
@@ -186,7 +186,6 @@ def get_collection_value_history(conn) -> list[dict]:
         JOIN prod.fact_price_history fph ON fph.card_id = o.card_id
         JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
         WHERE p.platform_name = %(platform)s
-          AND o.average_cost_paid IS NOT NULL AND o.average_cost_paid != 0
         GROUP BY fph.date_id
         ORDER BY fph.date_id
         """,

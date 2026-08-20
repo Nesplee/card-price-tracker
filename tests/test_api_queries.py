@@ -143,13 +143,15 @@ def test_get_owned_cards_includes_rarity(db_connection):
     assert by_card["base1-1"]["rarity"] == "Rare Holo"
 
 
-def test_collection_value_history_excludes_unknown_cost_rows(db_connection):
-    # base1-2 (coût 0 = inconnu) ne doit jamais entrer dans l'agrégat de
-    # valeur -- seule base1-1 (coût connu, quantity=2) doit compter.
+def test_collection_value_history_includes_unknown_cost_rows(db_connection):
+    # base1-2 (coût 0 = inconnu) doit quand même entrer dans l'agrégat de
+    # valeur : total_value est une valeur de marché (quantity * prix actuel),
+    # qui ne dépend pas du coût d'achat. base1-2 (quantity=1) n'a une
+    # observation de prix (50.00) que le 2026-08-02.
     rows = get_collection_value_history(db_connection)
     by_date = {row["date_id"]: float(row["total_value"]) for row in rows}
-    assert by_date[date(2026, 8, 1)] == 20.00  # 2 * 10.00
-    assert by_date[date(2026, 8, 2)] == 24.00  # 2 * 12.00
+    assert by_date[date(2026, 8, 1)] == 20.00  # 2 * 10.00 (base1-2 sans prix ce jour-là)
+    assert by_date[date(2026, 8, 2)] == 74.00  # 2 * 12.00 + 1 * 50.00
 
 
 def test_search_cards_includes_priceless_cards(db_connection):

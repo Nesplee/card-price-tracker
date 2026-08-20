@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Link } from 'react-router-dom'
 import type { CardFilters, CollectionValuePoint, OwnedCard } from '../api/client'
 import { fetchCollection, fetchCollectionValueHistory } from '../api/client'
 import { FilterBar } from '../components/FilterBar'
@@ -95,9 +96,11 @@ export function MaCollection() {
         <tbody>
           {items.map((item) => (
             <tr key={item.id}>
-              <td className="card-name-cell">
-                <span className="rarity-dot" style={{ background: rarityColor(item.rarity) }} />
-                {item.name}
+              <td>
+                <Link to={`/cartes/${item.card_id}`} className="card-name-cell">
+                  <span className="rarity-dot" style={{ background: rarityColor(item.rarity) }} />
+                  {item.name}
+                </Link>
               </td>
               <td>{item.quantity}</td>
               <td className="cell-price">
