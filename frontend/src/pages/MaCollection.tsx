@@ -35,13 +35,13 @@ export function MaCollection() {
     setFilters((prev) => ({ ...prev, [key]: value }))
   }
 
-  // Valeur totale actuelle : uniquement les cartes au coût connu (voir
-  // cost_unknown) pour rester cohérent avec le graphe de value-history
-  // (qui applique déjà exactement ce filtre côté API). Calculée sur les
-  // items déjà filtrés par l'API (filters) -- filtrer par bloc/rareté/etc.
-  // recalcule donc la valeur du seul sous-ensemble affiché.
+  // Valeur totale : sur TOUTES les cartes (market_value ne dépend que du
+  // prix actuel, jamais du coût d'achat). La plus/moins-value, elle,
+  // nécessite un coût d'achat connu et reste donc filtrée sur cost_unknown.
+  // Calculée sur les items déjà filtrés par l'API (filters) -- filtrer par
+  // bloc/rareté/etc. recalcule donc la valeur du seul sous-ensemble affiché.
   const knownCostItems = items.filter((item) => !item.cost_unknown)
-  const totalValue = knownCostItems.reduce((sum, item) => sum + (item.market_value ?? 0), 0)
+  const totalValue = items.reduce((sum, item) => sum + (item.market_value ?? 0), 0)
   const totalGainLoss = knownCostItems.reduce((sum, item) => sum + (item.gain_loss ?? 0), 0)
   const unknownCostCount = items.length - knownCostItems.length
 
@@ -65,7 +65,9 @@ export function MaCollection() {
       </div>
 
       {unknownCostCount > 0 && (
-        <p role="note">{unknownCostCount} carte(s) au coût d'achat inconnu, exclue(s) de ce calcul.</p>
+        <p role="note">
+          {unknownCostCount} carte(s) au coût d'achat inconnu, exclue(s) du calcul de plus/moins-value.
+        </p>
       )}
 
       <div className="chart-panel">
