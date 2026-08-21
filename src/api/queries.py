@@ -191,3 +191,35 @@ def get_collection_value_history(conn) -> list[dict]:
         """,
         {"platform": _PLATFORM},
     ).fetchall()
+
+
+def get_collection_movers(conn, *, window: int) -> list[dict]:
+    # ranked : classe chaque observation de prix d'une carte par ancienneté
+    # décroissante (rn=1 = la plus récente). cur = rn=1 (prix actuel), past
+    # = rn=1+window (prix il y a "window" observations, PAS "window jours
+    # calendaires" -- même convention que les moyennes mobiles déjà
+    # implémentées côté frontend sur la fiche carte). LEFT JOIN : une carte
+    # dont l'historique est trop court pour atteindre le rang demandé garde
+    # past_price = NULL plutôt que d'être silencieusement exclue par un JOIN
+    # classique -- l'exclusion se décide en Python (Task 3), pas ici.
+    return conn.execute(
+        """
+        WITH ranked AS (
+            SELECT
+                fph.card_id, fph.average_sell_price,
+                ROW_NUMBER() OVER (PARTITION BY fph.card_id ORDER BY fph.date_id DESC) AS rn
+            FROM prod.fact_price_history fph
+            JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
+            WHERE p.platform_name = %(platform)s
+        )
+        SELECT
+            o.card_id, c.name, o.quantity,
+            cur.average_sell_price AS current_price,
+            past.average_sell_price AS past_price
+        FROM prod.dim_owned_card o
+        JOIN prod.dim_card c ON c.card_id = o.card_id
+        LEFT JOIN ranked cur ON cur.card_id = o.card_id AND cur.rn = 1
+        LEFT JOIN ranked past ON past.card_id = o.card_id AND past.rn = 1 + %(window)s
+        """,
+        {"platform": _PLATFORM, "window": window},
+    ).fetchall()

@@ -13,6 +13,7 @@ from psycopg.rows import dict_row
 
 from src.api.queries import (
     get_card_history,
+    get_collection_movers,
     get_collection_value_history,
     get_owned_cards,
     search_cards,
@@ -152,6 +153,22 @@ def test_collection_value_history_includes_unknown_cost_rows(db_connection):
     by_date = {row["date_id"]: float(row["total_value"]) for row in rows}
     assert by_date[date(2026, 8, 1)] == 20.00  # 2 * 10.00 (base1-2 sans prix ce jour-là)
     assert by_date[date(2026, 8, 2)] == 74.00  # 2 * 12.00 + 1 * 50.00
+
+
+def test_get_collection_movers_maps_current_and_past_price(db_connection):
+    # window=1 : compare la dernière observation (rn=1) à celle d'avant (rn=2).
+    # base1-1 a 2 observations (08-01=10.00, 08-02=12.00, quantity=2) -- les
+    # deux rangs existent. base1-2 n'a qu'UNE observation (08-02=50.00) --
+    # rn=2 n'existe pas, past_price doit être None (pas d'extrapolation).
+    rows = get_collection_movers(db_connection, window=1)
+    by_card = {row["card_id"]: row for row in rows}
+
+    assert float(by_card["base1-1"]["current_price"]) == 12.00
+    assert float(by_card["base1-1"]["past_price"]) == 10.00
+    assert by_card["base1-1"]["quantity"] == 2
+
+    assert float(by_card["base1-2"]["current_price"]) == 50.00
+    assert by_card["base1-2"]["past_price"] is None
 
 
 def test_search_cards_includes_priceless_cards(db_connection):
