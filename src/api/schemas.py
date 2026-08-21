@@ -63,3 +63,13 @@ class CollectionResponse(BaseModel):
 class CollectionValuePoint(BaseModel):
     date_id: date
     total_value: float
+
+
+class MoverCard(BaseModel):
+    card_id: str
+    name: str
+    quantity: int
+    current_price: float
+    past_price: float
+    pct_change: float
+    threshold: int
