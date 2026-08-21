@@ -347,3 +347,62 @@ th.cell-price {
   color: var(--surface);
   border-color: var(--ink);
 }
+
+.mover-badge {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.mover-up {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.mover-down {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.mover-badge-30 {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.top-movers-panel {
+  margin-bottom: 20px;
+}
+
+.top-movers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.mini-mover-card {
+  display: block;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.mini-mover-name {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.mini-mover-change {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.mini-mover-chart-placeholder {
+  height: 60px;
+}
