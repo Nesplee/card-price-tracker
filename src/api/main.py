@@ -16,6 +16,7 @@ from src.api.schemas import (
     CardSummary,
     CollectionResponse,
     CollectionValuePoint,
+    MoverCard,
     OwnedCard,
     PricePoint,
 )
@@ -121,3 +122,36 @@ def collection(
 def collection_value_history(conn=Depends(get_api_connection)) -> list[CollectionValuePoint]:
     rows = queries.get_collection_value_history(conn)
     return [CollectionValuePoint(**row) for row in rows]
+
+
+@app.get("/api/reports/movers", response_model=list[MoverCard])
+def reports_movers(window: int, conn=Depends(get_api_connection)) -> list[MoverCard]:
+    if window not in (7, 30):
+        raise HTTPException(status_code=422, detail="window doit être 7 ou 30")
+    rows = queries.get_collection_movers(conn, window=window)
+    movers = []
+    for row in rows:
+        current_price = row["current_price"]
+        past_price = row["past_price"]
+        # Pas d'extrapolation : une carte sans prix aux deux dates ne peut
+        # pas avoir de variation calculable, donc exclue plutôt qu'affichée
+        # avec une valeur trompeuse.
+        if current_price is None or past_price is None or past_price == 0:
+            continue
+        pct_change = (current_price - past_price) / past_price * 100
+        if abs(pct_change) < 10:
+            continue
+        threshold = 30 if abs(pct_change) >= 30 else 20 if abs(pct_change) >= 20 else 10
+        movers.append(
+            MoverCard(
+                card_id=row["card_id"],
+                name=row["name"],
+                quantity=row["quantity"],
+                current_price=current_price,
+                past_price=past_price,
+                pct_change=pct_change,
+                threshold=threshold,
+            )
+        )
+    movers.sort(key=lambda m: abs(m.pct_change), reverse=True)
+    return movers
