@@ -202,6 +202,19 @@ def get_collection_movers(conn, *, window: int) -> list[dict]:
     # dont l'historique est trop court pour atteindre le rang demandé garde
     # past_price = NULL plutôt que d'être silencieusement exclue par un JOIN
     # classique -- l'exclusion se décide en Python (Task 3), pas ici.
+    # average_sell_price est NULLable (la pipeline admet des lignes où seuls
+    # mid/low sont connus) -- on les exclut du classement pour que le rang ne
+    # compte que de vraies observations de prix, sinon une ligne NULL en
+    # rn=1 ferait disparaître une carte à tort, ou décalerait ce que "N
+    # observations plus tôt" signifie réellement.
+    #
+    # prod.dim_owned_card est unique sur (card_id, variance, grade), pas sur
+    # card_id seul : une carte possédée à la fois en Normal et en Reverse
+    # Holo (ou brute + gradée) donne plusieurs lignes o.*. On agrège donc par
+    # card_id (SUM(quantity)) pour ne renvoyer qu'une ligne par carte -- les
+    # prix cur/past sont identiques sur chaque ligne du groupe (ils viennent
+    # de `ranked`, indexé par card_id), donc les inclure dans le GROUP BY ne
+    # fragmente pas l'agrégat.
     return conn.execute(
         """
         WITH ranked AS (
@@ -210,16 +223,17 @@ def get_collection_movers(conn, *, window: int) -> list[dict]:
                 ROW_NUMBER() OVER (PARTITION BY fph.card_id ORDER BY fph.date_id DESC) AS rn
             FROM prod.fact_price_history fph
             JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
-            WHERE p.platform_name = %(platform)s
+            WHERE p.platform_name = %(platform)s AND fph.average_sell_price IS NOT NULL
         )
         SELECT
-            o.card_id, c.name, o.quantity,
+            o.card_id, c.name, SUM(o.quantity) AS quantity,
             cur.average_sell_price AS current_price,
             past.average_sell_price AS past_price
         FROM prod.dim_owned_card o
         JOIN prod.dim_card c ON c.card_id = o.card_id
         LEFT JOIN ranked cur ON cur.card_id = o.card_id AND cur.rn = 1
         LEFT JOIN ranked past ON past.card_id = o.card_id AND past.rn = 1 + %(window)s
+        GROUP BY o.card_id, c.name, cur.average_sell_price, past.average_sell_price
         """,
         {"platform": _PLATFORM, "window": window},
     ).fetchall()

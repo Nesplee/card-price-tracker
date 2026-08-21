@@ -171,6 +171,59 @@ def test_get_collection_movers_maps_current_and_past_price(db_connection):
     assert by_card["base1-2"]["past_price"] is None
 
 
+def test_get_collection_movers_aggregates_multiple_variances(db_connection):
+    # prod.dim_owned_card est unique sur (card_id, variance, grade), pas sur
+    # card_id seul -- une carte possédée en Normal ET en Reverse Holo doit
+    # donner UNE SEULE ligne agrégée (quantité sommée), pas deux lignes
+    # dupliquées avec les mêmes prix.
+    with psycopg.connect(_admin_dsn()) as admin_conn:
+        admin_conn.execute(
+            "INSERT INTO prod.dim_owned_card "
+            "(card_id, variance, grade, quantity, average_cost_paid) "
+            "VALUES ('base1-1', 'Reverse Holo', '', 3, 9.00)"
+        )
+        admin_conn.commit()
+
+    rows = get_collection_movers(db_connection, window=1)
+    base1_1_rows = [row for row in rows if row["card_id"] == "base1-1"]
+    assert len(base1_1_rows) == 1
+    assert base1_1_rows[0]["quantity"] == 5  # 2 (Normal) + 3 (Reverse Holo)
+    assert float(base1_1_rows[0]["current_price"]) == 12.00
+    assert float(base1_1_rows[0]["past_price"]) == 10.00
+
+
+def test_get_collection_movers_ignores_null_price_observations(db_connection):
+    # average_sell_price est NULLable -- une observation NULL ne doit pas
+    # compter comme un rang dans `ranked`, sinon elle peut masquer une carte
+    # (rang 1 = NULL) ou décaler ce que "window observations plus tôt"
+    # signifie réellement.
+    with psycopg.connect(_admin_dsn()) as admin_conn:
+        date_3 = date(2026, 8, 3)
+        admin_conn.execute(
+            "INSERT INTO prod.dim_date (date_id, year, month, day, day_of_week) "
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (date_id) DO NOTHING",
+            (date_3, 2026, 8, 3, date_3.weekday()),
+        )
+        platform_id = admin_conn.execute(
+            "SELECT platform_id FROM prod.dim_platform WHERE platform_name = 'tcgplayer'"
+        ).fetchone()[0]
+        # Observation la plus récente (08-03) a un prix NULL (seuls mid/low
+        # connus) -- doit être ignorée par `ranked`, donc rn=1 reste 08-02
+        # (12.00) et rn=2 reste 08-01 (10.00), comme dans le test ci-dessus.
+        admin_conn.execute(
+            "INSERT INTO prod.fact_price_history "
+            "(card_id, date_id, platform_id, average_sell_price, trend_price, low_price) "
+            "VALUES ('base1-1', %s, %s, NULL, 13.00, 11.00)",
+            (date_3, platform_id),
+        )
+        admin_conn.commit()
+
+    rows = get_collection_movers(db_connection, window=1)
+    by_card = {row["card_id"]: row for row in rows}
+    assert float(by_card["base1-1"]["current_price"]) == 12.00
+    assert float(by_card["base1-1"]["past_price"]) == 10.00
+
+
 def test_search_cards_includes_priceless_cards(db_connection):
     # Une nouvelle carte (base1-3) sans aucune observation de prix tcgplayer
     # doit quand même apparaître dans les résultats de recherche, avec

@@ -108,10 +108,11 @@ la conception : `docs/superpowers/specs/2026-08-14-tailscale-remote-access-desig
 ## Dashboard sur mesure
 
 Une seconde interface, en lecture seule elle aussi, complète Metabase :
-une petite application web (API FastAPI + frontend React) dédiée à trois
+une petite application web (API FastAPI + frontend React) dédiée à quatre
 usages précis plutôt qu'à l'exploration libre — catalogue de cartes avec
-recherche et filtres, historique de prix détaillé par carte, et valeur de
-la collection personnelle. Même rôle Postgres en lecture seule
+recherche et filtres, historique de prix détaillé par carte, valeur de
+la collection personnelle, et rapports daily/weekly des gros mouvements de
+prix sur la collection possédée. Même rôle Postgres en lecture seule
 (`dashboard_reader`) que Metabase, même politique d'accès : jamais exposée
 publiquement, accessible en HTTPS via le tailnet Tailscale :
 

@@ -153,5 +153,8 @@ def reports_movers(window: int, conn=Depends(get_api_connection)) -> list[MoverC
                 threshold=threshold,
             )
         )
-    movers.sort(key=lambda m: abs(m.pct_change), reverse=True)
+    # Tri principal décroissant sur l'ampleur de variation ; card_id en clé
+    # secondaire pour un ordre stable et déterministe entre deux requêtes
+    # quand plusieurs cartes sont à égalité sur abs(pct_change).
+    movers.sort(key=lambda m: (-abs(m.pct_change), m.card_id))
     return movers

@@ -140,11 +140,15 @@ def test_reports_movers_rejects_invalid_window(client):
 
 
 def test_reports_movers_filters_sorts_and_flags_threshold(client):
-    # Setup dédié : 3 cartes possédées sur 8 jours (2026-08-01 .. 2026-08-08).
-    # - base1-1 : 10.00 -> 15.00 sur les 8 jours = +50% (franchit le palier 30)
+    # Setup dédié : 5 cartes possédées sur 8 jours (2026-08-01 .. 2026-08-08).
+    # - base1-1 : 10.00 -> 15.00 sur les 8 jours = +50% (franchit le palier 30, hausse)
     # - base1-2 : seulement 3 observations (06,07,08) -> pas de rang 8,
     #   donc past_price=None pour window=7 -- doit être EXCLUE de la réponse.
     # - base1-3 : 10.00 -> 10.30 = +3% -- sous le seuil de 10%, doit être EXCLUE.
+    # - base1-4 : 10.00 -> 7.50 = -25% (palier 20, baisse)
+    # - base1-5 : 10.00 -> 8.80 = -12% (palier 10, baisse)
+    # Ordre attendu (tri décroissant sur abs(pct_change), aucune égalité ici) :
+    # base1-1 (50%) > base1-4 (25%) > base1-5 (12%).
     with psycopg.connect(_admin_dsn()) as admin_conn:
         admin_conn.execute(
             "INSERT INTO prod.dim_date (date_id, year, month, day, day_of_week) "
@@ -157,7 +161,9 @@ def test_reports_movers_filters_sorts_and_flags_threshold(client):
             "INSERT INTO prod.dim_card (card_id, name, set_id, set_name, rarity, series) "
             "VALUES "
             "('base1-2', 'Blastoise', 'base1', 'Base Set', 'Rare Holo', 'Base'), "
-            "('base1-3', 'Charizard', 'base1', 'Base Set', 'Rare Holo', 'Base')"
+            "('base1-3', 'Charizard', 'base1', 'Base Set', 'Rare Holo', 'Base'), "
+            "('base1-4', 'Venusaur', 'base1', 'Base Set', 'Rare Holo', 'Base'), "
+            "('base1-5', 'Gyarados', 'base1', 'Base Set', 'Rare Holo', 'Base')"
         )
         platform_id = admin_conn.execute(
             "SELECT platform_id FROM prod.dim_platform WHERE platform_name = 'tcgplayer'"
@@ -174,6 +180,14 @@ def test_reports_movers_filters_sorts_and_flags_threshold(client):
             "UNION ALL "
             "SELECT 'base1-3', d, %(platform_id)s, "
             "  CASE WHEN d = date '2026-08-08' THEN 10.30 ELSE 10.00 END, NULL::numeric, NULL::numeric "
+            "FROM generate_series(date '2026-08-01', date '2026-08-08', interval '1 day') AS d "
+            "UNION ALL "
+            "SELECT 'base1-4', d, %(platform_id)s, "
+            "  CASE WHEN d = date '2026-08-08' THEN 7.50 ELSE 10.00 END, NULL::numeric, NULL::numeric "
+            "FROM generate_series(date '2026-08-01', date '2026-08-08', interval '1 day') AS d "
+            "UNION ALL "
+            "SELECT 'base1-5', d, %(platform_id)s, "
+            "  CASE WHEN d = date '2026-08-08' THEN 8.80 ELSE 10.00 END, NULL::numeric, NULL::numeric "
             "FROM generate_series(date '2026-08-01', date '2026-08-08', interval '1 day') AS d",
             {"platform_id": platform_id},
         )
@@ -181,7 +195,9 @@ def test_reports_movers_filters_sorts_and_flags_threshold(client):
             "INSERT INTO prod.dim_owned_card (card_id, variance, grade, quantity, average_cost_paid) "
             "VALUES "
             "('base1-2', 'Normal', '', 1, 5.00), "
-            "('base1-3', 'Normal', '', 1, 10.00)"
+            "('base1-3', 'Normal', '', 1, 10.00), "
+            "('base1-4', 'Normal', '', 1, 10.00), "
+            "('base1-5', 'Normal', '', 1, 10.00)"
         )
         admin_conn.commit()
 
@@ -190,11 +206,26 @@ def test_reports_movers_filters_sorts_and_flags_threshold(client):
     movers = response.json()
 
     card_ids = [m["card_id"] for m in movers]
-    assert card_ids == ["base1-1"]  # base1-2 (past manquant) et base1-3 (<10%) exclues
+    # base1-2 (past manquant) et base1-3 (<10%) exclues ; ordre décroissant
+    # sur abs(pct_change) pinné explicitement, pas juste "un élément présent".
+    assert card_ids == ["base1-1", "base1-4", "base1-5"]
 
-    mover = movers[0]
-    assert mover["current_price"] == 15.00
-    assert mover["past_price"] == 10.00
-    assert mover["pct_change"] == 50.0
-    assert mover["threshold"] == 30
-    assert mover["quantity"] == 2
+    by_card = {m["card_id"]: m for m in movers}
+
+    riser = by_card["base1-1"]
+    assert riser["current_price"] == 15.00
+    assert riser["past_price"] == 10.00
+    assert riser["pct_change"] == 50.0
+    assert riser["threshold"] == 30
+    assert riser["quantity"] == 2
+
+    faller_20 = by_card["base1-4"]
+    assert faller_20["pct_change"] == -25.0
+    assert faller_20["threshold"] == 20
+
+    faller_10 = by_card["base1-5"]
+    assert faller_10["pct_change"] == -12.0
+    assert faller_10["threshold"] == 10
+    # Au moins une variation négative dans les données de test protège le
+    # contrat dont dépend la coloration mover-down/mover-up côté frontend.
+    assert any(m["pct_change"] < 0 for m in movers)

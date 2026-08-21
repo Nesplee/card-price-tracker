@@ -22,7 +22,7 @@ function MoversTable({ movers }: { movers: MoverCard[] }) {
       <thead>
         <tr>
           <th>Nom</th>
-          <th className="cell-price">Quantité</th>
+          <th>Quantité</th>
           <th className="cell-price">Prix passé</th>
           <th className="cell-price">Prix actuel</th>
           <th className="cell-price">Variation</th>
@@ -102,15 +102,16 @@ export function Rapports() {
   const [daily, setDaily] = useState<MoverCard[]>([])
   const [weekly, setWeekly] = useState<MoverCard[]>([])
   const [histories, setHistories] = useState<Map<string, CardHistory>>(new Map())
-  const [error, setError] = useState<string | null>(null)
+  const [dailyError, setDailyError] = useState<string | null>(null)
+  const [weeklyError, setWeeklyError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchMovers(7)
       .then(setDaily)
-      .catch((err) => setError(String(err)))
+      .catch((err) => setDailyError(String(err)))
     fetchMovers(30)
       .then(setWeekly)
-      .catch((err) => setError(String(err)))
+      .catch((err) => setWeeklyError(String(err)))
   }, [])
 
   const topGains = weekly.filter((m) => m.pct_change > 0).slice(0, 5)
@@ -141,12 +142,13 @@ export function Rapports() {
   return (
     <div className="page">
       <h1>Rapports</h1>
-      {error && <p role="alert">{error}</p>}
 
       <h2>Daily (7 jours)</h2>
+      {dailyError && <p role="alert">{dailyError}</p>}
       <MoversTable movers={daily} />
 
       <h2>Weekly (30 jours)</h2>
+      {weeklyError && <p role="alert">{weeklyError}</p>}
       <TopMoversPanel title="Top 5 hausses" movers={topGains} histories={histories} />
       <TopMoversPanel title="Top 5 baisses" movers={topLosses} histories={histories} />
       <MoversTable movers={weekly} />

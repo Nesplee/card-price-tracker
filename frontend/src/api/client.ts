@@ -121,8 +121,8 @@ export interface MoverCard {
   threshold: number
 }
 
-export async function fetchMovers(window: 7 | 30): Promise<MoverCard[]> {
-  const response = await fetch(`/api/reports/movers?window=${window}`)
+export async function fetchMovers(windowSize: 7 | 30): Promise<MoverCard[]> {
+  const response = await fetch(`/api/reports/movers?window=${windowSize}`)
   if (!response.ok) {
     throw new Error(`Erreur API /api/reports/movers : ${response.status}`)
   }
