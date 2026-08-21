@@ -110,3 +110,21 @@ export async function fetchCollectionValueHistory(): Promise<CollectionValuePoin
   }
   return response.json()
 }
+
+export interface MoverCard {
+  card_id: string
+  name: string
+  quantity: number
+  current_price: number
+  past_price: number
+  pct_change: number
+  threshold: number
+}
+
+export async function fetchMovers(window: 7 | 30): Promise<MoverCard[]> {
+  const response = await fetch(`/api/reports/movers?window=${window}`)
+  if (!response.ok) {
+    throw new Error(`Erreur API /api/reports/movers : ${response.status}`)
+  }
+  return response.json()
+}
