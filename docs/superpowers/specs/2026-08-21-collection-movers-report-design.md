@@ -1,6 +1,6 @@
 # Card Price Tracker — Rapports daily/weekly (gros mouvements de collection) — Design
 
-**Statut :** en cours de conception, pas encore implémenté.
+**Statut :** implémenté et déployé en production (2026-08-21).
 
 ## Contexte et problème
 
