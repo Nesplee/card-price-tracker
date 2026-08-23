@@ -125,6 +125,16 @@ https://annonces-vps.tail094416.ts.net:3000   # UI Metabase
 https://annonces-vps.tail094416.ts.net:5173   # Dashboard sur mesure
 ```
 
+### Piège Metabase : collision du nom d'hôte "db" (2026-08-23)
+
+Le conteneur `metabase` de ce projet est aussi rattaché à un second réseau Docker, `annonces-metabase-shared`, partagé avec un autre projet ("annonces") qui a son propre conteneur Postgres également nommé/aliasé `db` (`annonces-db-1`). Un conteneur rattaché à deux réseaux où le même alias existe des deux côtés voit sa résolution DNS de cet alias devenir ambiguë : Metabase configuré avec `db` comme hôte de connexion peut résoudre vers le **mauvais** Postgres (celui d'"annonces" au lieu de `card_tracker`), avec pour symptôme des échecs d'authentification (`password authentication failed for user "dashboard_reader"`) alors que le mot de passe est parfaitement correct — le test de connexion au moment de la sauvegarde peut même passer par intermittence si la résolution retombe sur le bon conteneur à cet instant précis, ce qui rend le problème trompeur.
+
+**Symptôme observé** : dashboards "cartes" cassés dans Metabase (graphiques en erreur), alors que la connexion réseau ↔ Postgres fonctionne parfaitement pour tout le reste de la stack (`dashboard-api`, `psql` direct) — ces services ne sont que sur `card-price-tracker_default`, jamais sur le réseau partagé, donc jamais concernés par la collision.
+
+**Fix appliqué** : dans la config de connexion Metabase (Admin settings → Databases → `Card_tracker`), le champ **Hôte** doit être `card-price-tracker-db-1` (nom complet du conteneur, unique sur tous les réseaux) et non `db` (alias court, ambigu tant que le réseau partagé existe).
+
+Ce changement a été fait via l'API Metabase (`PUT /api/database/2`), donc **pas versionné** dans `docker-compose.prod.yml` ni ailleurs — si le conteneur `metabase` est un jour recréé et que sa config de connexion doit être ressaisie depuis zéro, utiliser `card-price-tracker-db-1` comme hôte dès le départ pour éviter de reproduire ce piège.
+
 ### Vérifier l'état de la stack
 
 ```bash
