@@ -190,6 +190,14 @@ services:
     # ne gouverne pas les ports publiés par Docker).
     ports:
       - "${TAILSCALE_IP:-127.0.0.1}:3000:8443"
+    # "default" + "annonces-metabase-shared" : Metabase reste sur son réseau
+    # habituel (accès à ses propres dépendances de ce projet) ET rejoint en
+    # plus le réseau externe partagé avec le projet ANNONCES (déployé
+    # séparément), pour se connecter à sa base "annonces-db" par nom de
+    # conteneur — sans exposer cette base sur le réseau public du VPS.
+    networks:
+      - default
+      - annonces-metabase-shared
     healthcheck:
       # --resolve force curl à envoyer le SNI "annonces-vps.tail094416.ts.net"
       # (celui du certificat) tout en résolvant vers 127.0.0.1 -- Jetty rejette
@@ -280,3 +288,7 @@ volumes:
   card_tracker_pg_data:
   airflow_pg_data:
   metabase_data:
+
+networks:
+  annonces-metabase-shared:
+    external: true
