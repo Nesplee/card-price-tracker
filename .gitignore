@@ -25,6 +25,13 @@ export.csv
 # (superpowers:using-git-worktrees) — scratch local, jamais commité.
 .worktrees/
 
+# Documentation et état internes liés à Claude Code (dossiers runtime +
+# specs/plans générés par le workflow superpowers) : outillage de dev
+# personnel, pas destiné à un repo portfolio public.
+.claude/
+.superpowers/
+docs/superpowers/
+
 # Certificats Tailscale (accès HTTPS permanent, voir
 # docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md) :
 # contient key.pem (clé privée TLS) et le keystore PKCS12 dérivé -- jamais

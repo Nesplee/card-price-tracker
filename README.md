@@ -48,7 +48,7 @@ This isn't a script that fetches an API once and calls it done. A handful of dec
 
 - **Idempotent end-to-end, proven rather than assumed.** Every layer, from the raw copy to the staging quarantine to the star schema itself, upserts through a `UNIQUE` constraint instead of a delete-and-reload. [`tests/test_idempotence.py`](tests/test_idempotence.py) replays the entire pipeline twice in a row against a real database and asserts zero duplication and zero drift in the historical record.
 - **A page-level checkpoint turns a ~37% failure rate into a non-issue.** Each successfully fetched page commits immediately in [`src/extract/pipeline.py`](src/extract/pipeline.py), so a crash mid-extraction never loses work already done; a retry resumes from the last confirmed page instead of restarting an 80-page extraction from scratch.
-- **A real incident reshaped the DAG's failure handling, not a hypothetical one.** The automated run of 2026-08-07 exhausted its then-20-retry budget during a prolonged `pokemontcg.io` outage. The fix, documented in [`docs/superpowers/specs/2026-08-08-dag-reliability-design.md`](docs/superpowers/specs/2026-08-08-dag-reliability-design.md), raised the retry ceiling to 60, added a 4-hour `dagrun_timeout` that bounds the cumulative run rather than any single attempt, and closed a UTC date-rollover bug, then was verified by replaying that exact failed run to `success` in production.
+- **A real incident reshaped the DAG's failure handling, not a hypothetical one.** The automated run of 2026-08-07 exhausted its then-20-retry budget during a prolonged `pokemontcg.io` outage. The fix raised the retry ceiling to 60, added a 4-hour `dagrun_timeout` that bounds the cumulative run rather than any single attempt, and closed a UTC date-rollover bug, then was verified by replaying that exact failed run to `success` in production.
 - **Least privilege is enforced at the database role level, not just documented.** `pipeline_app` (read/write, scoped to the schemas the pipeline needs) and `dashboard_reader` (read-only, scoped to `prod` alone) are two separate Postgres roles: no interface capable of exploring the data, whether Metabase or the custom dashboard, can also write to it.
 
 <img src=".assets/divider.png" width="100%" alt="" />
@@ -114,7 +114,7 @@ prod.dim_card / dim_date / dim_platform   (currency: EUR for CardMarket, USD for
 </table>
 
 > [!NOTE]
-> **Two pricing platforms coexist by design.** Historical CardMarket data is never deleted (the schema forbids any `DELETE` on `fact_price_history`); TCGPlayer simply became the default source after a documented mid-project design change ([`docs/superpowers/specs/2026-08-07-tcgplayer-pricing-source-design.md`](docs/superpowers/specs/2026-08-07-tcgplayer-pricing-source-design.md)). The `currency` column on `dim_platform` is what keeps a careless aggregation from mixing euros and dollars.
+> **Two pricing platforms coexist by design.** Historical CardMarket data is never deleted (the schema forbids any `DELETE` on `fact_price_history`); TCGPlayer simply became the default source after a documented mid-project design change. The `currency` column on `dim_platform` is what keeps a careless aggregation from mixing euros and dollars.
 
 <img src=".assets/divider.png" width="100%" alt="" />
 
@@ -203,7 +203,6 @@ migrations/     Numbered SQL, applied once, never modified after merge
 scripts/        Manual entry points (one-off extraction, migrations, collection import)
 tests/          73 tests, unit and integration (pytest + a real Postgres instance)
 infra/          VPS provisioning runbook (SSH hardening, firewall, Docker, deployment)
-docs/superpowers/  Design specs and implementation plans for every major evolution
 ```
 
 <img src=".assets/divider.png" width="100%" alt="" />
