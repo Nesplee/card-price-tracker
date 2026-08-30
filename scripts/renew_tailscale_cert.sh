@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Spécifique au déploiement VPS actuel (chemin et nom MagicDNS en dur).
+# Spécifique au déploiement VPS actuel (chemin en dur, nom MagicDNS lu
+# depuis l'environnement -- voir TAILSCALE_HOSTNAME).
 # Programmé via `sudo crontab -e` : 0 4 * * 1 (chaque lundi 4h). Nécessite
 # root (tailscale cert). Le cert Tailscale expire tous les ~90 jours ;
 # `tailscale cert` est un no-op si le cert en cours est encore valide.
 #
-# Dédié à ce repo -- ne partage pas de certificat avec DE_ANNONCES même si
-# le nom de domaine est identique (les deux VPS/projets restent isolés,
-# voir docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md).
+# Dédié à ce repo -- ne partage pas de certificat avec un autre projet
+# hébergé sur le même compte Tailscale, même si le tailnet est le même
+# (chaque VPS/projet reste isolé, avec son propre certificat).
 set -euo pipefail
 
 CERT_DIR=/home/ubuntu/card-price-tracker/tailscale-certs
-DOMAIN=annonces-vps.tail094416.ts.net
+DOMAIN="${TAILSCALE_HOSTNAME:?TAILSCALE_HOSTNAME doit être exporté avant d\'appeler ce script}"
 KEYSTORE_PASSWORD="${METABASE_KEYSTORE_PASSWORD:?METABASE_KEYSTORE_PASSWORD doit être exporté avant d\'appeler ce script}"
 export KEYSTORE_PASSWORD
 

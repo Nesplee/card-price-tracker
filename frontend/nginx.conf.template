@@ -3,10 +3,18 @@
 # Compose (nom du service, voir resolver ci-dessous pour la ré-résolution
 # à chaque requête plutôt qu'une résolution figée au démarrage).
 #
-# HTTPS via certificat Tailscale (voir
-# docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md) :
-# écoute en 443 en interne, le port externe publié reste 5173 (mapping
-# asymétrique dans docker-compose.prod.yml).
+# HTTPS via certificat Tailscale : écoute en 443 en interne, le port externe
+# publié reste 5173 (mapping asymétrique dans docker-compose.prod.yml).
+#
+# Ce fichier est un TEMPLATE (suffixe .template, dans frontend/Dockerfile
+# copié vers /etc/nginx/templates/) : l'entrypoint officiel de l'image
+# nginx:alpine exécute automatiquement envsubst dessus au démarrage du
+# conteneur, en substituant uniquement les ${VAR} qui correspondent à une
+# vraie variable d'environnement du conteneur (voir TAILSCALE_HOSTNAME dans
+# docker-compose.prod.yml, service dashboard-frontend) -- les variables nginx
+# natives comme $request_uri ou $api_upstream ci-dessous ne sont jamais des
+# variables d'environnement du conteneur, donc jamais touchées par cette
+# substitution, aucun échappement supplémentaire n'est nécessaire.
 server {
     listen 443 ssl;
     ssl_certificate /certs/cert.pem;
@@ -59,7 +67,7 @@ server {
         # depth 1 (défaut nginx) ne couvre que leaf->intermédiaire ; la
         # chaîne réelle est leaf->intermédiaire->racine, donc depth 2.
         proxy_ssl_verify_depth 2;
-        proxy_ssl_name annonces-vps.tail094416.ts.net;
+        proxy_ssl_name ${TAILSCALE_HOSTNAME};
         # Sans ceci, nginx n'envoie aucun SNI à l'upstream (désactivé par
         # défaut) -- dashboard-api pourrait alors présenter le mauvais
         # certificat par défaut selon sa configuration TLS.

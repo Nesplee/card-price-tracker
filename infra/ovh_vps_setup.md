@@ -9,8 +9,8 @@
 - **Localisation** : Roubaix (EU-WEST-RBX), France — pas de datacenter Suisse disponible dans le configurateur au moment de la commande
 - **Engagement** : sans engagement (flexibilité de résiliation à tout moment)
 - **OS** : Ubuntu 24.04 LTS
-- **Nom d'hôte** : `vps-6a6b48af.vps.ovh.net`
-- **IPv4** : `164.132.243.29`
+- **Nom d'hôte** : `<redacted>.vps.ovh.net` (valeur réelle gardée hors dépôt, pas de sensibilité particulière sur le format, mais un serveur de production réel ne doit pas être identifiable depuis un repo portfolio public)
+- **IPv4** : `<redacted>` (idem, voir `~/.ssh/config` local pour la valeur réelle, jamais commitée)
 - **Utilisateur système** : `ubuntu` (pas de compte root actif en SSH — voir durcissement ci-dessous)
 
 ## Piège rencontré à la première connexion (à savoir pour une future réinstallation)
@@ -75,7 +75,7 @@ Ajouté dans `~/.ssh/config` (machine de développement), pour éviter de retape
 
 ```
 Host card-tracker-vm
-    HostName 164.132.243.29
+    HostName <redacted, voir ~/.ssh/config local>
     User ubuntu
     IdentityFile ~/.ssh/card-tracker-vm.pem
 ```
@@ -115,14 +115,14 @@ Si `docker-compose.prod.yml` a changé (nouveau service, image mise à jour) : `
 
 Aucune de ces interfaces n'est exposée publiquement (voir Firewall ci-dessus)
 — accès en HTTPS via le tailnet Tailscale (certificat Let's Encrypt émis
-pour le nom MagicDNS du VPS), depuis n'importe quel appareil membre du même
-tailnet, sans tunnel SSH à ouvrir. Détail de la conception :
-`docs/superpowers/specs/2026-08-14-tailscale-remote-access-design.md`.
+pour le nom MagicDNS du VPS, voir `TAILSCALE_HOSTNAME` dans `.env.example`),
+depuis n'importe quel appareil membre du même tailnet, sans tunnel SSH à
+ouvrir.
 
 ```
-https://annonces-vps.tail094416.ts.net:8080   # UI Airflow
-https://annonces-vps.tail094416.ts.net:3000   # UI Metabase
-https://annonces-vps.tail094416.ts.net:5173   # Dashboard sur mesure
+https://<TAILSCALE_HOSTNAME>:8080   # UI Airflow
+https://<TAILSCALE_HOSTNAME>:3000   # UI Metabase
+https://<TAILSCALE_HOSTNAME>:5173   # Dashboard sur mesure
 ```
 
 ### Piège Metabase : collision du nom d'hôte "db" (2026-08-23)

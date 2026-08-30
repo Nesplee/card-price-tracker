@@ -11,4 +11,9 @@ RUN npm run build
 
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# .template dans /etc/nginx/templates/ (pas une copie directe vers conf.d/) :
+# l'entrypoint officiel de cette image lance envsubst dessus au démarrage du
+# conteneur, pour injecter TAILSCALE_HOSTNAME (voir nginx.conf.template et
+# docker-compose.prod.yml, service dashboard-frontend) avant d'écrire le
+# résultat dans /etc/nginx/conf.d/default.conf.
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template

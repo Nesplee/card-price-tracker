@@ -199,15 +199,17 @@ services:
       - default
       - annonces-metabase-shared
     healthcheck:
-      # --resolve force curl à envoyer le SNI "annonces-vps.tail094416.ts.net"
-      # (celui du certificat) tout en résolvant vers 127.0.0.1 -- Jetty rejette
-      # en 400 "Invalid SNI" toute requête TLS dont le SNI ne correspond à
-      # aucun certificat connu (observé en Task 5 réelle : taper "localhost"
-      # comme -k le laissait supposer suffisant échouait avec ce message,
-      # -k ne désactive que la vérification cliente, pas le contrôle SNI
-      # serveur de Jetty). La vérification réelle du certificat se fait côté
-      # client (navigateur/mobile) via le vrai nom Tailscale, sans -k.
-      test: ["CMD", "curl", "--fail", "-k", "--resolve", "annonces-vps.tail094416.ts.net:8443:127.0.0.1", "https://annonces-vps.tail094416.ts.net:8443/api/health"]
+      # --resolve force curl à envoyer le SNI du nom Tailscale du VPS (celui
+      # du certificat, voir TAILSCALE_HOSTNAME dans .env.example -- interpolé
+      # ici par Docker Compose au moment du parsing du fichier, pas dans le
+      # conteneur) tout en résolvant vers 127.0.0.1 -- Jetty rejette en 400
+      # "Invalid SNI" toute requête TLS dont le SNI ne correspond à aucun
+      # certificat connu (observé en Task 5 réelle : taper "localhost" comme
+      # -k le laissait supposer suffisant échouait avec ce message, -k ne
+      # désactive que la vérification cliente, pas le contrôle SNI serveur
+      # de Jetty). La vérification réelle du certificat se fait côté client
+      # (navigateur/mobile) via le vrai nom Tailscale, sans -k.
+      test: ["CMD", "curl", "--fail", "-k", "--resolve", "${TAILSCALE_HOSTNAME}:8443:127.0.0.1", "https://${TAILSCALE_HOSTNAME}:8443/api/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -276,6 +278,12 @@ services:
       dockerfile: Dockerfile
     depends_on:
       - dashboard-api
+    environment:
+      # Lu par le template nginx (frontend/nginx.conf.template) via
+      # envsubst, exécuté automatiquement par l'entrypoint officiel de
+      # l'image nginx:alpine au démarrage du conteneur -- voir le
+      # commentaire en tête de ce template pour le mécanisme complet.
+      TAILSCALE_HOSTNAME: ${TAILSCALE_HOSTNAME}
     volumes:
       - ./tailscale-certs:/certs:ro
     # Mapping asymétrique : port externe 5173 (inchangé), port interne 443
