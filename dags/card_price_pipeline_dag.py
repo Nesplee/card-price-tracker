@@ -3,23 +3,30 @@
 # étape déjà développée et testée les mois/tâches précédents :
 #   1. extract_and_load_raw  : va chercher les cartes sur pokemontcg.io et
 #      les charge dans raw.card_prices (Mois 1 + Task 4 pour le checkpoint).
+#   1b. refresh_tcgplayer_prices : remplace les prix TCGplayer figés de
+#      pokemontcg.io par ceux de TCGCSV (ajouté le 2026-10-26).
 #   2. clean_to_staging      : valide/nettoie raw -> staging (Task 2).
 #   3. load_to_warehouse     : charge staging -> star schema prod (Task 3).
+#   4. check_freshness       : alerte ntfy si aucun prix n'a bougé depuis le
+#      jour précédent (source figée, ajouté le 2026-10-26).
 # Ce module est un point d'ENTRÉE (aucun autre module du dépôt ne l'importe) :
 # c'est Airflow (le scheduler, en le scannant dans dags/) qui l'exécute.
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 
 import psycopg
 from airflow.decorators import dag, task
 from airflow.models import DagRun
 
-from src.common.config import load_db_config, load_pokemontcg_config
+from src.common.config import load_db_config, load_ntfy_config, load_pokemontcg_config
 from src.common.db import get_connection
 from src.extract.pipeline import run_extract_load
 from src.extract.pokemontcg_client import PokemonTcgClient
+from src.extract.tcgcsv_prices import TcgCsvClient, apply_tcgcsv_prices
 from src.load.warehouse_loader import load_staging_to_warehouse
+from src.monitor.price_freshness import check_price_freshness, send_ntfy
 from src.transform.clean import clean_raw_to_staging
 
 
@@ -257,6 +264,18 @@ def card_price_pipeline():
             conn.close()
         return extracted_date.isoformat()
 
+    # refresh_tcgplayer_prices (ajouté le 2026-10-26) : pokemontcg.io renvoie
+    # des prix TCGplayer figés depuis le 2026-10-15. Cette tâche remplace le
+    # bloc payload.tcgplayer du jour par les prix TCGCSV (même format), voir
+    # src/extract/tcgcsv_prices.py. Source externe -> retries comme
+    # l'extraction, mais TCGCSV est un simple fichier statique bien plus
+    # fiable que pokemontcg.io : 5 tentatives espacées d'1 min suffisent.
+    @task(retries=5, retry_delay=timedelta(minutes=1))
+    def refresh_tcgplayer_prices(extracted_date_iso: str) -> str:
+        with get_connection(load_db_config()) as conn:
+            apply_tcgcsv_prices(TcgCsvClient(), conn, date.fromisoformat(extracted_date_iso))
+        return extracted_date_iso
+
     @task(retries=2)
     def clean_to_staging(extracted_date_iso: str) -> str:
         # date.fromisoformat : XCom (le mécanisme Airflow qui transmet la
@@ -273,10 +292,32 @@ def card_price_pipeline():
         return extracted_date_iso
 
     @task(retries=2)
-    def load_to_warehouse(extracted_date_iso: str) -> None:
+    def load_to_warehouse(extracted_date_iso: str) -> str:
         extracted_date = date.fromisoformat(extracted_date_iso)
         with get_connection(load_db_config()) as conn:
             load_staging_to_warehouse(conn, extracted_date)
+        return extracted_date_iso
+
+    # check_freshness (ajouté le 2026-10-26) : pokemontcg.io a renvoyé les
+    # mêmes prix du 2026-10-16 au 2026-10-26 sans aucune erreur, et le
+    # pipeline "réussissait" donc en silence. Cette tâche compare le jour
+    # chargé au précédent et envoie une alerte ntfy si aucun prix n'a bougé
+    # (voir src/monitor/price_freshness.py). Elle ne fait PAS échouer le
+    # DagRun quand les prix sont figés : les données du jour sont chargées
+    # correctement, c'est la source qui est en cause, pas le pipeline.
+    @task(retries=2)
+    def check_freshness(loaded_date_iso: str) -> None:
+        log = logging.getLogger(__name__)
+        with get_connection(load_db_config()) as conn:
+            report = check_price_freshness(conn, date.fromisoformat(loaded_date_iso))
+        log.info("Fraîcheur des prix : %s", report)
+        if not report.is_stale:
+            return
+        ntfy = load_ntfy_config()
+        if ntfy is None:
+            log.warning("NTFY_TOPIC absent, alerte NON envoyée : %s", report.message())
+            return
+        send_ntfy(ntfy, report.message())
 
     # Orchestration : chaque tâche reçoit la date (au format ISO, via XCom)
     # renvoyée par la précédente, ce qui crée implicitement la dépendance
@@ -284,8 +325,10 @@ def card_price_pipeline():
     # (Airflow déduit le graphe de dépendances de ces appels enchaînés, pas
     # besoin de >> explicite ici).
     extracted_date_iso = extract_and_load_raw()
-    cleaned_date_iso = clean_to_staging(extracted_date_iso)
-    load_to_warehouse(cleaned_date_iso)
+    priced_date_iso = refresh_tcgplayer_prices(extracted_date_iso)
+    cleaned_date_iso = clean_to_staging(priced_date_iso)
+    loaded_date_iso = load_to_warehouse(cleaned_date_iso)
+    check_freshness(loaded_date_iso)
 
 
 # Appel du DAG décoré : nécessaire pour qu'Airflow, en importateur le module

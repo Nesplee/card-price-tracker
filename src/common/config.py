@@ -100,3 +100,21 @@ def load_dashboard_reader_config() -> DatabaseConfig:
         user="dashboard_reader",
         password=_require_env("DASHBOARD_READER_PASSWORD"),
     )
+
+
+# Alertes ntfy du contrôle de fraîcheur (src/monitor/price_freshness.py).
+# Même variables que RELEASE_CHASER (NTFY_SERVER, NTFY_TOPIC).
+@dataclass(frozen=True)
+class NtfyConfig:
+    server: str
+    topic: str
+
+
+def load_ntfy_config() -> NtfyConfig | None:
+    # Optionnelle, contrairement aux autres configs : sans NTFY_TOPIC, le
+    # pipeline doit continuer à tourner (le DAG journalise alors l'alerte au
+    # lieu de l'envoyer).
+    topic = os.environ.get("NTFY_TOPIC")
+    if not topic:
+        return None
+    return NtfyConfig(server=os.environ.get("NTFY_SERVER", "https://ntfy.sh"), topic=topic)
