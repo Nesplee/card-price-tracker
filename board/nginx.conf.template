@@ -90,6 +90,10 @@ server {
     }
 
     location / {
+        # no-cache : le navigateur revalide la page à chaque visite. Sans
+        # cela, il pouvait garder l'ancien front React après le passage
+        # au board (2026-11-14).
+        add_header Cache-Control "no-cache" always;
         try_files $uri /index.html;
     }
 }
