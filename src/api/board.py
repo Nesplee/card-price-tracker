@@ -5,12 +5,14 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
+from psycopg import errors
 
+from src.api import mentions
 from src.api.db import get_api_connection
 from src.api.queries import NEWS_WINDOW_DAYS
 
@@ -28,6 +30,9 @@ SPARK_TOP = 30
 # Signaux de contexte : déclenchés par une news ou par la méta (le reste vient
 # des prix seuls, voir src/signals/opportunities.py).
 CONTEXT_SIGNALS = ("actu_hausse", "actu_baisse", "meta_hausse", "meta_baisse")
+# Buzz : espèces citées dans au moins BUZZ_MIN_WEEK posts sur 7 jours.
+BUZZ_MIN_WEEK = 3
+BUZZ_TOP = 20
 # Une news compte si confiance x poids >= ce seuil (même règle que la sélection
 # des Opportunités, src/api/queries.py).
 NEWS_MIN_STRENGTH = 0.25
@@ -174,59 +179,103 @@ def get_signals_board(conn, *, days: int) -> dict:
         "ctx": list(CONTEXT_SIGNALS),
         "news_days": NEWS_WINDOW_DAYS,
         "min_strength": NEWS_MIN_STRENGTH,
+        # Un signal « répété » revient au moins un jour sur trois de la période.
+        "min_days": max(3, round(days * 0.35)),
     }
-    # Signaux des `days` derniers jours portés par une news ou la méta : un code
-    # de contexte (actu_* / meta_*), ou un signal de prix appuyé par une news
-    # concordante. Une ligne par carte et par sens, la plus récente.
-    items = conn.execute(
+    as_of = conn.execute("SELECT max(date_id) AS d FROM prod.fact_opportunity").fetchone()["d"]
+    if as_of is None:
+        return {
+            "as_of": None,
+            "days": days,
+            "computed": [],
+            "trends": [],
+            "buzz": None,
+            "news": [],
+            "meta": [],
+        }
+    params["as_of"] = as_of
+    # Jours où les signaux ont été calculés : l'axe des rubans du board.
+    computed = [
+        r["date_id"]
+        for r in conn.execute(
+            """
+            SELECT DISTINCT date_id FROM prod.fact_opportunity
+            WHERE date_id > %(as_of)s::date - %(days)s ORDER BY date_id
+            """,
+            params,
+        ).fetchall()
+    ]
+
+    # Tendances : une ligne par carte et par sens sur la période, avec les jours
+    # où le signal est sorti. Gardées : les cartes possédées, les signaux qui se
+    # répètent, et ceux portés par une news ou la méta.
+    trends = conn.execute(
         """
-        WITH d AS (SELECT max(date_id) AS date_id FROM prod.fact_opportunity),
-        base AS (
-            SELECT o.date_id, o.card_id, o.side, o.score, o.signals, o.reason,
-                   o.market_price, o.change_7d, o.change_30d,
-                   c.name, c.set_name, c.series, c.rarity,
-                   coalesce(own.quantity, 0)::int AS owned_quantity,
-                   nw.news, coalesce(nw.n_for, 0) AS n_for, ag.news_against
-            FROM prod.fact_opportunity o
-            CROSS JOIN d
-            JOIN prod.dim_card c ON c.card_id = o.card_id
-            LEFT JOIN LATERAL (
-                SELECT sum(quantity) AS quantity FROM prod.dim_owned_card
-                WHERE card_id = o.card_id
-            ) own ON true
-            LEFT JOIN LATERAL (
-                SELECT coalesce(jsonb_agg(jsonb_build_object(
-                           'title', title, 'url', url, 'source', source,
-                           'published_on', published_on, 'event_type', event_type,
-                           'direction', direction, 'confidence', confidence, 'resume', resume)
-                       ORDER BY strength DESC), '[]'::jsonb) AS news,
-                       count(*)::int AS n_for
-                FROM (
-                    SELECT e.*, e.confidence * e.weight AS strength FROM prod.v_news_event e
-                    WHERE e.card_id = o.card_id
-                      AND e.published_on BETWEEN o.date_id - %(news_days)s AND o.date_id
-                      AND e.direction = CASE o.side WHEN 'buy' THEN 'hausse' ELSE 'baisse' END
-                      AND e.confidence * e.weight >= %(min_strength)s
-                    ORDER BY e.confidence * e.weight DESC LIMIT 3
-                ) x
-            ) nw ON true
-            LEFT JOIN LATERAL (
-                SELECT count(*)::int AS news_against FROM prod.v_news_event e
-                WHERE e.card_id = o.card_id
-                  AND e.published_on BETWEEN o.date_id - %(news_days)s AND o.date_id
-                  AND e.direction = CASE o.side WHEN 'buy' THEN 'baisse' ELSE 'hausse' END
-                  AND e.confidence * e.weight >= %(min_strength)s
-            ) ag ON true
-            WHERE o.date_id > d.date_id - %(days)s
+        WITH o AS (
+            SELECT * FROM prod.fact_opportunity
+            WHERE date_id > %(as_of)s::date - %(days)s
+        ), agg AS (
+            SELECT card_id, side, count(*)::int AS n_days,
+                   array_agg(date_id ORDER BY date_id) AS dates,
+                   array_agg(score ORDER BY date_id) AS scores
+            FROM o GROUP BY card_id, side
+        ), codes AS (
+            SELECT card_id, side, array_agg(DISTINCT s ORDER BY s) AS codes
+            FROM o, unnest(o.signals) AS s GROUP BY card_id, side
+        ), last AS (
+            SELECT DISTINCT ON (card_id, side) card_id, side, date_id AS last_date, score,
+                   signals, reason, market_price, change_7d, change_30d
+            FROM o ORDER BY card_id, side, date_id DESC
+        ), own AS (
+            SELECT card_id, sum(quantity)::int AS q FROM prod.dim_owned_card GROUP BY card_id
         )
-        SELECT DISTINCT ON (card_id, side) *
-        FROM base
-        WHERE signals && %(ctx)s::text[] OR n_for > 0
-        ORDER BY card_id, side, date_id DESC
+        SELECT a.card_id, a.side, a.n_days, a.dates, a.scores, c.codes, l.last_date, l.score,
+               l.signals, l.reason, l.market_price, l.change_7d, l.change_30d,
+               dc.name, dc.set_name, dc.series, coalesce(own.q, 0) AS owned_quantity
+        FROM agg a
+        JOIN codes c USING (card_id, side)
+        JOIN last l USING (card_id, side)
+        JOIN prod.dim_card dc ON dc.card_id = a.card_id
+        LEFT JOIN own ON own.card_id = a.card_id
+        WHERE own.q IS NOT NULL OR a.n_days >= %(min_days)s OR c.codes && %(ctx)s::text[]
+        ORDER BY (own.q IS NOT NULL) DESC, a.n_days DESC, l.score DESC
+        LIMIT 400
         """,
         params,
     ).fetchall()
-    as_of = conn.execute("SELECT max(date_id) AS d FROM prod.fact_opportunity").fetchone()["d"]
+    trends = [_clean(r) for r in trends]
+
+    # News rattachées à ces cartes sur la période, pour ou contre le signal.
+    ids = list({t["card_id"] for t in trends})
+    news_by_card: dict[str, list[dict]] = {}
+    if ids:
+        for r in conn.execute(
+            """
+            SELECT card_id, direction, title, url, source, published_on, event_type,
+                   confidence, resume, confidence * weight AS strength
+            FROM prod.v_news_event
+            WHERE card_id = ANY(%(ids)s)
+              AND published_on BETWEEN %(as_of)s::date - %(news_days)s AND %(as_of)s
+              AND confidence * weight >= %(min_strength)s
+            ORDER BY confidence * weight DESC, published_on DESC
+            """,
+            {**params, "ids": ids},
+        ).fetchall():
+            news_by_card.setdefault(r["card_id"], []).append(_clean(r))
+    for t in trends:
+        want = "hausse" if t["side"] == "buy" else "baisse"
+        linked = news_by_card.get(t["card_id"], [])
+        t["news"] = [n for n in linked if n["direction"] == want][:3]
+        t["n_for"] = sum(1 for n in linked if n["direction"] == want)
+        t["news_against"] = sum(1 for n in linked if n["direction"] != want)
+
+    buzz = _buzz(conn, trends, as_of)
+    if buzz is not None:
+        for t in trends:
+            sp = buzz["species_of"].get(t["name"])
+            t["species"] = sp
+            t["mentions_week"] = buzz["by_species"][sp]["week"] if sp in buzz["by_species"] else 0
+        buzz = {k: v for k, v in buzz.items() if k not in ("species_of", "by_species")}
 
     # News directionnelles des 14 derniers jours, une ligne par article, avec
     # les cartes touchées (possédées d'abord).
@@ -281,9 +330,89 @@ def get_signals_board(conn, *, days: int) -> dict:
     return {
         "as_of": as_of,
         "days": days,
-        "items": [_clean(r) for r in items],
+        "computed": computed,
+        "trends": trends,
+        "buzz": buzz,
         "news": [_clean(r) for r in news],
         "meta": [_clean(r) for r in meta],
+    }
+
+
+def _buzz(conn, trends: list[dict], as_of: date) -> dict | None:
+    """Espèces les plus citées dans les posts et articles des 14 derniers jours,
+    rattachées aux cartes possédées et aux signaux. None tant que la vue
+    prod.v_news_post (migration 014) n'existe pas."""
+    today = datetime.now(UTC).date()
+    try:
+        posts = conn.execute(
+            """
+            SELECT source, url, title, summary, (published_at AT TIME ZONE 'UTC')::date
+                   AS published_on, direction
+            FROM prod.v_news_post
+            WHERE published_at >= %(start)s
+            """,
+            {"start": today - timedelta(days=13)},
+        ).fetchall()
+        since = {
+            r["source"]: r["first"]
+            for r in conn.execute(
+                "SELECT source, min(published_at)::date AS first FROM prod.v_news_post "
+                "GROUP BY source"
+            ).fetchall()
+        }
+    except (errors.UndefinedTable, errors.InsufficientPrivilege):
+        conn.rollback()
+        return None
+    catalog = [r["name"] for r in conn.execute("SELECT DISTINCT name FROM prod.dim_card")]
+    index = mentions.build_index(catalog)
+    counts = mentions.count_mentions(posts, index, today)
+
+    owned: dict[str, dict] = {}
+    for r in conn.execute("""
+        SELECT c.name, sum(o.quantity)::int AS q FROM prod.dim_owned_card o
+        JOIN prod.dim_card c ON c.card_id = o.card_id GROUP BY c.name
+        """).fetchall():
+        sp = index.species_of(r["name"])
+        if sp:
+            e = owned.setdefault(sp, {"quantity": 0, "cards": []})
+            e["quantity"] += r["q"]
+            e["cards"].append(r["name"])
+    sig: dict[str, dict] = {}
+    species_of = {}
+    for t in trends:
+        sp = species_of.setdefault(t["name"], index.species_of(t["name"]))
+        if sp and t["last_date"] == as_of:
+            e = sig.setdefault(sp, {"buy": 0, "sell": 0})
+            e[t["side"]] += 1
+
+    rows = sorted(
+        (c for c in counts.values() if c["week"] >= BUZZ_MIN_WEEK),
+        key=lambda c: (-c["week"], -(c["week"] - (c["prev_week"] or 0)), c["species"]),
+    )[:BUZZ_TOP]
+    for c in rows:
+        c["owned"] = owned.get(c["species"])
+        c["signals"] = sig.get(c["species"])
+    return {
+        "today": today,
+        "since": since,
+        "posts": len(posts),
+        "rows": rows,
+        "owned_mentions": sorted(
+            (
+                {
+                    "species": sp,
+                    **owned[sp],
+                    "week": counts[sp]["week"],
+                    "prev_week": counts[sp]["prev_week"],
+                    "daily": counts[sp]["daily"],
+                }
+                for sp in owned
+                if sp in counts and counts[sp]["week"] > 0
+            ),
+            key=lambda e: -e["week"],
+        ),
+        "species_of": species_of,
+        "by_species": counts,
     }
 
 
@@ -309,6 +438,6 @@ def collection_board(conn=Depends(get_api_connection)) -> Response:
 
 @router.get("/signals")
 def signals_board(
-    conn=Depends(get_api_connection), days: int = Query(default=7, ge=1, le=30)
+    conn=Depends(get_api_connection), days: int = Query(default=14, ge=7, le=30)
 ) -> Response:
     return _json(get_signals_board(conn, days=days))

@@ -181,10 +181,37 @@
 
   /* Signaux */
   .sg { border-top: 1px solid var(--rule); }
-  .sg > summary { display: grid; grid-template-columns: 74px minmax(0, 1fr) 72px 12px; gap: 0 14px; align-items: start; padding: 10px var(--pad); }
+  .sg > summary { display: grid; grid-template-columns: 70px minmax(0, 1fr) 104px 64px 12px; gap: 0 14px; align-items: start; padding: 10px var(--pad); }
+  .rib { display: grid; gap: 4px; align-content: start; padding-top: 4px; }
+  .rib svg { display: block; width: 100%; height: 10px; }
+  .rib .off { fill: var(--track); } .rib .on { fill: var(--ink); } .rib .now { fill: none; stroke: var(--dim); stroke-width: .6; }
+  .rib small { font-size: 11px; color: var(--faint); white-space: nowrap; }
+  .rib small b { color: var(--ink); font-weight: 400; }
+  .sg .st small { font-size: 11.5px; color: var(--dim); white-space: nowrap; }
+  .sg .st small b { color: var(--ink); font-weight: 700; }
+  .bz { border-top: 1px solid var(--rule); }
+  .bz > summary { display: grid; grid-template-columns: minmax(0, 1fr) 112px 34px 58px 12px; gap: 0 14px; align-items: center; padding: 8px var(--pad); min-height: 44px; }
+  .bz > summary:hover, .bz[open] { background: var(--raise); }
+  .bz .who { min-width: 0; }
+  .bz .who b { display: block; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bz .who b .own { font-weight: 400; font-size: 11px; border: 1px solid var(--rule2); padding: 0 4px; margin-left: 7px; vertical-align: 1px; }
+  .bz .who small { display: block; color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bz .who small .ok { color: var(--ok); } .bz .who small .wa { color: var(--warn); }
+  .bz svg.bars { display: block; width: 100%; height: 24px; }
+  .bars .a { fill: var(--ink); } .bars .b { fill: var(--mark); } .bars .z { fill: var(--track); }
+  .bz .n { text-align: right; font-size: 15px; font-weight: 300; letter-spacing: -.02em; }
+  .bz .d { text-align: right; white-space: nowrap; font-size: 12px; }
+  .bz .body { padding: 0 var(--pad) 14px; display: grid; gap: 8px; }
+  .bz .body .own-cards { font-size: 12px; color: var(--dim); }
+  .bz .body .own-cards b { color: var(--ink); font-weight: 400; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 0 var(--pad) 10px; font-size: 11px; color: var(--faint); }
+  .legend i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; vertical-align: -1px; background: var(--ink); }
+  .legend i.b { background: var(--mark); } .legend i.z { background: var(--track); }
+  .hot { padding: 0 var(--pad) 12px; font-size: 12px; color: var(--dim); display: flex; flex-wrap: wrap; gap: 2px 14px; }
+  .hot b { color: var(--ink); font-weight: 400; }
   .sg > summary:hover, .sg[open] { background: var(--raise); }
   .sg .st { display: grid; gap: 3px; }
-  .sg .st b { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--c); line-height: 19px; }
+  .sg .st > b { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--c); line-height: 19px; }
   .sg .score { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--faint); }
   .sg .score .g { flex: 1; height: 3px; } .sg .score .g i { background: var(--dim); }
   .sg .who { min-width: 0; }
@@ -253,8 +280,9 @@
     .thead .px, .mv .px { display: none; }
   }
   @container sig (max-width: 480px) {
-    .sg > summary { grid-template-columns: 62px minmax(0, 1fr) 12px; }
+    .sg > summary { grid-template-columns: 62px minmax(0, 1fr) 76px 12px; }
     .sg .px { display: none; }
+    .bz > summary { grid-template-columns: minmax(0, 1fr) 84px 30px 50px 12px; gap: 0 10px; }
     .sg .body { padding-left: var(--pad); }
     .meta { grid-template-columns: minmax(0, 1fr) 46px 64px; } .meta .g, .meta .hide { display: none; }
   }
@@ -340,14 +368,20 @@
     </div>
     <section class="sec" aria-label="Signaux sur la collection">
       <div class="sh"><svg class="i"><use href="#i-own"/></svg><h3>Sur la collection</h3><span class="r" id="o-sum"></span></div>
+      <p class="hot" id="o-hot" hidden></p>
       <div id="sig-own"></div>
     </section>
-    <section class="sec" aria-label="Achats">
-      <div class="sh"><svg class="i"><use href="#i-buy"/></svg><h3>À acheter</h3><span class="r" id="b-sum"></span></div>
+    <section class="sec" aria-label="Buzz">
+      <div class="sh"><svg class="i"><use href="#i-news"/></svg><h3>Les plus cités</h3><span class="r" id="z-sum"></span></div>
+      <div class="legend" id="z-legend"></div>
+      <div id="buzz"></div>
+    </section>
+    <section class="sec" aria-label="Signaux répétés">
+      <div class="sh"><svg class="i"><use href="#i-buy"/></svg><h3>Signaux répétés</h3><span class="r" id="b-sum"></span></div>
       <div id="sig-buy"></div>
     </section>
     <section class="sec" aria-label="News">
-      <div class="sh"><svg class="i"><use href="#i-news"/></svg><h3>News du marché</h3><span class="r" id="n-sum"></span></div>
+      <div class="sh"><svg class="i"><use href="#i-news"/></svg><h3>News qui orientent les prix</h3><span class="r" id="n-sum"></span></div>
       <ul class="news" id="news"></ul>
     </section>
     <section class="sec" aria-label="Méta compétitive">
@@ -385,8 +419,8 @@ const store = {
 const state = {
   win: WINDOWS.includes(store.get('win', 7)) ? store.get('win', 7) : 7,
   sort: store.get('sort', 'impact'),
-  days: [7, 14, 30].includes(store.get('days', 7)) ? store.get('days', 7) : 7,
-  all: false, allNews: false,
+  days: [7, 14, 30].includes(store.get('days', 14)) ? store.get('days', 14) : 14,
+  all: false, allNews: false, allOwn: false, allBuzz: false, allMarket: false,
   coll: null, sig: null,
   open: new Set(), history: new Map(),
 };
@@ -572,9 +606,11 @@ function renderMovers() {
     const tg = m.signals[0];
     const tag = tg ? `<span class="tag ${tg.side === 'sell' ? 'l-warn' : 'l-ok'}"><i class="lamp"></i>${tg.side === 'sell' ? 'vente' : 'achat'} · ${esc(SIGNAL_TEXT[tg.signals[0]] || tg.signals[0])}</span>` : '';
     const ver = [...m.variances.filter((v) => v !== 'Holofoil'), ...m.grades].map(esc).join(', ');
+    const cited = mentionsByName().get(m.name);
+    const buzz = cited ? `<span class="tag" style="--c:var(--dim)">cité ${cited}× en 7 j</span>` : '';
     return `<details class="mv" data-id="${esc(m.card_id)}"${state.open.has(m.card_id) ? ' open' : ''}>
       <summary>
-        <span class="who"><b>${esc(m.name)}</b><small>${tag}<span>${esc(m.set_name)}${ver ? ' · ' + ver : ''}</span></small></span>
+        <span class="who"><b>${esc(m.name)}</b><small>${tag}${buzz}<span>${esc(m.set_name)}${ver ? ' · ' + ver : ''}</span></small></span>
         <span class="q hide">×${m.quantity}</span>
         <span class="num px">${usd(m.price)}</span>
         <span class="hide">${spark(m.card_id, w)}</span>
@@ -593,6 +629,13 @@ function renderMovers() {
     });
     if (d.open) detail(d);
   });
+}
+
+function mentionsByName() {
+  // Nom de carte possédée -> posts des 7 derniers jours qui citent son Pokémon.
+  const out = new Map();
+  (state.sig?.buzz?.owned_mentions || []).forEach((o) => o.cards.forEach((c) => out.set(c, o.week)));
+  return out;
 }
 
 async function cardHistory(id) {
@@ -677,81 +720,163 @@ function renderCollection() {
   renderValue(); renderMovers(); renderSets();
 }
 
-// ---------- signaux
-function groupSignals(items) {
-  // Une même news ou méta touche souvent plusieurs impressions d'une carte (même nom) :
-  // une ligne par nom, sens et déclencheur, les impressions listées dans le dépli.
+// ---------- signaux : tendances (répétition des signaux, buzz)
+const CTX = ['actu_hausse', 'actu_baisse', 'meta_hausse', 'meta_baisse'];
+
+function streak(dates, computed) {
+  const set = new Set(dates);
+  let n = 0;
+  for (let i = computed.length - 1; i >= 0 && set.has(computed[i]); i--) n++;
+  return n;
+}
+
+function ribbon(dates, computed) {
+  const set = new Set(dates), n = computed.length, w = 4;
+  const cells = computed.map((d, i) => `<rect class="${set.has(d) ? 'on' : 'off'}" x="${i * w}" y="0" width="${w - 1}" height="10"><title>${fdate(d)}${set.has(d) ? ' : signal' : ''}</title></rect>`).join('');
+  return `<svg viewBox="0 0 ${n * w - 1} 10" preserveAspectRatio="none" aria-hidden="true">${cells}</svg>`;
+}
+
+function groupTrends(rows) {
+  // Plusieurs impressions d'une même carte (même nom, même sens, mêmes signaux) :
+  // une ligne, l'impression la plus signalée en tête, les autres dans le dépli.
   const g = new Map();
-  items.forEach((it) => {
-    const k = [it.side, it.name, it.signals.join(','), it.news[0]?.url || '', it.signals.some((s) => s.startsWith('meta')) ? it.reason : ''].join('|');
+  rows.forEach((t) => {
+    const k = [t.side, t.name, t.codes.join(','), t.owned_quantity > 0].join('|');
     const cur = g.get(k);
-    if (cur) { cur.versions.push(it); cur.score = Math.max(cur.score, it.score); cur.owned += it.owned_quantity; if (it.date_id > cur.date_id) cur.date_id = it.date_id; }
-    else g.set(k, { ...it, versions: [it], owned: it.owned_quantity });
+    if (!cur) { g.set(k, { ...t, versions: [t], owned: t.owned_quantity }); return; }
+    cur.versions.push(t); cur.owned += t.owned_quantity;
+    if (t.n_days > cur.n_days || (t.n_days === cur.n_days && t.score > cur.score)) Object.assign(cur, { ...t, versions: cur.versions, owned: cur.owned });
   });
-  return [...g.values()].sort((a, b) => b.score - a.score || b.date_id.localeCompare(a.date_id));
+  return [...g.values()];
 }
 
-function drivers(it) {
-  const out = [];
-  it.signals.forEach((s) => {
-    if (s.startsWith('meta')) out.push(`<span>${SIGNAL_TEXT[s]} · ${esc(it.reason.replace(/^jouée dans /, ''))}</span>`);
-    else if (s.startsWith('actu')) out.push(`<span>${SIGNAL_TEXT[s]}</span>`);
-    else out.push(`<span>${SIGNAL_TEXT[s] || esc(s)}</span>`);
-  });
-  if (it.news.length) out.push(`<span>${it.news.length} news · ${esc(EVENT_TEXT[it.news[0].event_type] || it.news[0].event_type)}</span>`);
-  if (it.news_against) out.push(`<span class="against">${it.news_against} news contraire${it.news_against > 1 ? 's' : ''}</span>`);
-  return out.join('');
-}
-
-function sigRow(it) {
-  const sell = it.side === 'sell';
-  const prices = it.versions.map((v) => v.market_price);
-  const pr = prices.length > 1 ? `${usd(Math.min(...prices))}<small>à ${usd(Math.max(...prices))}</small>` : `${usd(prices[0])}<small class="${tone((it.change_7d ?? 0) * 100, 10)}">${it.change_7d == null ? '' : pct(it.change_7d * 100) + ' 7 j'}</small>`;
-  const sets = [...new Set(it.versions.map((v) => v.set_name))];
-  const sub = (it.versions.length > 1 ? `${it.versions.length} impressions · ` : '') + sets.slice(0, 2).join(', ') + (sets.length > 2 ? '…' : '') + ` · ${fdate(it.date_id)}`;
-  const news = it.news.map((n) => `<div class="nitem"><a href="${safeUrl(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><small>${esc(n.source)} · ${fdate(n.published_on)} · ${esc(EVENT_TEXT[n.event_type] || n.event_type)} · confiance ${nf0.format(n.confidence * 100)} %</small>${n.resume ? `<p>${esc(n.resume)}</p>` : ''}</div>`).join('');
-  const vers = it.versions.length > 1 ? `<div class="vers">${it.versions.map((v) => `<span class="${v.owned_quantity ? 'own' : ''}">${esc(v.set_name)} <b>${usd(v.market_price)}</b>${v.owned_quantity ? ` · ×${v.owned_quantity} à toi` : ''}</span>`).join('')}</div>` : '';
+function trendRow(t, computed) {
+  const sell = t.side === 'sell';
+  const st = streak(t.dates, computed);
+  const live = t.last_date === state.sig.as_of;
+  const codes = t.codes.map((c) => `<span>${SIGNAL_TEXT[c] || esc(c)}</span>`).join('');
+  const extra = [];
+  if (t.n_for) extra.push(`<span>${t.n_for} news</span>`);
+  if (t.news_against) extra.push(`<span class="against">${t.news_against} news contraire${t.news_against > 1 ? 's' : ''}</span>`);
+  if (t.mentions_week) extra.push(`<span>cité ${t.mentions_week}× en 7 j</span>`);
+  const sets = [...new Set(t.versions.map((v) => v.set_name))];
+  const sub = (t.versions.length > 1 ? `${t.versions.length} impressions · ` : '') + sets.slice(0, 2).join(', ') + (sets.length > 2 ? '…' : '');
+  const ch = t.change_7d == null ? '' : pct(t.change_7d * 100) + ' 7 j';
+  const news = t.news.map((n) => `<div class="nitem"><a href="${safeUrl(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><small>${esc(n.source)} · ${fdate(n.published_on)} · ${esc(EVENT_TEXT[n.event_type] || n.event_type)} · confiance ${nf0.format(n.confidence * 100)} %</small>${n.resume ? `<p>${esc(n.resume)}</p>` : ''}</div>`).join('');
+  const vers = t.versions.length > 1 ? `<div class="vers">${t.versions.map((v) => `<span class="${v.owned_quantity ? 'own' : ''}">${esc(v.set_name)} <b>${usd(v.market_price)}</b> · ${v.n_days} j${v.owned_quantity ? ` · ×${v.owned_quantity} à toi` : ''}</span>`).join('')}</div>` : '';
+  const scores = t.scores.length > 1 ? `score ${t.scores[0]} → ${t.scores[t.scores.length - 1]} sur la période` : `score ${t.score}`;
   return `<details class="sg">
     <summary>
-      <span class="st ${sell ? 'l-warn' : 'l-ok'}"><b><i class="lamp"></i>${sell ? 'vendre' : 'acheter'}</b><span class="score"><span class="g"><i style="width:${it.score}%"></i></span>${it.score}</span></span>
-      <span class="who"><b>${esc(it.name)}${it.owned ? `<span class="own">×${it.owned}</span>` : ''}</b><small>${esc(sub)}</small><span class="drv">${drivers(it)}</span></span>
-      <span class="px">${pr}</span>
+      <span class="st ${sell ? 'l-warn' : 'l-ok'}"><b><i class="lamp${live ? '' : ' hollow'}"></i>${sell ? 'vendre' : 'acheter'}</b><small><b>${t.n_days}</b>/${computed.length} j</small></span>
+      <span class="who"><b>${esc(t.name)}${t.owned ? `<span class="own">×${t.owned}</span>` : ''}</b><small>${esc(sub)}</small><span class="drv">${codes}${extra.join('')}</span></span>
+      <span class="rib">${ribbon(t.dates, computed)}<small>${live ? (st > 1 ? `<b>${st} j</b> d'affilée` : 'encore aujourd\'hui') : `dernier le ${fdate(t.last_date)}`}</small></span>
+      <span class="px">${usd(t.market_price)}<small class="${tone((t.change_7d ?? 0) * 100, 10)}">${ch}</small></span>
       <svg class="i chev"><use href="#i-chev"/></svg>
     </summary>
     <div class="body">
-      <p class="reason">${esc(it.reason)}</p>
+      <p class="reason">${esc(t.reason)} · ${scores}</p>
       ${vers}
       ${news ? `<div class="nlist">${news}</div>` : ''}
     </div>
   </details>`;
 }
 
+function bars(daily, max) {
+  const n = daily.length, w = 8;
+  return `<svg class="bars" viewBox="0 0 ${n * w - 2} 24" preserveAspectRatio="none" aria-hidden="true">${daily.map((v, i) => {
+    const h = v ? Math.max(2, (v / max) * 24) : 1;
+    return `<rect class="${v ? (i >= n - 7 ? 'a' : 'b') : 'z'}" x="${i * w}" y="${24 - h}" width="${w - 2}" height="${h}"/>`;
+  }).join('')}</svg>`;
+}
+
+function buzzRow(r, max, partial) {
+  const d = r.week - (r.prev_week ?? 0);
+  const ratio = r.prev_week ? r.week / r.prev_week : null;
+  const hot = !partial && r.week >= 5 && (ratio == null || ratio >= 2);
+  const own = r.owned ? `<span class="own">×${r.owned.quantity}</span>` : '';
+  const bits = [];
+  bits.push(Object.entries(r.sources).map(([k, v]) => `${v} ${k}`).join(' · '));
+  if (r.tone.hausse) bits.push(`▲ ${r.tone.hausse}`);
+  if (r.tone.baisse) bits.push(`▼ ${r.tone.baisse}`);
+  if (r.signals?.buy) bits.push(`<span class="ok">achat ×${r.signals.buy}</span>`);
+  if (r.signals?.sell) bits.push(`<span class="wa">vente ×${r.signals.sell}</span>`);
+  const posts = r.posts.map((p) => `<div class="nitem"><a href="${safeUrl(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.title)}</a><small>${esc(p.source)} · ${fdate(p.published_on)}</small></div>`).join('');
+  return `<details class="bz">
+    <summary>
+      <span class="who"><b>${esc(r.species)}${own}</b><small>${bits.join(' · ')}</small></span>
+      ${bars(r.daily, max)}
+      <span class="n">${r.week}</span>
+      <span class="d ${hot ? 'up' : ''}" title="7 jours précédents : ${r.prev_week ?? '—'}${partial ? ' (historique partiel)' : ''}">${r.prev_week == null ? '' : sign(d) + Math.abs(d)}${ratio && ratio >= 1.5 ? ` ×${nf1.format(ratio)}` : ''}</span>
+      <svg class="i chev"><use href="#i-chev"/></svg>
+    </summary>
+    <div class="body">
+      ${r.owned ? `<p class="own-cards">À toi : <b>${esc(r.owned.cards.join(', '))}</b></p>` : ''}
+      <div class="nlist">${posts}</div>
+    </div>
+  </details>`;
+}
+
 function renderSignals() {
   const s = state.sig;
-  const groups = groupSignals(s.items);
-  const own = groups.filter((g) => g.owned > 0);
-  const buy = groups.filter((g) => g.owned === 0 && g.side === 'buy');
-  const sells = own.filter((g) => g.side === 'sell').length;
+  const computed = s.computed;
+  const all = groupTrends(s.trends);
+  const own = all.filter((t) => t.owned > 0).sort((a, b) => b.n_days - a.n_days || b.score - a.score);
+  const minDays = Math.max(3, Math.round(state.days * 0.35));
+  const market = all.filter((t) => !t.owned && (t.n_days >= minDays || t.codes.some((c) => CTX.includes(c))))
+    .sort((a, b) => b.n_days - a.n_days || (b.mentions_week || 0) - (a.mentions_week || 0) || b.score - a.score);
+  const sellsRep = own.filter((t) => t.side === 'sell' && t.n_days >= minDays && t.last_date === s.as_of).length;
   const v = document.getElementById('s-verdict');
-  v.className = 'verdict ' + (sells ? 'l-warn' : own.length ? 'l-ok' : 'l-off');
-  v.querySelector('span').textContent = sells ? `${sells} vente${sells > 1 ? 's' : ''} à étudier` : own.length ? `${own.length} sur la collection` : 'Rien sur la collection';
+  v.className = 'verdict ' + (sellsRep ? 'l-warn' : own.length ? 'l-ok' : 'l-off');
+  v.querySelector('span').textContent = sellsRep ? `${sellsRep} vente${sellsRep > 1 ? 's' : ''} répétée${sellsRep > 1 ? 's' : ''}` : 'Rien de répété';
   document.getElementById('j-sig').className = v.className.replace('verdict ', '');
-  const mineNews = s.news.filter((n) => n.owned_cards > 0).length;
-  document.getElementById('s-sub').innerHTML = `<span>portés par les <b>news</b> et la <b>méta</b>, ${state.days} derniers jours</span><span>calculés le ${fdate(s.as_of)}</span>`;
+  const b = s.buzz;
+  document.getElementById('s-sub').innerHTML = `<span>signaux sur <b>${computed.length} j</b>, calculés le ${fdate(s.as_of)}</span>` +
+    (b ? `<span><b>${nf0.format(b.posts)}</b> posts et articles lus sur 14 j</span>` : '<span>buzz indisponible</span>');
   document.getElementById('days').innerHTML = [7, 14, 30].map((d) => `<button type="button" data-d="${d}" aria-pressed="${d === state.days}">${d} j</button>`).join('');
-  document.getElementById('o-sum').innerHTML = own.length ? `<b>${own.length}</b> carte${own.length > 1 ? 's' : ''}` : '';
-  document.getElementById('sig-own').innerHTML = own.length ? own.map(sigRow).join('') : `<p class="empty">Aucune news ni variation de méta ne touche la collection sur ${state.days} jours.</p>`;
-  document.getElementById('b-sum').innerHTML = buy.length ? `<b>${buy.length}</b> carte${buy.length > 1 ? 's' : ''} · ${s.items.filter((i) => !i.owned_quantity && i.side === 'buy').length} impressions` : '';
-  document.getElementById('sig-buy').innerHTML = buy.length ? buy.map(sigRow).join('') : `<p class="empty">Aucun achat porté par une news ou la méta sur ${state.days} jours.</p>`;
+
+  // Sur la collection
+  const ownSells = own.filter((t) => t.side === 'sell').length;
+  document.getElementById('o-sum').innerHTML = own.length ? `<b>${own.length}</b> carte${own.length > 1 ? 's' : ''} · ${ownSells} vente${ownSells > 1 ? 's' : ''} · ${own.length - ownSells} achat${own.length - ownSells > 1 ? 's' : ''}` : '';
+  const hot = document.getElementById('o-hot');
+  const om = b?.owned_mentions?.filter((o) => o.week >= 2).slice(0, 6) || [];
+  hot.hidden = !om.length;
+  hot.innerHTML = om.length ? `<span>Tes Pokémon les plus cités (7 j) :</span>` + om.map((o) => `<span><b>${esc(o.species)}</b> ${o.week}</span>`).join('') : '';
+  const ownShown = state.allOwn ? own : own.slice(0, 8);
+  document.getElementById('sig-own').innerHTML = own.length
+    ? ownShown.map((t) => trendRow(t, computed)).join('') + (own.length > 8 ? `<div class="more"><button type="button" data-x="own">${state.allOwn ? 'Réduire' : `Voir les ${own.length}`}</button></div>` : '')
+    : `<p class="empty">Aucun signal sur la collection en ${state.days} jours.</p>`;
+
+  // Buzz
+  const zs = document.getElementById('z-sum'), zl = document.getElementById('z-legend'), zb = document.getElementById('buzz');
+  if (!b) { zs.textContent = ''; zl.innerHTML = ''; zb.innerHTML = '<p class="empty">Mentions indisponibles (vue prod.v_news_post absente).</p>'; }
+  else {
+    const reddit = b.since.reddit;
+    const partial = reddit && (pdate(b.today) - pdate(reddit)) / DAY < 13;
+    const max = Math.max(1, ...b.rows.flatMap((r) => r.daily));
+    zs.innerHTML = `posts qui citent le Pokémon · <b>7 j</b>`;
+    zl.innerHTML = `<span><i></i>7 derniers jours</span><span><i class="b"></i>7 jours d'avant</span><span>Reddit (PokemonTCG, PokeInvesting, collections) + presse${partial ? ` · Reddit lu depuis le ${fdate(reddit)} : la semaine d'avant est incomplète` : ''}</span>`;
+    const rows = state.allBuzz ? b.rows : b.rows.slice(0, 10);
+    zb.innerHTML = rows.map((r) => buzzRow(r, max, partial)).join('') + (b.rows.length > 10 ? `<div class="more"><button type="button" data-x="buzz">${state.allBuzz ? 'Réduire' : `Voir les ${b.rows.length}`}</button></div>` : '');
+  }
+
+  // Signaux répétés (hors collection)
+  document.getElementById('b-sum').innerHTML = market.length ? `<b>${market.length}</b> cartes · au moins ${minDays} j sur ${computed.length}, ou news / méta` : '';
+  const mShown = state.allMarket ? market : market.slice(0, 12);
+  document.getElementById('sig-buy').innerHTML = market.length
+    ? mShown.map((t) => trendRow(t, computed)).join('') + (market.length > 12 ? `<div class="more"><button type="button" data-x="market">${state.allMarket ? 'Réduire' : `Voir les ${market.length}`}</button></div>` : '')
+    : `<p class="empty">Aucun signal répété sur ${state.days} jours.</p>`;
+
   // News
+  const mineNews = s.news.filter((n) => n.owned_cards > 0).length;
   const news = s.news.slice().sort((a, b) => (b.owned_cards > 0) - (a.owned_cards > 0) || b.published_on.localeCompare(a.published_on));
   document.getElementById('n-sum').innerHTML = `<b>${s.news.length}</b> sur 14 j · ${mineNews} touchent la collection`;
-  const NEWS_N = 8;
+  const NEWS_N = 6;
   document.getElementById('news').innerHTML = news.length ? news.slice(0, state.allNews ? news.length : NEWS_N).map((n) => {
     const up = n.direction === 'hausse';
     const mine = n.owned_cards > 0 ? ` · <b>${n.owned_cards} à toi</b>${n.owned_names ? ' : ' + esc(n.owned_names.join(', ')) : ''}` : '';
     return `<li class="${n.owned_cards ? 'mine' : ''}"><span class="d">${fdate(n.published_on, true)}</span><span class="dir" title="${up ? 'hausse' : 'baisse'}">${up ? '▲' : '▼'}</span><span class="t"><a href="${safeUrl(n.url)}" target="_blank" rel="noopener noreferrer" title="${esc(n.resume || n.title)}">${esc(n.title)}</a><small>${esc(EVENT_TEXT[n.event_type] || n.event_type)} · ${n.cards} carte${n.cards > 1 ? 's' : ''}${n.sets?.length ? ' · ' + esc(n.sets.join(', ')) : ''}${mine}</small></span></li>`;
   }).join('') + (news.length > NEWS_N ? `<li class="more"><button type="button" data-n="1">${state.allNews ? 'Réduire' : `Voir les ${news.length} news`}</button></li>` : '') : '<li class="empty">Aucune news directionnelle sur 14 jours.</li>';
+
   // Méta (énergies de base exclues : elles n'ont pas de valeur de collection)
   const meta = s.meta.filter((m) => !/^(Basic )?\w+ Energy$/.test(m.card_name));
   document.getElementById('meta-sum').innerHTML = meta.length ? `top 8 Limitless · semaine du ${fdate(meta[0].week)} contre la précédente` : '';
@@ -786,6 +911,7 @@ async function loadCollection() {
 async function loadSignals() {
   state.sig = await getJSON(API + '/signals?days=' + state.days);
   renderSignals();
+  if (state.coll?.as_of) renderMovers();
 }
 async function load() {
   const res = await Promise.allSettled([loadCollection(), loadSignals()]);
@@ -802,6 +928,7 @@ document.addEventListener('click', (e) => {
   if (!b) return;
   if (b.dataset.w) { state.win = +b.dataset.w; store.set('win', state.win); renderCollection(); }
   else if (b.dataset.s) { state.sort = b.dataset.s; store.set('sort', state.sort); state.all = false; renderCollection(); }
+  else if (b.dataset.x) { const k = { own: 'allOwn', buzz: 'allBuzz', market: 'allMarket' }[b.dataset.x]; state[k] = !state[k]; renderSignals(); }
   else if (b.dataset.n) { state.allNews = !state.allNews; renderSignals(); }
   else if (b.dataset.d) { state.days = +b.dataset.d; store.set('days', state.days); loadSignals().catch((err) => toast(err.message)); }
 });
