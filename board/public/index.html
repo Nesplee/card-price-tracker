@@ -144,6 +144,9 @@
   .mv { border-top: 1px solid var(--rule); }
   .mv > summary { padding: 7px var(--pad); min-height: 44px; }
   .mv > summary:hover, .mv[open] { background: var(--raise); }
+  .th { cursor: zoom-in; width: 30px; height: 42px; object-fit: cover; border-radius: 2px; background: var(--raise); }
+  .who:has(> .th) { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 0 10px; align-items: center; }
+  .who > .th { grid-row: 1 / span 3; }
   .mv .who { min-width: 0; }
   .mv .who b { display: block; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mv .who small { display: flex; gap: 8px; color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; }
@@ -201,6 +204,7 @@
   .ms .miss li { display: grid; grid-template-columns: minmax(0, 1fr) 70px; gap: 0 10px; padding: 4px 0; border-top: 1px solid var(--rule); font-size: 12.5px; }
   .ms .miss li b { font-weight: 700; } .ms .miss li small { color: var(--faint); font-size: 11px; margin-left: 8px; }
   .ms .miss .r { text-align: right; }
+  .ms .miss li .th { width: 24px; height: 34px; vertical-align: middle; margin-right: 8px; }
   .ms .strip .big { font-size: 38px; }
   .ms .tr { min-height: 104px; }
   .ms .sub2 { color: var(--faint); font-size: 11.5px; margin-top: 6px; }
@@ -375,6 +379,9 @@
   }
   @media (max-width: 440px) { .live span { display: none; } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+  #zoom { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.72); cursor: zoom-out; }
+  #zoom[hidden] { display: none; }
+  #zoom img { max-width: min(92vw, 520px); max-height: 92vh; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.6); background: var(--raise); }
 </style>
 </head>
 <body>
@@ -488,6 +495,7 @@
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
 
+<div id="zoom" hidden role="dialog" aria-label="Carte en grand"><img alt=""></div>
 <script>
 'use strict';
 const API = '/api/board';
@@ -534,6 +542,40 @@ const usd = (v) => v == null ? '—' : (Math.abs(v) >= 100 ? nf0.format(v) : nf2
 const dusd = (v) => v == null ? '—' : sign(v) + (Math.abs(v) >= 100 ? nf0 : nf2).format(Math.abs(v)) + ' $';
 const pct = (v) => v == null ? '—' : sign(v) + nf1.format(Math.abs(v)) + ' %';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Miniature d'une carte, chargée à la demande depuis son CDN d'origine (rien
+// n'est stocké chez nous). Repli sur image_alt (CDN TCGplayer) si image_small
+// manque ou ne charge plus ; sans aucune image, rien n'est affiché.
+const httpsUrl = (u) => (/^https:\/\//i.test(u || '') ? esc(u) : '');
+const thumb = (c) => {
+  const a = httpsUrl(c.image_small), b = httpsUrl(c.image_alt);
+  const src = a || b;
+  return src ? `<img class="th" src="${src}"${a && b ? ` data-alt="${b}"` : ''} alt="" width="30" height="42" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : '';
+};
+document.addEventListener('error', (e) => {
+  const im = e.target;
+  if (!(im instanceof HTMLImageElement) || !im.classList.contains('th')) return;
+  if (im.dataset.alt) { im.src = im.dataset.alt; delete im.dataset.alt; } else im.style.visibility = 'hidden';
+}, true);
+// Clic sur une miniature : la carte en grand. L'URL grande se déduit de la
+// miniature (même hôte, aucune donnée en plus) ; si elle ne charge pas, on
+// garde la miniature.
+const bigUrl = (u) => u
+  .replace(/^(https:\/\/images\.pokemontcg\.io\/.+)\.png$/, '$1_hires.png')
+  .replace(/^(https:\/\/images\.scrydex\.com\/.+)\/small$/, '$1/large')
+  .replace(/_200w\.jpg$/, '_in_1000x1000.jpg');
+document.addEventListener('click', (e) => {
+  const im = e.target;
+  if (!(im instanceof HTMLImageElement) || !im.classList.contains('th')) return;
+  e.preventDefault(); e.stopPropagation();  // ne replie pas le <details> parent
+  const box = document.getElementById('zoom'), big = box.querySelector('img');
+  const small = im.currentSrc || im.src;
+  big.onerror = () => { big.onerror = null; big.src = small; };
+  big.src = bigUrl(small);
+  box.hidden = false;
+}, true);
+const closeZoom = () => { const b = document.getElementById('zoom'); b.hidden = true; b.querySelector('img').removeAttribute('src'); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeZoom(); });
+document.getElementById('zoom').addEventListener('click', closeZoom);
 const safeUrl = (u) => /^https?:\/\//i.test(u || '') ? esc(u) : '#';
 const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 const pdate = (s) => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); };
@@ -736,7 +778,7 @@ function renderMovers() {
     const buzz = cited ? `<span class="tag" style="--c:var(--dim)">cité ${cited}× en 7 j</span>` : '';
     return `<details class="mv" data-id="${esc(m.card_id)}"${state.open.has(m.card_id) ? ' open' : ''}>
       <summary>
-        <span class="who"><b>${esc(m.name)}</b><small>${tag}${buzz}<span>${esc(m.set_name)}${ver ? ' · ' + ver : ''}</span></small></span>
+        <span class="who">${thumb(m)}<b>${esc(m.name)}</b><small>${tag}${buzz}<span>${esc(m.set_name)}${ver ? ' · ' + ver : ''}</span></small></span>
         <span class="q hide">×${m.quantity}</span>
         <span class="num px">${usd(m.price)}</span>
         <span class="hide">${spark(m.card_id, w)}</span>
@@ -927,7 +969,7 @@ function setDetail(st, i, w) {
   const others = allMissing.length - missing.length;
   const otherCost = allMissing.reduce((a, c) => a + (c.price || 0), 0) - cost;
   const miss = allMissing.length ? `<p class="lbl">Cartes recherchées manquantes · ${missing.length} · ${usd(cost)} pour les avoir toutes${others ? ` · plus ${others} autres cartes du set (${usd(otherCost)})` : ''}</p>
-      <ul class="miss">${missing.slice(0, 12).map((c) => `<li><span><b>${esc(c.name)}</b><small>${esc(c.rarity || '')}</small></span><span class="r">${usd(c.price)}</span></li>`).join('')}${missing.length > 12 ? `<li><span style="color:var(--faint)">et ${missing.length - 12} autres</span><span></span></li>` : ''}${missing.length ? '' : '<li><span style="color:var(--dim)">Toutes les cartes recherchées sont là.</span><span></span></li>'}</ul>` : '';
+      <ul class="miss">${missing.slice(0, 12).map((c) => `<li><span>${thumb(c)}<b>${esc(c.name)}</b><small>${esc(c.rarity || '')}</small></span><span class="r">${usd(c.price)}</span></li>`).join('')}${missing.length > 12 ? `<li><span style="color:var(--faint)">et ${missing.length - 12} autres</span><span></span></li>` : ''}${missing.length ? '' : '<li><span style="color:var(--dim)">Toutes les cartes recherchées sont là.</span><span></span></li>'}</ul>` : '';
   return `<div class="msb">
       <div class="strip">
         <div>
@@ -1068,7 +1110,7 @@ function trendRow(t, computed) {
   return `<details class="sg">
     <summary>
       <span class="st ${sell ? 'l-warn' : 'l-ok'}"><b><i class="lamp${live ? '' : ' hollow'}"></i>${sell ? 'vendre' : 'acheter'}</b><small><b>${t.n_days}</b>/${computed.length} j</small></span>
-      <span class="who"><b>${esc(t.name)}${t.owned ? `<span class="own">×${t.owned}</span>` : ''}</b><small>${esc(sub)}</small><span class="drv">${codes}${extra.join('')}</span></span>
+      <span class="who">${thumb(t)}<b>${esc(t.name)}${t.owned ? `<span class="own">×${t.owned}</span>` : ''}</b><small>${esc(sub)}</small><span class="drv">${codes}${extra.join('')}</span></span>
       <span class="rib">${ribbon(t.dates, computed)}<small>${live ? (st > 1 ? `<b>${st} j</b> d'affilée` : 'encore aujourd\'hui') : `dernier le ${fdate(t.last_date)}`}</small></span>
       <span class="px">${usd(t.market_price)}<small class="${tone((t.change_7d ?? 0) * 100, 10)}">${ch}</small></span>
       <svg class="i chev"><use href="#i-chev"/></svg>

@@ -45,12 +45,15 @@ logger = logging.getLogger(__name__)
 # la date de création de la ligne, qui reste implicite ici : dim_card n'a pas
 # de colonne created_at séparée).
 _UPSERT_DIM_CARD_SQL = """
-    INSERT INTO prod.dim_card (card_id, name, set_id, set_name, series, rarity)
-    VALUES (%(card_id)s, %(name)s, %(set_id)s, %(set_name)s, %(series)s, %(rarity)s)
+    INSERT INTO prod.dim_card (card_id, name, set_id, set_name, series, rarity,
+                              image_small, image_alt)
+    VALUES (%(card_id)s, %(name)s, %(set_id)s, %(set_name)s, %(series)s, %(rarity)s,
+            %(image_small)s, %(image_alt)s)
     ON CONFLICT (card_id) DO UPDATE SET
         name = EXCLUDED.name, set_id = EXCLUDED.set_id,
         set_name = EXCLUDED.set_name, series = EXCLUDED.series,
         rarity = EXCLUDED.rarity,
+        image_small = EXCLUDED.image_small, image_alt = EXCLUDED.image_alt,
         updated_at = now()
 """
 
@@ -134,10 +137,14 @@ def load_staging_to_warehouse(
         # staging_loader.py).
         cur.execute(
             """
-            SELECT card_id, name, set_id, set_name, series, rarity,
-                   average_sell_price, trend_price, low_price
-            FROM staging.card_prices
-            WHERE extracted_date = %s AND source = %s
+            SELECT s.card_id, s.name, s.set_id, s.set_name, s.series, s.rarity,
+                   s.average_sell_price, s.trend_price, s.low_price, s.image_small,
+                   CASE WHEN m.product_id IS NOT NULL THEN
+                        'https://tcgplayer-cdn.tcgplayer.com/product/' || m.product_id || '_200w.jpg'
+                   END AS image_alt
+            FROM staging.card_prices s
+            LEFT JOIN raw.tcgplayer_product_map m ON m.card_id = s.card_id
+            WHERE s.extracted_date = %s AND s.source = %s
             """,
             (extracted_date, source),
         )
@@ -181,6 +188,8 @@ def load_staging_to_warehouse(
             average_sell_price,
             trend_price,
             low_price,
+            image_small,
+            image_alt,
         ) in rows:
             cur.execute(
                 _UPSERT_DIM_CARD_SQL,
@@ -191,6 +200,8 @@ def load_staging_to_warehouse(
                     "set_name": set_name,
                     "series": series,
                     "rarity": rarity,
+                    "image_small": image_small,
+                    "image_alt": image_alt,
                 },
             )
             cur.execute(

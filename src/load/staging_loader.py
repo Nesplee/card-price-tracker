@@ -44,11 +44,11 @@ logger = logging.getLogger(__name__)
 # insertion.
 _UPSERT_STAGING_SQL = """
     INSERT INTO staging.card_prices
-        (card_id, extracted_date, name, set_id, set_name, series, rarity,
+        (card_id, extracted_date, name, set_id, set_name, series, image_small, rarity,
          average_sell_price, trend_price, low_price, source)
     VALUES
         (%(card_id)s, %(extracted_date)s, %(name)s, %(set_id)s, %(set_name)s,
-         %(series)s, %(rarity)s, %(average_sell_price)s, %(trend_price)s,
+         %(series)s, %(image_small)s, %(rarity)s, %(average_sell_price)s, %(trend_price)s,
          %(low_price)s, %(source)s)
     ON CONFLICT (card_id, extracted_date, source)
     DO UPDATE SET
@@ -56,6 +56,7 @@ _UPSERT_STAGING_SQL = """
         set_id = EXCLUDED.set_id,
         set_name = EXCLUDED.set_name,
         series = EXCLUDED.series,
+        image_small = EXCLUDED.image_small,
         rarity = EXCLUDED.rarity,
         average_sell_price = EXCLUDED.average_sell_price,
         trend_price = EXCLUDED.trend_price,
@@ -126,6 +127,7 @@ def load_staging(
             "set_id": c.set_id,
             "set_name": c.set_name,
             "series": c.series,
+            "image_small": c.image_small,
             "rarity": c.rarity,
             "average_sell_price": c.average_sell_price,
             "trend_price": c.trend_price,

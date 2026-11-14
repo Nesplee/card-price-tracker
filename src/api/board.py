@@ -85,12 +85,13 @@ def get_collection_board(conn) -> dict:
     # TCGplayer est le même pour toutes), avec son historique de prix complet.
     cards = conn.execute("""
         SELECT o.card_id, c.name, c.set_name, c.series, c.rarity,
+               c.image_small, c.image_alt,
                sum(o.quantity)::int AS quantity,
                array_agg(DISTINCT nullif(o.variance, '')) AS variances,
                array_agg(DISTINCT nullif(o.grade, 'Ungraded')) AS grades
         FROM prod.dim_owned_card o
         JOIN prod.dim_card c ON c.card_id = o.card_id
-        GROUP BY o.card_id, c.name, c.set_name, c.series, c.rarity
+        GROUP BY o.card_id, c.name, c.set_name, c.series, c.rarity, c.image_small, c.image_alt
         """).fetchall()
     # LATERAL par carte : passe par l'index (card_id, date_id, platform_id) au
     # lieu d'un parcours complet de fact_price_history (2 s contre ~50 ms).
@@ -147,6 +148,8 @@ def get_collection_board(conn) -> dict:
             "set_name": c["set_name"],
             "series": c["series"],
             "rarity": c["rarity"],
+            "image_small": c["image_small"],
+            "image_alt": c["image_alt"],
             "quantity": c["quantity"],
             "variances": [v for v in c["variances"] if v],
             "grades": [g for g in c["grades"] if g],
@@ -230,13 +233,13 @@ def get_master_sets(conn) -> dict:
     for st in sets:
         cards = conn.execute(
             """
-            SELECT c.card_id, c.name, c.rarity,
+            SELECT c.card_id, c.name, c.rarity, c.image_small, c.image_alt,
                    coalesce(sum(o.quantity), 0)::int AS quantity,
                    array_remove(array_agg(DISTINCT nullif(o.variance, '')), NULL) AS variances
             FROM prod.dim_card c
             LEFT JOIN prod.dim_owned_card o ON o.card_id = c.card_id
             WHERE c.set_id = %(set_id)s
-            GROUP BY c.card_id, c.name, c.rarity
+            GROUP BY c.card_id, c.name, c.rarity, c.image_small, c.image_alt
             """,
             {"set_id": st["set_id"]},
         ).fetchall()
@@ -288,6 +291,8 @@ def get_master_sets(conn) -> dict:
                     "card_id": c["card_id"],
                     "name": c["name"],
                     "rarity": c["rarity"],
+                    "image_small": c["image_small"],
+                    "image_alt": c["image_alt"],
                     "quantity": c["quantity"],
                     "variances": c["variances"],
                     "price": cur[1] if cur else None,
@@ -372,7 +377,7 @@ def get_signals_board(conn, *, days: int) -> dict:
         )
         SELECT a.card_id, a.side, a.n_days, a.dates, a.scores, c.codes, l.last_date, l.score,
                l.signals, l.reason, l.market_price, l.change_7d, l.change_30d,
-               dc.name, dc.set_name, dc.series, coalesce(own.q, 0) AS owned_quantity
+               dc.name, dc.set_name, dc.series, dc.image_small, dc.image_alt, coalesce(own.q, 0) AS owned_quantity
         FROM agg a
         JOIN codes c USING (card_id, side)
         JOIN last l USING (card_id, side)

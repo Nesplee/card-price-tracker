@@ -54,6 +54,10 @@ class CleanedCard:
     average_sell_price: float | None
     trend_price: float | None
     low_price: float | None
+    # image_small : URL de la miniature fournie par la source (optionnelle,
+    # aucun rejet si absente). En dernier, avec défaut, pour ne pas casser les
+    # constructions existantes.
+    image_small: str | None = None
 
 
 @dataclass(frozen=True)
@@ -167,6 +171,7 @@ def validate_and_clean(payload: dict) -> ValidationResult:
     # (pas de rejet de la carte si series manque -- même tolérance que
     # rarity, voir le champ correspondant sur CleanedCard).
     series = set_info.get("series")
+    image_small = (payload.get("images") or {}).get("small") or None
     if not set_id or not set_name:
         return ValidationResult(cleaned=None, rejection_reason="informations de set manquantes")
 
@@ -232,6 +237,7 @@ def validate_and_clean(payload: dict) -> ValidationResult:
             set_id=set_id,
             set_name=set_name.strip(),
             series=series,
+            image_small=image_small,
             # rarity n'est soumis à aucune règle de validation (voir le
             # commentaire sur le champ dans CleanedCard) : on le transmet tel
             # quel, y compris s'il vaut None.
