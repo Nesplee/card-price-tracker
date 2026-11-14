@@ -473,13 +473,13 @@ def get_opportunity_trends(conn, *, date_id=None) -> dict:
     # précédente. Les cartes à moins de 5 % dans les deux semaines sont ignorées.
     meta = conn.execute(
         """
-        WITH w AS (SELECT max(week) AS cur FROM prod.v_meta_usage_weekly)
-        SELECT coalesce(a.card_name, b.card_name) AS card_name,
-               coalesce(a.share, 0) AS share_now, coalesce(b.share, 0) AS share_prev
-        FROM w
-        LEFT JOIN prod.v_meta_usage_weekly a ON a.week = w.cur
-        FULL JOIN prod.v_meta_usage_weekly b
-               ON b.week = w.cur - 7 AND b.card_name = a.card_name
+        WITH w AS (SELECT max(week) AS cur FROM prod.v_meta_usage_weekly),
+        -- Chaque semaine filtrée AVANT le FULL JOIN : avec le filtre de b dans
+        -- la clause ON, les lignes de toutes les semaines passées remontaient.
+        a AS (SELECT card_name, share FROM prod.v_meta_usage_weekly, w WHERE week = w.cur),
+        b AS (SELECT card_name, share FROM prod.v_meta_usage_weekly, w WHERE week = w.cur - 7)
+        SELECT card_name, coalesce(a.share, 0) AS share_now, coalesce(b.share, 0) AS share_prev
+        FROM a FULL JOIN b USING (card_name)
         WHERE greatest(coalesce(a.share, 0), coalesce(b.share, 0)) >= 0.05
         ORDER BY abs(coalesce(a.share, 0) - coalesce(b.share, 0)) DESC
         LIMIT 10
