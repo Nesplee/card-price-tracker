@@ -118,3 +118,19 @@ def load_ntfy_config() -> NtfyConfig | None:
     if not topic:
         return None
     return NtfyConfig(server=os.environ.get("NTFY_SERVER", "https://ntfy.sh"), topic=topic)
+
+
+# LLM local qui classe les news (src/signals/news_llm.py) : l'Ollama de
+# second_brain, joint par le réseau Docker ollama-shared (voir
+# docker-compose.prod.yml). Pas de secret ici, d'où des valeurs par défaut.
+@dataclass(frozen=True)
+class OllamaConfig:
+    url: str
+    model: str
+
+
+def load_ollama_config() -> OllamaConfig:
+    return OllamaConfig(
+        url=os.environ.get("OLLAMA_URL", "http://ollama:11434"),
+        model=os.environ.get("OLLAMA_MODEL", "qwen3.5:4b"),
+    )

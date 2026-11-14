@@ -10,6 +10,8 @@
 #   3. load_to_warehouse     : charge staging -> star schema prod (Task 3).
 #   4. check_freshness       : alerte ntfy si aucun prix n'a bougé depuis le
 #      jour précédent (source figée, ajouté le 2026-10-26).
+#   4b. compute_opportunities : signaux d'achat / de vente du jour, en
+#      parallèle de check_freshness (ajouté le 2026-11-01).
 # Ce module est un point d'ENTRÉE (aucun autre module du dépôt ne l'importe) :
 # c'est Airflow (le scheduler, en le scannant dans dags/) qui l'exécute.
 from __future__ import annotations
@@ -26,6 +28,7 @@ from src.extract.catalog_snapshot import copy_previous_catalog
 from src.extract.tcgcsv_prices import TcgCsvClient, apply_tcgcsv_prices
 from src.load.warehouse_loader import load_staging_to_warehouse
 from src.monitor.price_freshness import check_price_freshness, send_ntfy
+from src.signals.opportunities import compute_opportunities
 from src.transform.clean import clean_raw_to_staging
 
 
@@ -199,6 +202,17 @@ def card_price_pipeline():
             return
         send_ntfy(ntfy, report.message())
 
+    # compute_opportunities (ajouté le 2026-11-01) : signaux d'achat / de vente
+    # du jour dans prod.fact_opportunity (voir src/signals/opportunities.py).
+    # Tâche SQL locale -> retries=2. En parallèle de check_freshness : des prix
+    # figés ne déclenchent simplement aucun signal de variation. task_id
+    # explicite : le nom de la fonction ne peut pas reprendre celui de
+    # compute_opportunities, importée de src/signals.
+    @task(task_id="compute_opportunities", retries=2)
+    def compute_opportunities_task(loaded_date_iso: str) -> None:
+        with get_connection(load_db_config()) as conn:
+            compute_opportunities(conn, date.fromisoformat(loaded_date_iso))
+
     # Orchestration : chaque tâche reçoit la date (au format ISO, via XCom)
     # renvoyée par la précédente, ce qui crée implicitement la dépendance
     # d'ordre snapshot_catalog >> ... >> check_freshness
@@ -209,6 +223,7 @@ def card_price_pipeline():
     cleaned_date_iso = clean_to_staging(priced_date_iso)
     loaded_date_iso = load_to_warehouse(cleaned_date_iso)
     check_freshness(loaded_date_iso)
+    compute_opportunities_task(loaded_date_iso)
 
 
 # Appel du DAG décoré : nécessaire pour qu'Airflow, en importateur le module
