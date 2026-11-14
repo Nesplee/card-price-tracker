@@ -135,7 +135,11 @@ GET /api/collection/movers         # daily/weekly biggest price movers, owned ca
 GET /api/opportunities             # buy/sell signals of the latest day; quality selection by default
 GET /api/opportunities/performance # hit rate and average return per signal (backtest)
 GET /api/opportunities/trends      # set trends, market news, competitive meta shifts
+GET /api/board/collection          # board: collection value history, per-card prices at 1/7/30/90 days, sparklines
+GET /api/board/signals?days=7      # board: buy/sell signals driven by news or the meta, news, meta shifts
 ```
+
+**Board** ([`board/index.html`](board/index.html), served under `/v2/` while it is being validated) is a single static page in the same visual grammar as the VPS agent-manager: black, neutral greys, square corners, colour only for status lamps and out-of-threshold numbers. Two blocks face to face. *Collection*: market value over time, biggest movers ranked by dollar impact (quantity × price change) over 24 h / 7 d / 30 d / 90 d, value split by set. *Signaux*: buy/sell signals carried by a news item or a competitive-meta shift (or a price signal backed by a matching news item), the directional news of the last 14 days and the week-over-week meta. A card turns green/red only past ±5 / 10 / 20 / 30 % (24 h / 7 d / 30 d / 90 d).
 
 The **Opportunités** tab shows the daily buy/sell signals (`prod.fact_opportunity`). By default it shows only a quality *selection* (about 10% of the signals): a signal whose 30-day backtest holds (at least 100 measured cases, 65% hit rate, positive average return) with a score of 50 or more, or a signal backed by a matching news item of the last 14 days, and never one contradicted by a news item. Each row opens onto the reason, the matching news and a price sparkline; the page also shows set trends, market news, meta shifts and the per-signal reliability table. The thresholds live in [`src/api/queries.py`](src/api/queries.py).
 

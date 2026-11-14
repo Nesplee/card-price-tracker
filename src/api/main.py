@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 
-from src.api import queries
+from src.api import board, queries
 from src.api.db import get_api_connection
 from src.api.schemas import (
     CardHistoryResponse,
@@ -26,6 +26,7 @@ from src.api.schemas import (
 )
 
 app = FastAPI(title="Card Price Tracker — Dashboard API")
+app.include_router(board.router)
 
 
 @app.get("/api/health")

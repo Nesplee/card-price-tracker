@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<title>Card Tracker</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23000'/%3E%3Crect x='7' y='5' width='14' height='20' fill='none' stroke='%237c7c7c' stroke-width='2'/%3E%3Crect x='11' y='8' width='14' height='20' fill='%23f2f2f2'/%3E%3C/svg%3E">
+<style>
+  /* Grammaire d'agent-manager : noir pur, gris neutres, angles droits, grotesque blanche,
+     chiffres tabulaires. La couleur ne sert qu'aux voyants, aux mots d'état et aux chiffres
+     hors seuil. */
+  :root {
+    --bg: #000;
+    --raise: #0b0b0b;
+    --rule: #1f1f1f;
+    --rule2: #363636;
+    --track: #1d1d1d;
+    --mark: #5c5c5c;
+    --ink: #f2f2f2;
+    --dim: #a6a6a6;
+    --faint: #7c7c7c;
+    --ok: #2fd16b;
+    --warn: #ff9f0a;
+    --bad: #ff453a;
+    --sans: "Helvetica Neue", Helvetica, "Liberation Sans", Arial, Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono", monospace;
+    --pad: 20px;
+    --top: 44px;
+  }
+  * { box-sizing: border-box; border-radius: 0 !important; }
+  html { -webkit-text-size-adjust: 100%; background: var(--bg); scroll-padding-top: calc(var(--top) + 8px); }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 400 13px/1.45 var(--sans);
+    font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+  [hidden] { display: none !important; }
+  h1, h2, h3, p, dl, dd, ul { margin: 0; }
+  ul { padding: 0; list-style: none; }
+  a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--mark); text-underline-offset: 3px; }
+  a:hover { text-decoration-color: var(--ink); }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  ::selection { background: var(--ink); color: #000; }
+  svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: square; stroke-linejoin: miter; flex: none; }
+
+  .l-ok { --c: var(--ok); } .l-warn { --c: var(--warn); } .l-bad { --c: var(--bad); } .l-off { --c: var(--faint); }
+  .lamp { display: inline-block; flex: none; width: 7px; height: 7px; background: var(--c, var(--faint)); }
+  .l-off > .lamp, .lamp.hollow { background: none; box-shadow: inset 0 0 0 1.5px var(--c, var(--faint)); }
+  .up { color: var(--ok); } .dn { color: var(--bad); }
+
+  /* Barre du haut */
+  .top { position: sticky; top: 0; z-index: 5; height: var(--top); display: flex; align-items: center; gap: 24px;
+    padding: 0 var(--pad); background: var(--bg); border-bottom: 1px solid var(--rule2); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 14px; letter-spacing: -.01em; white-space: nowrap; }
+  .brand svg { width: 20px; height: 20px; }
+  .jump { display: none; gap: 18px; min-width: 0; }
+  .jump a { display: inline-flex; align-items: center; gap: 7px; min-height: var(--top); text-decoration: none; white-space: nowrap; font-weight: 700; }
+  .live { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 12px; white-space: nowrap; min-width: 0; }
+  .live span { overflow: hidden; text-overflow: ellipsis; }
+  .live.l-warn, .live.l-bad { color: var(--c); }
+
+  /* Trame : la collection à gauche, les signaux à droite */
+  .cols { display: grid; grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); min-height: calc(100vh - var(--top)); }
+  .col { min-width: 0; container-type: inline-size; }
+  .col-coll { border-right: 1px solid var(--rule2); container-name: coll; }
+  .col-sig { container-name: sig; }
+  .ch { display: flex; flex-wrap: wrap; align-items: baseline; align-content: flex-start; gap: 8px 16px; padding: 22px var(--pad) 16px; border-bottom: 1px solid var(--rule2); min-height: 102px; }
+  .ch h2 { font-size: 32px; line-height: 1; font-weight: 700; letter-spacing: -.035em; }
+  .verdict { display: flex; align-items: center; gap: 11px; font-size: 32px; line-height: 1; font-weight: 300; letter-spacing: -.035em; color: var(--c, var(--ink)); white-space: nowrap; }
+  .verdict.l-off { color: var(--ink); }
+  .verdict .lamp { width: 9px; height: 9px; margin-top: 3px; }
+  .ch .side { margin-left: auto; align-self: center; }
+  .ch .sub { flex-basis: 100%; color: var(--dim); display: flex; flex-wrap: wrap; gap: 2px 18px; min-width: 0; }
+  .ch .sub b { color: var(--ink); font-weight: 400; }
+
+  .sec { border-bottom: 1px solid var(--rule2); }
+  .sh { display: flex; align-items: center; gap: 9px; padding: 14px var(--pad) 10px; color: var(--dim); min-width: 0; flex-wrap: wrap; }
+  .sh h3 { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+  .sh svg.i { color: var(--dim); }
+  .sh .r { margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .sh .r b { color: var(--ink); font-weight: 400; }
+  .empty { padding: 4px var(--pad) 18px; color: var(--dim); }
+
+  /* Sélecteurs segmentés */
+  .seg { display: inline-flex; border: 1px solid var(--rule2); }
+  .seg button { border: 0; min-height: 26px; padding: 2px 10px; font-weight: 400; color: var(--dim); background: none; }
+  .seg button + button { border-left: 1px solid var(--rule2); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: #000; font-weight: 700; }
+  .seg button:hover:not([aria-pressed="true"]) { color: var(--ink); }
+
+  /* Valeur : relevé, tracé, détails (bande d'agent-manager) */
+  .strip { display: grid; grid-template-columns: 150px minmax(0, 1fr) 176px; gap: 0 20px; padding: 6px var(--pad) 0; align-items: stretch; }
+  .nm { display: flex; align-items: center; gap: 8px; font-weight: 700; white-space: nowrap; }
+  .big { font-size: 46px; line-height: 1; font-weight: 300; letter-spacing: -.04em; margin: 9px 0 11px -2px; white-space: nowrap; }
+  .big em { font-style: normal; font-size: 17px; font-weight: 400; letter-spacing: 0; color: var(--dim); margin-left: 4px; }
+  .g { position: relative; height: 6px; background: var(--track); }
+  .g i { position: absolute; inset: 0 auto 0 0; background: var(--ink); }
+  .g u { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--ink); box-shadow: 0 0 0 1px var(--bg); }
+  .note { color: var(--faint); font-size: 11.5px; margin-top: 8px; }
+  .tr { position: relative; min-height: 132px; cursor: crosshair; }
+  .tr svg { position: absolute; inset: 0 34px 0 0; width: calc(100% - 34px); height: 100%; overflow: visible; border-bottom: 1px solid var(--rule2); }
+  .tr path, .tr line { fill: none; vector-effect: non-scaling-stroke; }
+  .tr .gv { stroke: var(--rule); stroke-width: 1; }
+  .tr .ln { stroke: var(--ink); stroke-width: 1.4; stroke-linejoin: miter; }
+  .tr .gap { stroke: var(--mark); stroke-width: 1; stroke-dasharray: 1 4; }
+  .tr .ar { fill: #161616; stroke: none; }
+  .tr .band { fill: #101010; }
+  .tr .bl { stroke: var(--mark); stroke-width: 1; stroke-dasharray: 2 3; }
+  .tr .tl { position: absolute; right: 0; width: 30px; font-size: 10px; line-height: 1; color: var(--faint); }
+  .tr .xh { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--dim); pointer-events: none; }
+  .tr .tip { position: absolute; top: -2px; transform: translateX(-50%); background: #000; border: 1px solid var(--rule2); padding: 3px 8px; font-size: 11.5px; white-space: nowrap; pointer-events: none; z-index: 2; }
+  .tr .tip b { font-weight: 700; } .tr .tip span { color: var(--dim); margin-right: 6px; }
+  .axis { display: grid; grid-template-columns: 150px minmax(0, 1fr) 176px; gap: 0 20px; padding: 0 var(--pad); height: 28px; align-items: center; font-size: 10px; color: var(--faint); }
+  .axis div { grid-column: 2; position: relative; height: 10px; margin-right: 34px; line-height: 1; }
+  .axis span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+  .axis span.first { transform: none; } .axis span.last { transform: translateX(-100%); }
+  .kv { display: grid; gap: 3px; align-content: start; font-size: 12px; min-width: 0; }
+  .kv > div { display: flex; justify-content: space-between; gap: 10px; min-width: 0; }
+  .kv dt { color: var(--dim); white-space: nowrap; } .kv dd { text-align: right; white-space: nowrap; }
+  .kv .sel dt, .kv .sel dd { color: var(--ink); font-weight: 700; }
+  .kv dd small { color: var(--faint); font-size: 11px; margin-left: 6px; font-weight: 400; }
+  .kv .sep { border-top: 1px solid var(--rule); margin-top: 4px; padding-top: 4px; }
+
+  /* Mouvements */
+  .breadth { padding: 0 var(--pad) 14px; }
+  .breadth .bar { display: grid; grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr); align-items: center; height: 10px; }
+  .breadth .bar .ax { height: 18px; background: var(--ink); }
+  .breadth .bar .lo { justify-self: end; height: 10px; background: var(--dim); }
+  .breadth .bar .hi { height: 10px; background: var(--ink); }
+  .breadth .lg { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin-top: 8px; font-size: 12px; color: var(--dim); }
+  .breadth .lg b { color: var(--ink); font-weight: 400; }
+  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 0 var(--pad) 10px; }
+  .tools label { color: var(--dim); font-size: 12px; }
+  .tools .r { margin-left: auto; color: var(--faint); font-size: 12px; }
+  .thead, .mv > summary { display: grid; grid-template-columns: minmax(0, 1fr) 30px 66px 92px 84px 62px 56px 12px; gap: 0 12px; align-items: center; }
+  .thead { padding: 0 var(--pad) 6px; font-size: 11px; color: var(--faint); }
+  .thead .r, .mv .r { text-align: right; }
+  .mv { border-top: 1px solid var(--rule); }
+  .mv > summary { padding: 7px var(--pad); min-height: 44px; }
+  .mv > summary:hover, .mv[open] { background: var(--raise); }
+  .mv .who { min-width: 0; }
+  .mv .who b { display: block; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mv .who small { display: flex; gap: 8px; color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; }
+  .mv .who small span { overflow: hidden; text-overflow: ellipsis; }
+  .mv .who .tag { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--c); }
+  .mv .who .tag .lamp { width: 6px; height: 6px; }
+  .mv .q { color: var(--dim); text-align: right; white-space: nowrap; }
+  .mv .num { text-align: right; white-space: nowrap; }
+  .mv svg.sp { display: block; width: 100%; height: 24px; overflow: visible; }
+  .sp polyline { fill: none; stroke: var(--ink); stroke-width: 1.2; vector-effect: non-scaling-stroke; stroke-linejoin: miter; }
+  .sp line { stroke: var(--mark); stroke-width: 1; stroke-dasharray: 1 3; vector-effect: non-scaling-stroke; }
+  .sp rect { fill: var(--ink); }
+  .div { display: block; position: relative; height: 10px; }
+  .div::before { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--rule2); }
+  .div i { position: absolute; top: 2px; height: 6px; background: var(--ink); }
+  .div i.neg { background: var(--dim); }
+  .more { padding: 10px var(--pad) 14px; border-top: 1px solid var(--rule); }
+  .detail { padding: 6px var(--pad) 16px; display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 14px 24px; }
+  .detail .chart { position: relative; height: 120px; }
+  .detail .chart svg { position: absolute; inset: 0 52px 0 0; width: calc(100% - 52px); height: 100%; overflow: visible; border-bottom: 1px solid var(--rule2); }
+  .detail .chart path { fill: none; vector-effect: non-scaling-stroke; }
+  .detail .chart .ln { stroke: var(--ink); stroke-width: 1.4; }
+  .detail .chart .ln2 { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 2 2; }
+  .detail .chart .band { fill: #141414; }
+  .detail .chart .tl { position: absolute; right: 0; width: 46px; white-space: nowrap; font-size: 10px; line-height: 1; color: var(--faint); }
+  .detail .lgd { display: flex; gap: 14px; font-size: 11px; color: var(--faint); margin-top: 6px; }
+  .detail .lgd i { display: inline-block; width: 14px; height: 0; border-top: 1.4px solid var(--ink); vertical-align: middle; margin-right: 5px; }
+  .detail .lgd i.d { border-top: 1px dashed var(--faint); }
+  .detail .why { grid-column: 1 / -1; display: grid; gap: 4px; }
+  .detail .why p { display: flex; gap: 9px; align-items: baseline; }
+  .detail .why .lamp { transform: translateY(-1px); }
+
+  /* Répartition */
+  .stack { display: flex; height: 10px; gap: 1px; margin: 0 var(--pad) 12px; background: var(--bg); }
+  .stack i { display: block; height: 100%; background: var(--ink); min-width: 1px; }
+  .stack i.o { background: var(--mark); }
+  .sets { padding: 0 var(--pad) 14px; display: grid; grid-template-columns: minmax(0, 1.5fr) 44px 72px minmax(40px, 1fr) 52px 70px; gap: 5px 14px; align-items: center; font-size: 12.5px; }
+  .sets .h { color: var(--faint); font-size: 11px; }
+  .sets .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sets .r { text-align: right; white-space: nowrap; }
+  .sets .bar { height: 4px; background: var(--track); } .sets .bar i { display: block; height: 100%; background: var(--ink); }
+
+  /* Signaux */
+  .sg { border-top: 1px solid var(--rule); }
+  .sg > summary { display: grid; grid-template-columns: 74px minmax(0, 1fr) 72px 12px; gap: 0 14px; align-items: start; padding: 10px var(--pad); }
+  .sg > summary:hover, .sg[open] { background: var(--raise); }
+  .sg .st { display: grid; gap: 3px; }
+  .sg .st b { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--c); line-height: 19px; }
+  .sg .score { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--faint); }
+  .sg .score .g { flex: 1; height: 3px; } .sg .score .g i { background: var(--dim); }
+  .sg .who { min-width: 0; }
+  .sg .who b { display: block; font-size: 14px; line-height: 19px; font-weight: 700; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sg .who .own { font-weight: 400; font-size: 12px; color: var(--ink); margin-left: 8px; padding: 0 5px; border: 1px solid var(--rule2); vertical-align: 1px; }
+  .sg .who small { display: block; color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sg .drv { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; color: var(--dim); margin-top: 3px; }
+  .sg .drv span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .sg .drv .against { color: var(--warn); }
+  .sg .px { text-align: right; white-space: nowrap; line-height: 19px; }
+  .sg .px small { display: block; font-size: 11.5px; color: var(--faint); }
+  .sg .body { padding: 0 var(--pad) 16px calc(var(--pad) + 88px); display: grid; gap: 10px; }
+  .sg .body .reason { color: var(--dim); }
+  .nlist { display: grid; gap: 8px; }
+  .nitem { display: grid; gap: 1px; padding-left: 12px; border-left: 1px solid var(--rule2); }
+  .nitem a { font-weight: 700; text-decoration-color: var(--rule2); overflow-wrap: anywhere; }
+  .nitem small { color: var(--faint); font-size: 11.5px; }
+  .nitem p { color: var(--dim); font-size: 12px; }
+  .vers { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--dim); }
+  .vers span b { color: var(--ink); font-weight: 400; }
+  .vers .own { color: var(--ink); }
+
+  .news li.more { display: block; }
+  .news li { display: grid; grid-template-columns: 44px 12px minmax(0, 1fr); gap: 0 10px; padding: 8px var(--pad); border-top: 1px solid var(--rule); align-items: baseline; }
+  .news .d { color: var(--faint); font-size: 12px; white-space: nowrap; }
+  .news .dir { font-size: 12px; }
+  .news .t { min-width: 0; }
+  .news .t a { display: block; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration-color: var(--rule2); }
+  .news .t small { display: block; color: var(--faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .news .t small b { color: var(--ink); font-weight: 400; }
+  .news li.mine .d { color: var(--ink); }
+
+  .meta { padding: 0 var(--pad) 14px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(60px, 1.2fr) 46px 64px; gap: 7px 14px; align-items: center; font-size: 12.5px; }
+  .meta .h { color: var(--faint); font-size: 11px; }
+  .meta .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta .n b { font-weight: 400; color: var(--ink); border: 1px solid var(--rule2); padding: 0 4px; margin-left: 6px; font-size: 11px; }
+  .meta .r { text-align: right; white-space: nowrap; }
+  .meta .g { height: 4px; } .meta .g u { top: -4px; bottom: -4px; width: 2px; background: var(--dim); box-shadow: 0 0 0 1px var(--bg); }
+
+  details > summary { cursor: pointer; list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  .chev { color: var(--faint); transition: transform .12s; width: 12px !important; height: 12px !important; }
+  details[open] > summary .chev { transform: rotate(90deg); }
+  .fold > summary { min-height: 44px; padding-top: 0; padding-bottom: 0; }
+  .fold > summary:hover h3 { text-decoration: underline; text-underline-offset: 3px; }
+
+  button { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--rule2); padding: 5px 12px; min-height: 32px; cursor: pointer; white-space: nowrap; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  button:hover { border-color: var(--ink); }
+
+  #toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translate(-50%, 8px); width: max-content; max-width: min(38rem, calc(100vw - 32px)); z-index: 40;
+    background: #000; color: var(--bad); border: 1px solid var(--ink); padding: 10px 16px; font-weight: 700; opacity: 0; transition: opacity .15s, transform .15s; pointer-events: none; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @container coll (max-width: 700px) {
+    .strip, .axis { grid-template-columns: 132px minmax(0, 1fr); gap: 12px 16px; }
+    .strip .kv { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 24px; }
+    .strip .kv .sep { margin-top: 0; padding-top: 0; border: 0; }
+    .thead, .mv > summary { grid-template-columns: minmax(0, 1fr) 62px 72px 56px 12px; }
+    .thead .hide, .mv .hide { display: none; }
+    .detail { grid-template-columns: 1fr; }
+    .sets { grid-template-columns: minmax(0, 1fr) 36px 66px 52px 64px; } .sets .bar, .sets .hide { display: none; }
+    .breadth .hide { display: none; }
+  }
+  @container coll (max-width: 460px) {
+    .thead, .mv > summary { grid-template-columns: minmax(0, 1fr) 72px 56px 12px; }
+    .thead .px, .mv .px { display: none; }
+  }
+  @container sig (max-width: 480px) {
+    .sg > summary { grid-template-columns: 62px minmax(0, 1fr) 12px; }
+    .sg .px { display: none; }
+    .sg .body { padding-left: var(--pad); }
+    .meta { grid-template-columns: minmax(0, 1fr) 46px 64px; } .meta .g, .meta .hide { display: none; }
+  }
+  @media (max-width: 1000px) {
+    .cols { display: block; min-height: 0; }
+    .col-coll { border-right: 0; border-bottom: 1px solid var(--rule2); }
+    .jump { display: flex; }
+    .ch { min-height: 0; }
+  }
+  @media (max-width: 620px), (pointer: coarse) {
+    button, .seg button { min-height: 40px; }
+  }
+  @media (max-width: 620px) {
+    :root { --pad: 16px; }
+    body { font-size: 14px; }
+    .top { gap: 14px; } .brand span { display: none; } .jump { gap: 14px; } .live { font-size: 11px; }
+    .ch { padding-top: 18px; } .ch h2, .verdict { font-size: 27px; }
+    .ch .side { flex-basis: 100%; order: 3; margin: 6px 0 0; }
+    .big { font-size: 40px; }
+    .tools .r { margin-left: 0; flex-basis: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-val" viewBox="0 0 24 24"><path d="M3 4v16h18M7 14l4-4 3 3 6-6"/></symbol>
+  <symbol id="i-mv" viewBox="0 0 24 24"><path d="M8 20V5M4 9l4-4 4 4M16 4v15M12 15l4 4 4-4"/></symbol>
+  <symbol id="i-set" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6"/><path d="M9 9v6M14 9v6"/></symbol>
+  <symbol id="i-own" viewBox="0 0 24 24"><rect x="5" y="3" width="11" height="15"/><path d="M8 21h11V7"/></symbol>
+  <symbol id="i-buy" viewBox="0 0 24 24"><path d="M12 20V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-news" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16"/><path d="M7 9h10M7 13h10M7 17h6"/></symbol>
+  <symbol id="i-meta" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+</defs></svg>
+
+<header class="top">
+  <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="4" width="15" height="21" fill="none" stroke="#7c7c7c" stroke-width="2"/><rect x="11" y="8" width="15" height="21" fill="#f2f2f2"/></svg><span>Card Tracker</span></div>
+  <nav class="jump" aria-label="Aller à">
+    <a href="#collection" id="j-coll" class="l-off"><i class="lamp"></i>Collection</a>
+    <a href="#signaux" id="j-sig" class="l-off"><i class="lamp"></i>Signaux</a>
+  </nav>
+  <div class="live l-off" id="live"><i class="lamp"></i><span>chargement…</span></div>
+</header>
+
+<div class="cols">
+  <div class="col col-coll" id="collection">
+    <div class="ch">
+      <h2>Collection</h2>
+      <div class="verdict l-off" id="c-verdict"><i class="lamp"></i><span>…</span></div>
+      <div class="side"><div class="seg" id="win" role="group" aria-label="Fenêtre des mouvements"></div></div>
+      <p class="sub" id="c-sub"></p>
+    </div>
+    <section class="sec" aria-label="Valeur de la collection">
+      <div class="sh"><svg class="i"><use href="#i-val"/></svg><h3>Valeur</h3><span class="r" id="v-sum"></span></div>
+      <div class="strip" id="v-strip"></div>
+      <div class="axis" aria-hidden="true"><div id="v-axis"></div></div>
+    </section>
+    <section class="sec" aria-label="Mouvements">
+      <div class="sh"><svg class="i"><use href="#i-mv"/></svg><h3 id="m-title">Mouvements</h3><span class="r" id="m-sum"></span></div>
+      <div class="breadth" id="breadth"></div>
+      <div class="tools">
+        <label for="sort">Classer par</label>
+        <div class="seg" id="sort" role="group" aria-label="Classer par"></div>
+        <span class="r" id="m-note"></span>
+      </div>
+      <div class="thead"><span>Carte</span><span class="r hide">Qté</span><span class="r px">Prix</span><span class="hide">Courbe</span><span class="hide">Impact</span><span class="r">Δ $</span><span class="r">Δ %</span><span></span></div>
+      <div id="movers"></div>
+    </section>
+    <section class="sec" aria-label="Répartition par set">
+      <div class="sh"><svg class="i"><use href="#i-set"/></svg><h3>Répartition par set</h3><span class="r" id="s-sum"></span></div>
+      <div class="stack" id="s-stack"></div>
+      <div class="sets" id="sets"></div>
+    </section>
+  </div>
+
+  <div class="col col-sig" id="signaux">
+    <div class="ch">
+      <h2>Signaux</h2>
+      <div class="verdict l-off" id="s-verdict"><i class="lamp"></i><span>…</span></div>
+      <div class="side"><div class="seg" id="days" role="group" aria-label="Période des signaux"></div></div>
+      <p class="sub" id="s-sub"></p>
+    </div>
+    <section class="sec" aria-label="Signaux sur la collection">
+      <div class="sh"><svg class="i"><use href="#i-own"/></svg><h3>Sur la collection</h3><span class="r" id="o-sum"></span></div>
+      <div id="sig-own"></div>
+    </section>
+    <section class="sec" aria-label="Achats">
+      <div class="sh"><svg class="i"><use href="#i-buy"/></svg><h3>À acheter</h3><span class="r" id="b-sum"></span></div>
+      <div id="sig-buy"></div>
+    </section>
+    <section class="sec" aria-label="News">
+      <div class="sh"><svg class="i"><use href="#i-news"/></svg><h3>News du marché</h3><span class="r" id="n-sum"></span></div>
+      <ul class="news" id="news"></ul>
+    </section>
+    <section class="sec" aria-label="Méta compétitive">
+      <div class="sh"><svg class="i"><use href="#i-meta"/></svg><h3>Méta compétitive</h3><span class="r" id="meta-sum"></span></div>
+      <div class="meta" id="meta"></div>
+    </section>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+const API = '/api/board';
+const WINDOWS = [1, 7, 30, 90];
+const WLABEL = { 1: '24 h', 7: '7 j', 30: '30 j', 90: '90 j' };
+// Seuils « hors norme » : une carte prend la couleur au-delà, la collection aussi.
+const CARD_TH = { 1: 5, 7: 10, 30: 20, 90: 30 };
+const COLL_TH = { 1: 1, 7: 3, 30: 8, 90: 15 };
+const TOP_N = 12;
+const SIGNAL_TEXT = {
+  actu_hausse: 'actu en hausse', actu_baisse: 'actu en baisse', meta_hausse: 'méta en hausse',
+  meta_baisse: 'méta en baisse', annonce_sous_cote: 'annonce sous la cote', rebond: 'rebond',
+  momentum: 'momentum', pic: 'pic', plus_value: 'plus-value', chute: 'chute',
+};
+const EVENT_TEXT = {
+  reimpression: 'réimpression', mouvement_prix: 'mouvement de prix', revelation_cartes: 'révélation de cartes',
+  nouvelle_extension: 'nouvelle extension', hype_collection: 'engouement', rupture_stock: 'rupture de stock',
+  tournoi_meta: 'tournoi / méta', rumeur: 'rumeur',
+};
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('ct.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('ct.' + k, JSON.stringify(v)); } catch {} },
+};
+const state = {
+  win: WINDOWS.includes(store.get('win', 7)) ? store.get('win', 7) : 7,
+  sort: store.get('sort', 'impact'),
+  days: [7, 14, 30].includes(store.get('days', 7)) ? store.get('days', 7) : 7,
+  all: false, allNews: false,
+  coll: null, sig: null,
+  open: new Set(), history: new Map(),
+};
+
+// ---------- format
+const nf0 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
+const nf2 = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nf1 = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const MINUS = '−';
+const sign = (v) => (v > 0 ? '+' : v < 0 ? MINUS : '±');
+const usd = (v) => v == null ? '—' : (Math.abs(v) >= 100 ? nf0.format(v) : nf2.format(v)).replace('-', MINUS) + ' $';
+const dusd = (v) => v == null ? '—' : sign(v) + (Math.abs(v) >= 100 ? nf0 : nf2).format(Math.abs(v)) + ' $';
+const pct = (v) => v == null ? '—' : sign(v) + nf1.format(Math.abs(v)) + ' %';
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const safeUrl = (u) => /^https?:\/\//i.test(u || '') ? esc(u) : '#';
+const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+const pdate = (s) => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+const fdate = (s, short) => { const d = new Date(pdate(s)); return d.getUTCDate() + (short ? '/' + String(d.getUTCMonth() + 1).padStart(2, '0') : ' ' + MONTHS[d.getUTCMonth()]); };
+const DAY = 86400000;
+const tone = (p, th) => p == null ? '' : p >= th ? 'up' : p <= -th ? 'dn' : '';
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 4000);
+}
+
+// ---------- données dérivées de la collection
+function moves(w) {
+  const c = state.coll;
+  return c.cards.map((k) => {
+    const past = k.past[w];
+    const ok = k.price != null && past != null;
+    return {
+      ...k,
+      value: k.price != null ? k.quantity * k.price : 0,
+      d: ok ? k.quantity * (k.price - past) : null,
+      p: ok ? (k.price / past - 1) * 100 : null,
+      pastPrice: past,
+    };
+  });
+}
+
+// ---------- tracé de la valeur
+function valueChart(h, w) {
+  const xs = h.map((p) => pdate(p.date));
+  const x0 = xs[0], x1 = xs[xs.length - 1];
+  const vals = h.map((p) => p.value);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const padv = (hi - lo) * 0.08 || 1; lo -= padv; hi += padv;
+  const X = (t) => ((t - x0) / (x1 - x0 || 1)) * 1000;
+  const Y = (v) => 100 - ((v - lo) / (hi - lo)) * 100;
+  let line = '', gaps = '', seg = [];
+  const pts = h.map((p, i) => X(xs[i]).toFixed(1) + ',' + Y(p.value).toFixed(2));
+  const area = 'M0,100L' + pts.join('L') + 'L1000,100Z';
+  const flush = () => {
+    if (!seg.length) return;
+    line += 'M' + seg.map(([a, b]) => a.toFixed(1) + ',' + b.toFixed(2)).join('L');
+    seg = [];
+  };
+  h.forEach((p, i) => {
+    if (i && xs[i] - xs[i - 1] > 1.5 * DAY) {
+      const a = seg[seg.length - 1];
+      flush();
+      gaps += `<line class="gap" x1="${a[0]}" y1="${a[1]}" x2="${X(xs[i])}" y2="${Y(p.value)}"/>`;
+    }
+    seg.push([X(xs[i]), Y(p.value)]);
+  });
+  flush();
+  const win = state.coll.windows[w];
+  let band = '';
+  if (win) {
+    const bx = X(pdate(win.date));
+    band = `<rect class="band" x="${bx}" y="0" width="${1000 - bx}" height="100"/><line class="bl" x1="0" x2="1000" y1="${Y(win.value)}" y2="${Y(win.value)}"/>`;
+  }
+  const grid = [25, 50, 75].map((g) => `<line class="gv" x1="0" x2="1000" y1="${g}" y2="${g}"/>`).join('');
+  return { svg: `<svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">${band}${grid}<path class="ar" d="${area}"/>${gaps}<path class="ln" d="${line}"/></svg>`, lo, hi, x0, x1 };
+}
+
+function renderValue() {
+  const c = state.coll, w = state.win;
+  const h = c.history;
+  const ch = valueChart(h, w);
+  const top10 = [...c.cards].map((k) => (k.price || 0) * k.quantity).sort((a, b) => b - a);
+  const tot = c.total_value;
+  const share10 = top10.slice(0, 10).reduce((a, b) => a + b, 0) / tot * 100;
+  const first = h[0], peak = h.reduce((a, b) => (b.value > a.value ? b : a));
+  const rows = WINDOWS.map((k) => {
+    const x = c.windows[k];
+    if (!x) return `<div><dt>${WLABEL[k]}</dt><dd>—</dd></div>`;
+    const p = (x.delta / x.value) * 100;
+    return `<div class="${k === w ? 'sel' : ''}"><dt>${WLABEL[k]}</dt><dd><span class="${tone(p, COLL_TH[k])}">${dusd(x.delta)}</span><small>${pct(p)}</small></dd></div>`;
+  }).join('');
+  const sinceP = (tot / first.value - 1) * 100;
+  document.getElementById('v-strip').innerHTML = `
+    <div>
+      <div class="nm">Aujourd'hui</div>
+      <div class="big">${nf0.format(tot)}<em>$</em></div>
+      <div class="g" title="Valeur actuelle rapportée au plus haut (${usd(peak.value)} le ${fdate(peak.date)})"><i style="width:${(tot / peak.value * 100).toFixed(1)}%"></i></div>
+      <p class="note">${nf0.format(tot / peak.value * 100)} % du plus haut (${fdate(peak.date)})</p>
+    </div>
+    <div class="tr" id="v-tr">${ch.svg}
+      <span class="tl" style="top:0">${nf0.format(ch.hi / 1000)} k</span>
+      <span class="tl" style="bottom:2px">${nf0.format(ch.lo / 1000)} k</span>
+    </div>
+    <dl class="kv">${rows}
+      <div class="sep"><dt>depuis ${fdate(first.date)}</dt><dd><span class="${tone(sinceP, COLL_TH[90])}">${dusd(tot - first.value)}</span><small>${pct(sinceP)}</small></dd></div>
+      <div><dt>10 plus grosses</dt><dd title="part de la valeur totale">${nf0.format(share10)} %</dd></div>
+    </dl>`;
+  // axe : premier jour, débuts de mois, aujourd'hui
+  const span = ch.x1 - ch.x0;
+  let ticks = `<span class="first" style="left:0">${fdate(first.date)}</span>`;
+  const d0 = new Date(ch.x0);
+  for (let m = new Date(Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() + 1, 1)); m.getTime() < ch.x1 - 6 * DAY; m = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + 1, 1))) {
+    const l = (m.getTime() - ch.x0) / span * 100;
+    if (l > 15 && l < 86) ticks += `<span style="left:${l.toFixed(2)}%">1 ${MONTHS[m.getUTCMonth()]}</span>`;
+  }
+  ticks += `<span class="last" style="left:100%">${fdate(h[h.length - 1].date)}</span>`;
+  document.getElementById('v-axis').innerHTML = ticks;
+  const win = c.windows[w];
+  document.getElementById('v-sum').innerHTML = win ? `zone claire : ${WLABEL[w]}, depuis le ${fdate(win.date)}` : '';
+  hover(document.getElementById('v-tr'), h, ch);
+}
+
+function hover(el, h, ch) {
+  const xs = h.map((p) => pdate(p.date));
+  let xh, tip;
+  const move = (ev) => {
+    const svg = el.querySelector('svg').getBoundingClientRect();
+    const t = ch.x0 + Math.min(1, Math.max(0, (ev.clientX - svg.left) / svg.width)) * (ch.x1 - ch.x0);
+    let i = 0, best = Infinity;
+    xs.forEach((x, j) => { const d = Math.abs(x - t); if (d < best) { best = d; i = j; } });
+    const px = (xs[i] - ch.x0) / (ch.x1 - ch.x0) * svg.width;
+    if (!xh) { xh = document.createElement('div'); xh.className = 'xh'; tip = document.createElement('div'); tip.className = 'tip'; el.append(xh, tip); }
+    xh.style.left = px + 'px';
+    tip.style.left = Math.min(Math.max(px, 70), svg.width - 70) + 'px';
+    tip.innerHTML = `<span>${fdate(h[i].date)}</span><b>${usd(h[i].value)}</b>`;
+  };
+  el.onpointermove = move;
+  el.onpointerleave = () => { xh?.remove(); tip?.remove(); xh = tip = null; };
+}
+
+// ---------- mouvements
+function spark(cid, w) {
+  const s = state.coll.sparks[cid];
+  if (!s) return '';
+  const n = Math.max(w, 7);
+  const dates = state.coll.dates;
+  const end = pdate(dates[dates.length - 1]);
+  const pts = [];
+  dates.forEach((d, i) => { const t = pdate(d); if (end - t <= n * DAY && s[i] != null) pts.push([t, s[i]]); });
+  if (pts.length < 2) return '';
+  const t0 = end - n * DAY;
+  const v = pts.map((p) => p[1]);
+  const lo = Math.min(...v), hi = Math.max(...v), r = hi - lo || 1;
+  const X = (t) => ((t - t0) / (n * DAY)) * 100, Y = (y) => 22 - ((y - lo) / r) * 20;
+  const poly = pts.map(([t, y]) => X(t).toFixed(1) + ',' + Y(y).toFixed(1)).join(' ');
+  const last = pts[pts.length - 1];
+  return `<svg class="sp" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="100" y1="${Y(pts[0][1])}" y2="${Y(pts[0][1])}"/><polyline points="${poly}"/></svg>`;
+}
+
+function renderMovers() {
+  const w = state.win;
+  const all = moves(w);
+  const known = all.filter((m) => m.d != null);
+  const up = known.filter((m) => m.d > 0.005), dn = known.filter((m) => m.d < -0.005);
+  const upS = up.reduce((a, m) => a + m.d, 0), dnS = dn.reduce((a, m) => a + m.d, 0);
+  const flat = known.length - up.length - dn.length;
+  const mx = Math.max(upS, -dnS) || 1;
+  document.getElementById('m-title').textContent = 'Mouvements · ' + WLABEL[w];
+  document.getElementById('m-sum').innerHTML = `solde <b>${dusd(upS + dnS)}</b>`;
+  document.getElementById('breadth').innerHTML = `
+    <div class="bar" role="img" aria-label="Baisses ${dusd(dnS)}, hausses ${dusd(upS)}"><i class="lo" style="width:${(-dnS / mx * 100).toFixed(1)}%"></i><i class="ax"></i><i class="hi" style="width:${(upS / mx * 100).toFixed(1)}%"></i></div>
+    <div class="lg"><span>▼ <b>${dn.length}</b> en baisse · <b>${dusd(dnS)}</b></span><span class="hide">${flat} stables</span><span><b>${up.length}</b> en hausse · <b>${dusd(upS)}</b> ▲</span></div>`;
+  const key = { impact: (m) => -Math.abs(m.d), pct: (m) => -Math.abs(m.p), up: (m) => -m.d, down: (m) => m.d, value: (m) => -m.value }[state.sort];
+  const list = known.slice().sort((a, b) => key(a) - key(b) || a.name.localeCompare(b.name));
+  const shown = state.all ? list : list.slice(0, TOP_N);
+  const maxAbs = Math.max(...known.map((m) => Math.abs(m.d)), 0.01);
+  const missing = all.length - known.length;
+  document.getElementById('m-note').textContent = missing ? `${missing} carte${missing > 1 ? 's' : ''} sans prix à cette date` : '';
+  document.getElementById('movers').innerHTML = shown.map((m) => {
+    const wd = Math.abs(m.d) / maxAbs * 50;
+    const tg = m.signals[0];
+    const tag = tg ? `<span class="tag ${tg.side === 'sell' ? 'l-warn' : 'l-ok'}"><i class="lamp"></i>${tg.side === 'sell' ? 'vente' : 'achat'} · ${esc(SIGNAL_TEXT[tg.signals[0]] || tg.signals[0])}</span>` : '';
+    const ver = [...m.variances.filter((v) => v !== 'Holofoil'), ...m.grades].map(esc).join(', ');
+    return `<details class="mv" data-id="${esc(m.card_id)}"${state.open.has(m.card_id) ? ' open' : ''}>
+      <summary>
+        <span class="who"><b>${esc(m.name)}</b><small>${tag}<span>${esc(m.set_name)}${ver ? ' · ' + ver : ''}</span></small></span>
+        <span class="q hide">×${m.quantity}</span>
+        <span class="num px">${usd(m.price)}</span>
+        <span class="hide">${spark(m.card_id, w)}</span>
+        <span class="hide"><span class="div" title="${dusd(m.d)}"><i class="${m.d < 0 ? 'neg' : ''}" style="${m.d < 0 ? 'right:50%' : 'left:50%'};width:${wd.toFixed(1)}%"></i></span></span>
+        <span class="num">${dusd(m.d)}</span>
+        <span class="num ${tone(m.p, CARD_TH[w])}">${pct(m.p)}</span>
+        <svg class="i chev"><use href="#i-chev"/></svg>
+      </summary>
+      <div class="detail" data-detail></div>
+    </details>`;
+  }).join('') + (list.length > TOP_N ? `<div class="more"><button id="more">${state.all ? 'Réduire' : `Voir les ${list.length} cartes`}</button></div>` : '');
+  document.getElementById('more')?.addEventListener('click', () => { state.all = !state.all; renderMovers(); });
+  document.querySelectorAll('#movers details.mv').forEach((d) => {
+    d.addEventListener('toggle', () => {
+      if (d.open) { state.open.add(d.dataset.id); detail(d); } else state.open.delete(d.dataset.id);
+    });
+    if (d.open) detail(d);
+  });
+}
+
+async function cardHistory(id) {
+  if (!state.history.has(id)) {
+    const r = await fetch('/api/cards/' + encodeURIComponent(id) + '/history');
+    if (!r.ok) throw new Error('historique ' + r.status);
+    state.history.set(id, (await r.json()).history);
+  }
+  return state.history.get(id);
+}
+
+async function detail(el) {
+  const box = el.querySelector('[data-detail]');
+  const id = el.dataset.id;
+  const m = moves(state.win).find((x) => x.card_id === id);
+  const sigs = m.signals.map((s) => `<p><i class="lamp ${s.side === 'sell' ? 'l-warn' : 'l-ok'}" style="background:var(--c)"></i><span><b>${s.side === 'sell' ? 'Vente' : 'Achat'}</b> · score ${s.score} · ${esc(s.signals.map((x) => SIGNAL_TEXT[x] || x).join(', '))} : <span style="color:var(--dim)">${esc(s.reason)}</span></span></p>`).join('');
+  const facts = `<dl class="kv">
+      <div><dt>Prix market</dt><dd>${usd(m.price)}</dd></div>
+      <div><dt>il y a ${WLABEL[state.win]}</dt><dd>${usd(m.pastPrice)}</dd></div>
+      <div><dt>Quantité</dt><dd>${m.quantity}</dd></div>
+      <div><dt>Valeur</dt><dd>${usd(m.value)}</dd></div>
+      <div class="sep"><dt>Rareté</dt><dd>${esc(m.rarity || '—')}</dd></div>
+      <div><dt>Série</dt><dd>${esc(m.series || '—')}</dd></div>
+    </dl>`;
+  box.innerHTML = `<div><div class="chart" data-chart></div></div>${facts}${sigs ? `<div class="why">${sigs}</div>` : ''}`;
+  try {
+    const h = (await cardHistory(id)).filter((p) => p.average_sell_price != null);
+    if (h.length < 2) { box.querySelector('[data-chart]').textContent = 'Historique insuffisant.'; return; }
+    const xs = h.map((p) => pdate(p.date_id));
+    const x0 = xs[0], x1 = xs[xs.length - 1];
+    const all = h.flatMap((p) => [p.average_sell_price, p.low_price].filter((v) => v != null));
+    let lo = Math.min(...all), hi = Math.max(...all); const pd = (hi - lo) * 0.08 || 1; lo -= pd; hi += pd;
+    const X = (t) => ((t - x0) / (x1 - x0)) * 1000, Y = (v) => 100 - ((v - lo) / (hi - lo)) * 100;
+    const path = (k) => { let d = '', prev = null; h.forEach((p, i) => { if (p[k] == null) { prev = null; return; } const cmd = prev == null || xs[i] - prev > 1.5 * DAY ? 'M' : 'L'; d += cmd + X(xs[i]).toFixed(1) + ',' + Y(p[k]).toFixed(2); prev = xs[i]; }); return d; };
+    const wn = state.coll.windows[state.win];
+    const bx = wn ? X(pdate(wn.date)) : 1000;
+    box.querySelector('[data-chart]').outerHTML = `<div class="chart"><svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"><rect class="band" x="${Math.max(0, bx)}" width="${1000 - Math.max(0, bx)}" y="0" height="100"/><path class="ln2" d="${path('low_price')}"/><path class="ln" d="${path('average_sell_price')}"/></svg><span class="tl" style="top:0">${usd(hi)}</span><span class="tl" style="bottom:2px">${usd(lo)}</span></div><div class="lgd"><span><i></i>market</span><span><i class="d"></i>annonce la moins chère</span><span>${fdate(h[0].date_id)} → ${fdate(h[h.length - 1].date_id)}</span></div>`;
+  } catch (e) {
+    box.querySelector('[data-chart]').textContent = 'Historique indisponible.';
+  }
+}
+
+// ---------- répartition
+function renderSets() {
+  const w = state.win;
+  const by = new Map();
+  moves(w).forEach((m) => {
+    const s = by.get(m.set_name) || { name: m.set_name, n: 0, v: 0, d: 0, dk: false, past: 0 };
+    s.n += m.quantity; s.v += m.value;
+    if (m.d != null) { s.d += m.d; s.past += m.value - m.d; s.dk = true; }
+    by.set(m.set_name, s);
+  });
+  const sets = [...by.values()].sort((a, b) => b.v - a.v);
+  const tot = sets.reduce((a, s) => a + s.v, 0);
+  const head = sets.slice(0, 8), rest = sets.slice(8);
+  const other = rest.reduce((a, s) => ({ name: `${rest.length} autres sets`, n: a.n + s.n, v: a.v + s.v, d: a.d + s.d, past: a.past + s.past, dk: true, other: true }), { n: 0, v: 0, d: 0, past: 0 });
+  const rows = rest.length ? [...head, other] : head;
+  document.getElementById('s-sum').innerHTML = `<b>${sets.length}</b> sets · le premier pèse <b>${nf0.format(sets[0].v / tot * 100)} %</b>`;
+  document.getElementById('s-stack').innerHTML = rows.map((s) => `<i class="${s.other ? 'o' : ''}" style="flex:${s.v.toFixed(2)}" title="${esc(s.name)} · ${usd(s.v)}"></i>`).join('');
+  const mx = Math.max(...rows.map((s) => s.v));
+  document.getElementById('sets').innerHTML = `<span class="h">Set</span><span class="h r">Cartes</span><span class="h r">Valeur</span><span class="h hide"></span><span class="h r">Part</span><span class="h r">Δ ${WLABEL[w]}</span>` +
+    rows.map((s) => {
+      const p = s.past ? (s.d / s.past) * 100 : null;
+      return `<span class="n" ${s.other ? 'style="color:var(--dim)"' : ''}>${esc(s.name)}</span><span class="r">${s.n}</span><span class="r">${usd(s.v)}</span><span class="bar hide"><i style="width:${(s.v / mx * 100).toFixed(1)}%"></i></span><span class="r">${nf0.format(s.v / tot * 100)} %</span><span class="r ${tone(p, CARD_TH[w])}" title="${pct(p)}">${dusd(s.d)}</span>`;
+    }).join('');
+}
+
+function renderCollection() {
+  const c = state.coll, w = state.win;
+  const win = c.windows[w];
+  const p = win ? (win.delta / win.value) * 100 : null;
+  const t = tone(p, COLL_TH[w]);
+  const v = document.getElementById('c-verdict');
+  v.className = 'verdict ' + (t === 'up' ? 'l-ok' : t === 'dn' ? 'l-bad' : 'l-off');
+  v.querySelector('span').textContent = win ? `${pct(p)} sur ${WLABEL[w]}` : '—';
+  document.getElementById('j-coll').className = v.className.replace('verdict ', '');
+  const copies = c.cards.reduce((a, k) => a + k.quantity, 0);
+  document.getElementById('c-sub').innerHTML = `<span><b>${usd(c.total_value)}</b> de valeur market</span><span><b>${c.cards.length}</b> cartes · ${copies} exemplaires</span><span>prix TCGplayer du ${fdate(c.as_of)}</span>`;
+  document.getElementById('win').innerHTML = WINDOWS.map((k) => `<button type="button" data-w="${k}" aria-pressed="${k === w}">${WLABEL[k]}</button>`).join('');
+  document.getElementById('sort').innerHTML = [['impact', 'impact $'], ['pct', '%'], ['up', 'hausses'], ['down', 'baisses'], ['value', 'valeur']]
+    .map(([k, l]) => `<button type="button" data-s="${k}" aria-pressed="${k === state.sort}">${l}</button>`).join('');
+  renderValue(); renderMovers(); renderSets();
+}
+
+// ---------- signaux
+function groupSignals(items) {
+  // Une même news ou méta touche souvent plusieurs impressions d'une carte (même nom) :
+  // une ligne par nom, sens et déclencheur, les impressions listées dans le dépli.
+  const g = new Map();
+  items.forEach((it) => {
+    const k = [it.side, it.name, it.signals.join(','), it.news[0]?.url || '', it.signals.some((s) => s.startsWith('meta')) ? it.reason : ''].join('|');
+    const cur = g.get(k);
+    if (cur) { cur.versions.push(it); cur.score = Math.max(cur.score, it.score); cur.owned += it.owned_quantity; if (it.date_id > cur.date_id) cur.date_id = it.date_id; }
+    else g.set(k, { ...it, versions: [it], owned: it.owned_quantity });
+  });
+  return [...g.values()].sort((a, b) => b.score - a.score || b.date_id.localeCompare(a.date_id));
+}
+
+function drivers(it) {
+  const out = [];
+  it.signals.forEach((s) => {
+    if (s.startsWith('meta')) out.push(`<span>${SIGNAL_TEXT[s]} · ${esc(it.reason.replace(/^jouée dans /, ''))}</span>`);
+    else if (s.startsWith('actu')) out.push(`<span>${SIGNAL_TEXT[s]}</span>`);
+    else out.push(`<span>${SIGNAL_TEXT[s] || esc(s)}</span>`);
+  });
+  if (it.news.length) out.push(`<span>${it.news.length} news · ${esc(EVENT_TEXT[it.news[0].event_type] || it.news[0].event_type)}</span>`);
+  if (it.news_against) out.push(`<span class="against">${it.news_against} news contraire${it.news_against > 1 ? 's' : ''}</span>`);
+  return out.join('');
+}
+
+function sigRow(it) {
+  const sell = it.side === 'sell';
+  const prices = it.versions.map((v) => v.market_price);
+  const pr = prices.length > 1 ? `${usd(Math.min(...prices))}<small>à ${usd(Math.max(...prices))}</small>` : `${usd(prices[0])}<small class="${tone((it.change_7d ?? 0) * 100, 10)}">${it.change_7d == null ? '' : pct(it.change_7d * 100) + ' 7 j'}</small>`;
+  const sets = [...new Set(it.versions.map((v) => v.set_name))];
+  const sub = (it.versions.length > 1 ? `${it.versions.length} impressions · ` : '') + sets.slice(0, 2).join(', ') + (sets.length > 2 ? '…' : '') + ` · ${fdate(it.date_id)}`;
+  const news = it.news.map((n) => `<div class="nitem"><a href="${safeUrl(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><small>${esc(n.source)} · ${fdate(n.published_on)} · ${esc(EVENT_TEXT[n.event_type] || n.event_type)} · confiance ${nf0.format(n.confidence * 100)} %</small>${n.resume ? `<p>${esc(n.resume)}</p>` : ''}</div>`).join('');
+  const vers = it.versions.length > 1 ? `<div class="vers">${it.versions.map((v) => `<span class="${v.owned_quantity ? 'own' : ''}">${esc(v.set_name)} <b>${usd(v.market_price)}</b>${v.owned_quantity ? ` · ×${v.owned_quantity} à toi` : ''}</span>`).join('')}</div>` : '';
+  return `<details class="sg">
+    <summary>
+      <span class="st ${sell ? 'l-warn' : 'l-ok'}"><b><i class="lamp"></i>${sell ? 'vendre' : 'acheter'}</b><span class="score"><span class="g"><i style="width:${it.score}%"></i></span>${it.score}</span></span>
+      <span class="who"><b>${esc(it.name)}${it.owned ? `<span class="own">×${it.owned}</span>` : ''}</b><small>${esc(sub)}</small><span class="drv">${drivers(it)}</span></span>
+      <span class="px">${pr}</span>
+      <svg class="i chev"><use href="#i-chev"/></svg>
+    </summary>
+    <div class="body">
+      <p class="reason">${esc(it.reason)}</p>
+      ${vers}
+      ${news ? `<div class="nlist">${news}</div>` : ''}
+    </div>
+  </details>`;
+}
+
+function renderSignals() {
+  const s = state.sig;
+  const groups = groupSignals(s.items);
+  const own = groups.filter((g) => g.owned > 0);
+  const buy = groups.filter((g) => g.owned === 0 && g.side === 'buy');
+  const sells = own.filter((g) => g.side === 'sell').length;
+  const v = document.getElementById('s-verdict');
+  v.className = 'verdict ' + (sells ? 'l-warn' : own.length ? 'l-ok' : 'l-off');
+  v.querySelector('span').textContent = sells ? `${sells} vente${sells > 1 ? 's' : ''} à étudier` : own.length ? `${own.length} sur la collection` : 'Rien sur la collection';
+  document.getElementById('j-sig').className = v.className.replace('verdict ', '');
+  const mineNews = s.news.filter((n) => n.owned_cards > 0).length;
+  document.getElementById('s-sub').innerHTML = `<span>portés par les <b>news</b> et la <b>méta</b>, ${state.days} derniers jours</span><span>calculés le ${fdate(s.as_of)}</span>`;
+  document.getElementById('days').innerHTML = [7, 14, 30].map((d) => `<button type="button" data-d="${d}" aria-pressed="${d === state.days}">${d} j</button>`).join('');
+  document.getElementById('o-sum').innerHTML = own.length ? `<b>${own.length}</b> carte${own.length > 1 ? 's' : ''}` : '';
+  document.getElementById('sig-own').innerHTML = own.length ? own.map(sigRow).join('') : `<p class="empty">Aucune news ni variation de méta ne touche la collection sur ${state.days} jours.</p>`;
+  document.getElementById('b-sum').innerHTML = buy.length ? `<b>${buy.length}</b> carte${buy.length > 1 ? 's' : ''} · ${s.items.filter((i) => !i.owned_quantity && i.side === 'buy').length} impressions` : '';
+  document.getElementById('sig-buy').innerHTML = buy.length ? buy.map(sigRow).join('') : `<p class="empty">Aucun achat porté par une news ou la méta sur ${state.days} jours.</p>`;
+  // News
+  const news = s.news.slice().sort((a, b) => (b.owned_cards > 0) - (a.owned_cards > 0) || b.published_on.localeCompare(a.published_on));
+  document.getElementById('n-sum').innerHTML = `<b>${s.news.length}</b> sur 14 j · ${mineNews} touchent la collection`;
+  const NEWS_N = 8;
+  document.getElementById('news').innerHTML = news.length ? news.slice(0, state.allNews ? news.length : NEWS_N).map((n) => {
+    const up = n.direction === 'hausse';
+    const mine = n.owned_cards > 0 ? ` · <b>${n.owned_cards} à toi</b>${n.owned_names ? ' : ' + esc(n.owned_names.join(', ')) : ''}` : '';
+    return `<li class="${n.owned_cards ? 'mine' : ''}"><span class="d">${fdate(n.published_on, true)}</span><span class="dir" title="${up ? 'hausse' : 'baisse'}">${up ? '▲' : '▼'}</span><span class="t"><a href="${safeUrl(n.url)}" target="_blank" rel="noopener noreferrer" title="${esc(n.resume || n.title)}">${esc(n.title)}</a><small>${esc(EVENT_TEXT[n.event_type] || n.event_type)} · ${n.cards} carte${n.cards > 1 ? 's' : ''}${n.sets?.length ? ' · ' + esc(n.sets.join(', ')) : ''}${mine}</small></span></li>`;
+  }).join('') + (news.length > NEWS_N ? `<li class="more"><button type="button" data-n="1">${state.allNews ? 'Réduire' : `Voir les ${news.length} news`}</button></li>` : '') : '<li class="empty">Aucune news directionnelle sur 14 jours.</li>';
+  // Méta (énergies de base exclues : elles n'ont pas de valeur de collection)
+  const meta = s.meta.filter((m) => !/^(Basic )?\w+ Energy$/.test(m.card_name));
+  document.getElementById('meta-sum').innerHTML = meta.length ? `top 8 Limitless · semaine du ${fdate(meta[0].week)} contre la précédente` : '';
+  document.getElementById('meta').innerHTML = meta.length ? `<span class="h">Carte</span><span class="h hide">Part des decks</span><span class="h r">Part</span><span class="h r">Écart</span>` + meta.map((m) => {
+    const d = (m.share_now - m.share_prev) * 100;
+    return `<span class="n">${esc(m.card_name)}${m.owned_quantity ? `<b>×${m.owned_quantity}</b>` : ''}</span><span class="g hide" title="avant : ${nf0.format(m.share_prev * 100)} %"><i style="width:${(m.share_now * 100).toFixed(1)}%"></i><u style="left:${(m.share_prev * 100).toFixed(1)}%"></u></span><span class="r">${nf0.format(m.share_now * 100)} %</span><span class="r">${sign(d)}${nf0.format(Math.abs(d))} pts</span>`;
+  }).join('') : '<p class="empty" style="grid-column:1/-1;padding:0">Pas de données de méta.</p>';
+}
+
+// ---------- chargement
+function freshness() {
+  const live = document.getElementById('live');
+  const asOf = state.coll?.as_of;
+  if (!asOf) return;
+  const age = Math.floor((Date.now() - pdate(asOf)) / DAY);
+  live.className = 'live ' + (age <= 1 ? 'l-ok' : age <= 3 ? 'l-warn' : 'l-bad');
+  const now = new Date();
+  live.querySelector('span').textContent = `prix du ${fdate(asOf)}${age > 1 ? ` (${age} j)` : ''} · lu à ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
+async function getJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(url + ' → ' + r.status);
+  return r.json();
+}
+
+async function loadCollection() {
+  state.coll = await getJSON(API + '/collection');
+  if (!state.coll.as_of) { document.getElementById('v-strip').innerHTML = '<p class="empty">Aucun prix pour la collection.</p>'; return; }
+  renderCollection(); freshness();
+}
+async function loadSignals() {
+  state.sig = await getJSON(API + '/signals?days=' + state.days);
+  renderSignals();
+}
+async function load() {
+  const res = await Promise.allSettled([loadCollection(), loadSignals()]);
+  const bad = res.filter((r) => r.status === 'rejected');
+  if (bad.length) {
+    toast('Lecture impossible : ' + bad[0].reason.message);
+    const live = document.getElementById('live');
+    live.className = 'live l-bad'; live.querySelector('span').textContent = 'API injoignable';
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.w) { state.win = +b.dataset.w; store.set('win', state.win); renderCollection(); }
+  else if (b.dataset.s) { state.sort = b.dataset.s; store.set('sort', state.sort); state.all = false; renderCollection(); }
+  else if (b.dataset.n) { state.allNews = !state.allNews; renderSignals(); }
+  else if (b.dataset.d) { state.days = +b.dataset.d; store.set('days', state.days); loadSignals().catch((err) => toast(err.message)); }
+});
+load();
+// Les prix changent une fois par jour, les signaux deux : relire toutes les 10 min suffit.
+setInterval(() => { if (!document.hidden) load(); }, 10 * 60 * 1000);
+</script>
+</body>
+</html>
