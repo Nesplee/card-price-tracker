@@ -11,7 +11,8 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -74,61 +75,132 @@ def _find_market_price_column(fieldnames: list[str]) -> str | None:
     return None
 
 
-def read_collection_csv(path: str) -> list[CollectionRow]:
-    """Lit un export CSV de collection et applique les filtres d'import
-    (Category=Pokemon, Portfolio Name=Main, Rarity hors Common/Uncommon/
-    vide) -- voir Global Constraints du plan pour la justification de
-    chaque filtre. Ne fait AUCUN rapprochement avec le catalogue (voir
-    match_row ci-dessous, appelée séparément par l'appelant)."""
-    rows: list[CollectionRow] = []
-    with open(path, newline="", encoding="utf-8") as f:
+def _number(raw: str | None) -> float | None:
+    """« 1,670.22 » -> 1670.22 : l'export écrit les milliers avec une virgule."""
+    raw = (raw or "").replace(",", "").strip()
+    return float(raw) if raw else None
+
+
+COMMON_RARITIES = ("Common", "Uncommon", "")
+
+
+def read_collection_csv(
+    path: str, *, portfolios: set[str] | None = frozenset({"Main"}), include_commons: bool = False
+) -> list[CollectionRow]:
+    """Lit un export CSV de collection et applique les filtres d'import :
+    Category=Pokemon, portefeuilles `portfolios` (None = tous, y compris les
+    master sets), et par défaut sans les Common / Uncommon / rareté vide.
+    Ne fait AUCUN rapprochement avec le catalogue (voir match_row ci-dessous,
+    appelée séparément par l'appelant).
+
+    Une même carte peut apparaître dans plusieurs portefeuilles (« Main » et
+    un master set) : ce sont des exemplaires distincts, regroupés ici sur la
+    clé naturelle (set, numéro, nom, variante, état) en additionnant les
+    quantités, avec un coût moyen pondéré par la quantité."""
+    merged: dict[tuple, CollectionRow] = {}
+    with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         market_price_column = _find_market_price_column(reader.fieldnames or [])
         for record in reader:
             if record["Category"] != "Pokemon":
                 continue
-            if record["Portfolio Name"] != "Main":
+            if portfolios is not None and record["Portfolio Name"] not in portfolios:
                 continue
-            if record["Rarity"] in ("Common", "Uncommon", ""):
+            if not include_commons and record["Rarity"] in COMMON_RARITIES:
+                continue
+            quantity = int(_number(record["Quantity"]) or 0)
+            if quantity <= 0:
                 continue
             market_price_raw = record.get(market_price_column, "") if market_price_column else ""
-            rows.append(
-                CollectionRow(
-                    set_name=record["Set"],
-                    card_number=record["Card Number"],
-                    product_name=record["Product Name"],
-                    variance=record["Variance"] or "",
-                    grade=record["Grade"] or "",
-                    rarity=record["Rarity"],
-                    quantity=int(record["Quantity"]),
-                    average_cost_paid=(
-                        float(record["Average Cost Paid"]) if record["Average Cost Paid"] else None
-                    ),
-                    market_price_at_export=float(market_price_raw) if market_price_raw else None,
-                )
+            row = CollectionRow(
+                set_name=record["Set"],
+                card_number=record["Card Number"],
+                product_name=record["Product Name"],
+                variance=record["Variance"] or "",
+                grade=record["Grade"] or "",
+                rarity=record["Rarity"],
+                quantity=quantity,
+                average_cost_paid=_number(record["Average Cost Paid"]),
+                market_price_at_export=_number(market_price_raw),
             )
-    return rows
+            key = (row.set_name, row.card_number, row.product_name, row.variance, row.grade)
+            prev = merged.get(key)
+            merged[key] = row if prev is None else _merge(prev, row)
+    return list(merged.values())
+
+
+def _merge(a: CollectionRow, b: CollectionRow) -> CollectionRow:
+    quantity = a.quantity + b.quantity
+    costs = [(r.average_cost_paid, r.quantity) for r in (a, b) if r.average_cost_paid]
+    cost = (
+        sum(c * q for c, q in costs) / sum(q for _, q in costs)
+        if costs
+        else a.average_cost_paid if a.average_cost_paid is not None else b.average_cost_paid
+    )
+    return replace(a, quantity=quantity, average_cost_paid=cost)
+
+
+# Noms de set de l'export qui diffèrent du catalogue (prod.dim_card.set_name).
+SET_ALIASES = {
+    "SV: 151": "151",
+    "Scarlet & Violet Base Set": "Scarlet & Violet",
+    "Scarlet & Violet Promo": "Scarlet & Violet Black Star Promos",
+    "Sword & Shield Promo": "SWSH Black Star Promos",
+    "Sun & Moon Promo": "SM Black Star Promos",
+    "Crown Zenith: Galarian Gallery": "Crown Zenith Galarian Gallery",
+}
+
+
+def _number_candidates(raw_number: str) -> list[str]:
+    """Numéros à essayer dans le card_id : la forme normalisée, puis les
+    variantes sans zéros internes (« TG05 » -> « TG5 », « SVP 001 » -> « 1 »)."""
+    first = normalize_card_number(raw_number)
+    out = [first]
+    m = re.match(r"^([A-Za-z]*)\s*0*(\d+)([a-z]?)$", raw_number.split("/")[0].strip())
+    if m:
+        for cand in (m.group(1) + m.group(2) + m.group(3), m.group(2) + m.group(3)):
+            if cand and cand not in out:
+                out.append(cand)
+    return out
+
+
+def _name_key(name: str) -> str:
+    """« Iono 237/091 (Full Art) » -> « iono » : nom réduit pour comparer."""
+    name = re.sub(r"\s*\(.*?\)", "", name)
+    name = re.sub(r"\s+[\w-]*\d+/\d+$", "", name)
+    return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
 def match_row(
-    row: CollectionRow, set_name_to_id: dict[str, str], known_card_ids: set[str]
+    row: CollectionRow,
+    set_name_to_id: dict[str, str],
+    known_card_ids: set[str],
+    names_by_set: dict[str, dict[str, list[str]]] | None = None,
 ) -> MatchResult:
     """Tente de relier une CollectionRow à une carte connue de
-    prod.dim_card. Aucun matching approximatif (voir le spec) : un nom de
-    set absent de set_name_to_id, ou un card_id construit absent de
-    known_card_ids, part en quarantaine avec une raison explicite plutôt
-    que de risquer un rapprochement silencieusement erroné."""
-    set_id = set_name_to_id.get(row.set_name)
+    prod.dim_card. Pas de rapprochement approximatif : le set doit être connu
+    (directement ou par SET_ALIASES) et la carte trouvée par son numéro ; à
+    défaut, par son nom exact dans ce set s'il n'y en a qu'une
+    (`names_by_set` : set_id -> nom réduit -> card_ids). Sinon, quarantaine
+    avec une raison explicite plutôt qu'un rapprochement douteux."""
+    set_name = SET_ALIASES.get(row.set_name, row.set_name)
+    set_id = set_name_to_id.get(set_name)
     if set_id is None:
         return MatchResult(
             row=row, card_id=None, rejection_reason=f"set inconnu : {row.set_name!r}"
         )
-    number = normalize_card_number(row.card_number)
-    card_id = f"{set_id}-{number}"
-    if card_id not in known_card_ids:
-        return MatchResult(
-            row=row,
-            card_id=None,
-            rejection_reason=f"card_id introuvable dans le catalogue : {card_id}",
-        )
-    return MatchResult(row=row, card_id=card_id, rejection_reason=None)
+    candidates = _number_candidates(row.card_number) if row.card_number else []
+    for number in candidates:
+        card_id = f"{set_id}-{number}"
+        if card_id in known_card_ids:
+            return MatchResult(row=row, card_id=card_id, rejection_reason=None)
+    if names_by_set is not None:
+        same_name = names_by_set.get(set_id, {}).get(_name_key(row.product_name), [])
+        if len(same_name) == 1:
+            return MatchResult(row=row, card_id=same_name[0], rejection_reason=None)
+    tried = f"{set_id}-{candidates[0]}" if candidates else f"{set_id} (sans numéro)"
+    return MatchResult(
+        row=row,
+        card_id=None,
+        rejection_reason=f"card_id introuvable dans le catalogue : {tried}",
+    )

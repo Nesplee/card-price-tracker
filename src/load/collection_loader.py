@@ -94,16 +94,31 @@ def load_owned_cards(conn: Connection, matched: list[tuple[int, MatchResult]]) -
     référence directement card_id, pas raw_import), gardé uniquement pour
     une signature d'appel cohérente avec load_match_quarantine. Idempotent
     sur (card_id, variance, grade)."""
-    rows = [
-        {
-            "card_id": match.card_id,
-            "variance": match.row.variance,
-            "grade": match.row.grade,
-            "quantity": match.row.quantity,
-            "average_cost_paid": match.row.average_cost_paid,
-        }
-        for _, match in matched
-    ]
+    # Plusieurs lignes de l'export peuvent désigner la même carte (même
+    # card_id, variante et état : « Chi-Yu » et « Chi-Yu ex », ou un numéro
+    # écrit de deux façons) : quantités additionnées et coût moyen pondéré,
+    # sinon le dernier upsert écraserait les exemplaires des précédents.
+    merged: dict[tuple[str, str, str], dict] = {}
+    for _, match in matched:
+        key = (match.card_id, match.row.variance, match.row.grade)
+        q, cost = match.row.quantity, match.row.average_cost_paid
+        cur = merged.get(key)
+        if cur is None:
+            merged[key] = {
+                "card_id": key[0],
+                "variance": key[1],
+                "grade": key[2],
+                "quantity": q,
+                "average_cost_paid": cost,
+                "_paid": (cost * q, q) if cost else (0.0, 0),
+            }
+            continue
+        cur["quantity"] += q
+        if cost:
+            total, n = cur["_paid"]
+            cur["_paid"] = (total + cost * q, n + q)
+            cur["average_cost_paid"] = cur["_paid"][0] / cur["_paid"][1]
+    rows = [{k: v for k, v in r.items() if k != "_paid"} for r in merged.values()]
     if not rows:
         return 0
     with conn.cursor() as cur:

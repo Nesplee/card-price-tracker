@@ -6,89 +6,99 @@
 # tierce, ce sera toujours un geste manuel de l'utilisateur qui fournit le
 # fichier -- voir docs/superpowers/specs/2026-08-09-personal-collection-import-design.md.
 #
-# Usage : python -m scripts.import_collection /chemin/vers/export.csv
+# Usage :
+#   python -m scripts.import_collection export.csv --dry-run      # rapport seul
+#   python -m scripts.import_collection export.csv --all-portfolios --include-commons
+#
+# Les sets et les noms de cartes viennent de prod.dim_card (le catalogue déjà
+# chargé), plus de l'API pokemontcg.io : le rapprochement porte ainsi sur
+# exactement les cartes dont on suit les prix.
 from __future__ import annotations
 
+import argparse
 import logging
-import sys
-from collections import Counter
+from collections import Counter, defaultdict
 
 import psycopg
 
-from src.common.config import load_db_config, load_pokemontcg_config
-from src.extract.pokemontcg_client import PokemonTcgClient
+from src.common.config import load_db_config
 from src.load.collection_loader import load_match_quarantine, load_owned_cards, load_raw_import
-from src.transform.collection_match import match_row, read_collection_csv
+from src.transform.collection_match import _name_key, match_row, read_collection_csv
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
+def _catalog(conn) -> tuple[dict[str, str], set[str], dict[str, dict[str, list[str]]]]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT card_id, name, set_id, set_name FROM prod.dim_card")
+        cards = cur.fetchall()
+    set_name_to_id = {set_name: set_id for _, _, set_id, set_name in cards}
+    names_by_set: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    for card_id, name, set_id, _ in cards:
+        names_by_set[set_id][_name_key(name)].append(card_id)
+    return set_name_to_id, {c[0] for c in cards}, names_by_set
+
+
 def main() -> None:
-    if len(sys.argv) != 2:
-        print("Usage : python -m scripts.import_collection <chemin-vers-export.csv>")
-        sys.exit(1)
-    csv_path = sys.argv[1]
+    parser = argparse.ArgumentParser(description="Importe un export CSV de la collection.")
+    parser.add_argument("csv_path")
+    parser.add_argument(
+        "--all-portfolios",
+        action="store_true",
+        help="tous les portefeuilles (master sets compris), pas seulement « Main »",
+    )
+    parser.add_argument(
+        "--include-commons", action="store_true", help="garder les Common / Uncommon"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="rapport seulement, aucune écriture en base"
+    )
+    args = parser.parse_args()
 
-    # --- Étape 1 : lire le CSV (déjà filtré par read_collection_csv) ---
-    rows = read_collection_csv(csv_path)
-    logger.info("%d lignes candidates lues depuis %s", len(rows), csv_path)
+    rows = read_collection_csv(
+        args.csv_path,
+        portfolios=None if args.all_portfolios else {"Main"},
+        include_commons=args.include_commons,
+    )
+    logger.info("%d lignes candidates lues depuis %s", len(rows), args.csv_path)
 
-    # --- Étape 2 : récupérer la correspondance nom de set -> set_id ---
-    client = PokemonTcgClient(load_pokemontcg_config())
-    sets = client.fetch_sets()
-    set_name_to_id = {s["name"]: s["id"] for s in sets}
-    logger.info("%d sets connus de pokemontcg.io", len(set_name_to_id))
-
-    # --- Étape 3 : rapprochement + chargement en base ---
-    # Connexion ouverte manuellement (pas get_connection()) : plusieurs
-    # opérations distinctes (raw_import, puis owned_card OU quarantine)
-    # doivent toutes réussir ou toutes échouer ensemble -- un seul commit à
-    # la fin, pas de commit intermédiaire par ligne (contrairement à
-    # l'extraction de prix, qui a besoin d'un checkpoint par page ; ici le
-    # volume est petit, ~1000 lignes max, une seule transaction est
-    # largement assez rapide).
     conn = psycopg.connect(load_db_config().dsn)
     try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT card_id FROM prod.dim_card;")
-            known_card_ids = {r[0] for r in cur.fetchall()}
+        set_name_to_id, known_card_ids, names_by_set = _catalog(conn)
         logger.info("%d cartes connues dans prod.dim_card", len(known_card_ids))
-
-        raw_ids = load_raw_import(conn, rows)
-        matches = [match_row(row, set_name_to_id, known_card_ids) for row in rows]
-
+        matches = [match_row(r, set_name_to_id, known_card_ids, names_by_set) for r in rows]
+        if args.dry_run:
+            raw_ids = [0] * len(rows)
+        else:
+            raw_ids = load_raw_import(conn, rows)
         matched = [(rid, m) for rid, m in zip(raw_ids, matches) if m.card_id is not None]
         unmatched = [(rid, m) for rid, m in zip(raw_ids, matches) if m.card_id is None]
-
-        load_owned_cards(conn, matched)
-        load_match_quarantine(conn, unmatched)
-
-        conn.commit()
+        if not args.dry_run:
+            load_owned_cards(conn, matched)
+            load_match_quarantine(conn, unmatched)
+            conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
 
-    # --- Étape 4 : rapport (décision utilisateur explicite -- voir le spec) ---
+    scope = "tous les portefeuilles" if args.all_portfolios else "portefeuille Main"
+    scope += ", toutes raretés" if args.include_commons else ", hors Common/Uncommon"
+    copies = sum(m.row.quantity for _, m in matched)
     print()
-    print("=== Rapport d'import de la collection ===")
-    print(f"Lignes candidates (Pokemon, Main, hors Common/Uncommon) : {len(rows)}")
-    print(f"Reliées au catalogue (prod.dim_owned_card)             : {len(matched)}")
-    print(f"En quarantaine (non reliées)                            : {len(unmatched)}")
+    print(f"=== Rapport d'import de la collection{' (à blanc)' if args.dry_run else ''} ===")
+    print(f"Lignes candidates (Pokemon, {scope}) : {len(rows)}")
+    print(
+        f"Reliées au catalogue : {len(matched)} lignes, {copies} exemplaires, "
+        f"{len({m.card_id for _, m in matched})} cartes distinctes"
+    )
+    print(f"En quarantaine (non reliées) : {len(unmatched)}")
     if unmatched:
         print()
-        print("Détail des raisons de quarantaine :")
-        reasons = Counter(m.rejection_reason.split(" : ")[0] for _, m in unmatched)
-        for reason, count in reasons.most_common():
-            print(f"  {count:4d}  {reason}")
-        print()
-        print("Sets non reconnus (nécessitent une correspondance manuelle) :")
-        unknown_sets = Counter(
-            m.row.set_name for _, m in unmatched if "set inconnu" in m.rejection_reason
-        )
-        for set_name, count in unknown_sets.most_common():
+        print("Non reliées, par set :")
+        for set_name, count in Counter(m.row.set_name for _, m in unmatched).most_common():
             print(f"  {count:4d}  {set_name!r}")
 
 

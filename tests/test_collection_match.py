@@ -273,3 +273,79 @@ def test_match_row_rejects_unknown_card_id_within_known_set() -> None:
 
     assert result.card_id is None
     assert "swsh6-999" in result.rejection_reason
+
+
+def _row(**kw) -> CollectionRow:
+    base = dict(
+        set_name="SV: 151",
+        card_number="183/165",
+        product_name="Charizard ex",
+        variance="Holofoil",
+        grade="",
+        rarity="Ultra Rare",
+        quantity=1,
+        average_cost_paid=None,
+        market_price_at_export=None,
+    )
+    return CollectionRow(**{**base, **kw})
+
+
+def test_match_row_uses_set_aliases() -> None:
+    result = match_row(_row(), {"151": "sv3pt5"}, {"sv3pt5-183"})
+    assert result.card_id == "sv3pt5-183"
+
+
+def test_match_row_tries_number_without_inner_zeros() -> None:
+    row = _row(set_name="Crown Zenith: Galarian Gallery", card_number="GG05/GG70")
+    result = match_row(row, {"Crown Zenith Galarian Gallery": "swsh12pt5gg"}, {"swsh12pt5gg-GG5"})
+    assert result.card_id == "swsh12pt5gg-GG5"
+
+
+def test_match_row_falls_back_on_unique_name_in_set() -> None:
+    row = _row(set_name="Paldean Fates", card_number="", product_name="Iono 237/091")
+    names = {"sv4pt5": {"iono": ["sv4pt5-237"]}}
+    result = match_row(row, {"Paldean Fates": "sv4pt5"}, {"sv4pt5-237"}, names)
+    assert result.card_id == "sv4pt5-237"
+    # Deux cartes du même nom dans le set : pas de choix arbitraire.
+    names = {"sv4pt5": {"iono": ["sv4pt5-237", "sv4pt5-80"]}}
+    result = match_row(row, {"Paldean Fates": "sv4pt5"}, set(), names)
+    assert result.card_id is None and "introuvable" in result.rejection_reason
+
+
+def test_read_collection_csv_options_merge_portfolios_and_parse_thousands(tmp_path: Path) -> None:
+    def line(portfolio, name, number, rarity, cost, qty, market):
+        # Ordre de _CSV_HEADER.
+        return [
+            portfolio,
+            "Pokemon",
+            "SV: 151",
+            name,
+            number,
+            rarity,
+            "Holofoil",
+            "",
+            "",
+            cost,
+            qty,
+            market,
+            "0",
+            "false",
+            "",
+            "",
+        ]
+
+    path = _write_csv(
+        tmp_path,
+        [
+            line("Main", "Charizard ex", "183/165", "Ultra Rare", "10.00", "2", "1,234.50"),
+            line("MS - 151", "Charizard ex", "183/165", "Ultra Rare", "40.00", "1", "1,234.50"),
+            line("Main", "Pidgey", "016/165", "Common", "", "3", "0.10"),
+        ],
+    )
+
+    assert [r.quantity for r in read_collection_csv(path)] == [2]
+    merged = read_collection_csv(path, portfolios=None, include_commons=True)
+    char = next(r for r in merged if r.product_name == "Charizard ex")
+    assert char.quantity == 3 and char.average_cost_paid == 20.0
+    assert char.market_price_at_export == 1234.5
+    assert {r.product_name for r in merged} == {"Charizard ex", "Pidgey"}
