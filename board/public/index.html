@@ -762,15 +762,16 @@ function renderMovers() {
     rarity: (a, b) => rarityRank(a.rarity) - rarityRank(b.rarity) || b.price - a.price,
     set: (a, b) => a.set_name.localeCompare(b.set_name) || byImpact(a, b),
   }[f.sort] || byImpact;
-  const list = known.slice().sort((a, b) => cmp(a, b) || a.name.localeCompare(b.name));
+  const unknown = all.filter((m) => m.d == null).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+  const list = known.slice().sort((a, b) => cmp(a, b) || a.name.localeCompare(b.name)).concat(unknown);
   const shown = state.all ? list : list.slice(0, TOP_N);
   const maxAbs = Math.max(...known.map((m) => Math.abs(m.d)), 0.01);
   const missing = all.length - known.length;
   const excluded = everyCard.length - chaseCards.length;
   const filtered = chaseCards.length - all.length;
-  document.getElementById('m-note').innerHTML = (filtered ? `<b>${all.length}</b> cartes sur ${chaseCards.length} avec ces filtres` : `<b>${all.length}</b> cartes AR, SAR, full art, gold`) + ` · ${excluded} communes, rares et ex simples exclues` + (missing ? ` · ${missing} sans prix à cette date` : '');
+  document.getElementById('m-note').innerHTML = (filtered ? `<b>${all.length}</b> cartes sur ${chaseCards.length} avec ces filtres` : `<b>${all.length}</b> cartes AR, SAR, full art, gold`) + ` · ${excluded} communes, rares et ex simples exclues` + (missing ? ` · ${missing} sans variation sur ${WLABEL[w]} (prix trop récent), listées en fin` : '');
   document.getElementById('movers').innerHTML = !shown.length ? '<p class="empty">Aucune carte avec ces filtres.</p>' : shown.map((m) => {
-    const wd = Math.abs(m.d) / maxAbs * 50;
+    const wd = m.d == null ? 0 : Math.abs(m.d) / maxAbs * 50;
     const tg = m.signals[0];
     const tag = tg ? `<span class="tag ${tg.side === 'sell' ? 'l-warn' : 'l-ok'}"><i class="lamp"></i>${tg.side === 'sell' ? 'vente' : 'achat'} · ${esc(SIGNAL_TEXT[tg.signals[0]] || tg.signals[0])}</span>` : '';
     const ver = [...m.variances.filter((v) => v !== 'Holofoil'), ...m.grades].map(esc).join(', ');
