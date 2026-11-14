@@ -170,15 +170,30 @@
   .detail .why .lamp { transform: translateY(-1px); }
 
   /* Master sets : un bloc par set complet */
-  .ms + .ms { border-top: 1px solid var(--rule2); }
-  .ms { padding-bottom: 6px; }
-  .msh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 4px var(--pad) 12px; }
-  .msh h4 { margin: 0; font-size: 20px; line-height: 1.1; font-weight: 700; letter-spacing: -.02em; }
-  .msh .done { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--dim); font-size: 12px; }
-  .msh .done b { color: var(--ink); font-weight: 400; }
-  .msh .done .g { width: 80px; height: 4px; }
-  .msh .vd { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 300; letter-spacing: -.02em; white-space: nowrap; }
-  .msh .vd .lamp { width: 8px; height: 8px; }
+  .blk .ch { border-top: 0; }
+  .ms { border-bottom: 1px solid var(--rule2); }
+  .ms > summary { display: grid; grid-template-columns: 12px minmax(0, 1fr) 120px 92px 110px; gap: 0 16px; align-items: center; padding: 14px var(--pad); min-height: 64px; }
+  .ms > summary:hover, .ms[open] > summary { background: var(--raise); }
+  .ms > summary .chev { width: 12px !important; height: 12px !important; }
+  .ms[open] > summary .chev { transform: rotate(90deg); }
+  .ms .nm2 { min-width: 0; }
+  .ms .nm2 > b { display: block; font-size: 17px; line-height: 21px; font-weight: 700; letter-spacing: -.015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ms .badge { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; padding: 1px 8px; vertical-align: 3px; font-size: 11.5px; line-height: 16px; font-weight: 700; letter-spacing: 0; color: var(--ok); border: 1px solid var(--ok); }
+  .ms .badge .lamp { width: 6px; height: 6px; }
+  .ms .done { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; color: var(--dim); font-size: 12px; margin-top: 3px; }
+  .ms .done b { color: var(--ink); font-weight: 400; }
+  .ms .done .g { width: 70px; height: 4px; }
+  .ms .val { text-align: right; font-size: 22px; font-weight: 300; letter-spacing: -.03em; white-space: nowrap; }
+  .ms .val em { font-style: normal; font-size: 12px; color: var(--dim); margin-left: 3px; letter-spacing: 0; }
+  .ms .vd { display: flex; justify-content: flex-end; align-items: center; gap: 8px; white-space: nowrap; font-size: 13px; }
+  .ms .vd small { display: block; color: var(--faint); font-size: 11px; text-align: right; }
+  .ms .vd .lamp { width: 7px; height: 7px; }
+  .ms svg.sp { display: block; width: 100%; height: 28px; overflow: visible; }
+  .ms .msb { padding: 8px 0 6px; background: var(--raise); }
+  .ms .miss { padding: 0 var(--pad) 12px; }
+  .ms .miss li { display: grid; grid-template-columns: minmax(0, 1fr) 70px; gap: 0 10px; padding: 4px 0; border-top: 1px solid var(--rule); font-size: 12.5px; }
+  .ms .miss li b { font-weight: 700; } .ms .miss li small { color: var(--faint); font-size: 11px; margin-left: 8px; }
+  .ms .miss .r { text-align: right; }
   .ms .strip .big { font-size: 38px; }
   .ms .tr { min-height: 104px; }
   .ms .sub2 { color: var(--faint); font-size: 11.5px; margin-top: 6px; }
@@ -308,7 +323,10 @@
   }
   @container coll (max-width: 460px) {
     .axis span:not(.first):not(.last) { display: none; }
-    .msh .vd { margin-left: 0; flex-basis: 100%; }
+    .ms > summary { grid-template-columns: 12px minmax(0, 1fr) 88px; gap: 4px 12px; }
+    .ms .spc { display: none; }
+    .ms .vd { grid-column: 2 / -1; justify-content: flex-start; }
+    .ms .vd small { display: inline; margin-left: 6px; }
     .thead, .mv > summary { grid-template-columns: minmax(0, 1fr) 72px 56px 12px; }
     .thead .px, .mv .px { display: none; }
   }
@@ -332,11 +350,13 @@
     :root { --pad: 16px; }
     body { font-size: 14px; }
     .top { gap: 14px; } .brand span { display: none; } .jump { gap: 14px; } .live { font-size: 11px; }
+    .jump a { gap: 6px; }
     .ch { padding-top: 18px; } .ch h2, .verdict { font-size: 27px; }
     .ch .side { flex-basis: 100%; order: 3; margin: 6px 0 0; }
     .big { font-size: 40px; }
     .tools .r { margin-left: 0; flex-basis: 100%; }
   }
+  @media (max-width: 440px) { .live span { display: none; } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
 </style>
 </head>
@@ -356,6 +376,7 @@
   <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="4" width="15" height="21" fill="none" stroke="#7c7c7c" stroke-width="2"/><rect x="11" y="8" width="15" height="21" fill="#f2f2f2"/></svg><span>Card Tracker</span></div>
   <nav class="jump" aria-label="Aller à">
     <a href="#collection" id="j-coll" class="l-off"><i class="lamp"></i>Collection</a>
+    <a href="#sets-blk" id="j-sets" class="l-off"><i class="lamp"></i>Sets</a>
     <a href="#signaux" id="j-sig" class="l-off"><i class="lamp"></i>Signaux</a>
   </nav>
   <div class="live l-off" id="live"><i class="lamp"></i><span>chargement…</span></div>
@@ -385,15 +406,19 @@
       <div class="thead"><span>Carte</span><span class="r hide">Qté</span><span class="r px">Prix</span><span class="hide">Courbe</span><span class="hide">Impact</span><span class="r">Δ $</span><span class="r">Δ %</span><span></span></div>
       <div id="movers"></div>
     </section>
-    <section class="sec" aria-label="Master sets" id="ms-sec" hidden>
-      <div class="sh"><svg class="i"><use href="#i-set"/></svg><h3>Master sets</h3><span class="r" id="ms-sum"></span></div>
-      <div id="ms"></div>
-    </section>
     <section class="sec" aria-label="Répartition par set">
       <div class="sh"><svg class="i"><use href="#i-set"/></svg><h3>Répartition par set</h3><span class="r" id="s-sum"></span></div>
       <div class="stack" id="s-stack"></div>
       <div class="sets" id="sets"></div>
     </section>
+    <div class="blk" id="sets-blk" hidden>
+      <div class="ch">
+        <h2>Sets</h2>
+        <div class="verdict l-off" id="ms-verdict"><i class="lamp"></i><span>…</span></div>
+        <p class="sub" id="ms-sub"></p>
+      </div>
+      <div id="ms"></div>
+    </div>
   </div>
 
   <div class="col col-sig" id="signaux">
@@ -744,57 +769,54 @@ function renderSets() {
     }).join('');
 }
 
-function renderMasterSets() {
-  const m = state.ms, w = state.win;
-  const sec = document.getElementById('ms-sec');
-  if (!m || !m.sets.length) { sec.hidden = true; return; }
-  sec.hidden = false;
-  document.getElementById('ms-sum').innerHTML = `sets possédés à ${nf0.format(m.min_share * 100)} % ou plus · une carte de chaque, prix de sa variante principale`;
-  document.getElementById('ms').innerHTML = m.sets.map((st, i) => {
-    const h = st.history.map((p) => ({ date: p.date, value: p.set_value }));
-    const win = st.windows[w];
-    const ch = valueChart(h, win);
-    const now = h[h.length - 1].value, first = h[0];
-    const p = win ? (win.delta / win.value) * 100 : null;
-    const t = tone(p, COLL_TH[w]);
-    const owned = st.history[st.history.length - 1].owned_value;
-    const kv = WINDOWS.map((k) => {
-      const x = st.windows[k];
-      if (!x) return `<div><dt>${WLABEL[k]}</dt><dd>—</dd></div>`;
-      const q = (x.delta / x.value) * 100;
-      return `<div class="${k === w ? 'sel' : ''}"><dt>${WLABEL[k]}</dt><dd><span class="${tone(q, COLL_TH[k])}">${dusd(x.delta)}</span><small>${pct(q)}</small></dd></div>`;
-    }).join('');
-    const sinceP = (now / first.value - 1) * 100;
-    // Valeur par rareté (un exemplaire de chaque carte)
-    const rar = new Map();
-    st.cards.forEach((c) => {
-      const r = rar.get(c.rarity || '—') || { name: c.rarity || '—', n: 0, v: 0, d: 0, past: 0 };
-      r.n++; r.v += c.price || 0;
-      const pp = c.past[w];
-      if (c.price != null && pp != null) { r.d += c.price - pp; r.past += pp; }
-      rar.set(r.name, r);
-    });
-    const rr = [...rar.values()].sort((a, b) => b.v - a.v);
-    const head = rr.slice(0, 5), rest = rr.slice(5);
-    const other = rest.reduce((a, r) => ({ ...a, n: a.n + r.n, v: a.v + r.v, d: a.d + r.d, past: a.past + r.past }), { name: `${rest.length} autres raretés`, n: 0, v: 0, d: 0, past: 0, other: true });
-    const rows = rest.length ? [...head, other] : head;
-    const stack = rows.map((r) => `<i class="${r.other ? 'o' : ''}" style="flex:${r.v.toFixed(2)}" title="${esc(r.name)} · ${usd(r.v)}"></i>`).join('');
-    const rarRows = `<span></span><span class="h">Rareté</span><span class="h r">Cartes</span><span class="h r">Valeur</span><span class="h r hide">Part</span><span class="h r">Δ ${WLABEL[w]}</span>` + rows.map((r, j) => {
-      const q = r.past ? (r.d / r.past) * 100 : null;
-      return `<span class="sw ${r.other ? 'o' : j % 2 ? 'e' : ''}"></span><span class="n">${esc(r.name)}</span><span class="r">${r.n}</span><span class="r">${usd(r.v)}</span><span class="r hide">${nf0.format(r.v / now * 100)} %</span><span class="r ${tone(q, CARD_TH[w])}" title="${pct(q)}">${dusd(r.d)}</span>`;
-    }).join('');
-    // Plus fortes hausses et baisses du set (un exemplaire)
-    const mv = st.cards.filter((c) => c.price != null && c.past[w] != null).map((c) => ({ ...c, d: c.price - c.past[w], q: (c.price / c.past[w] - 1) * 100 }));
-    const li = (c) => `<li><span><b>${esc(c.name)}</b><small>${esc(c.rarity || '')}${c.quantity ? ` · ×${c.quantity} à toi` : ''}</small></span><span class="r">${dusd(c.d)}</span><span class="r ${tone(c.q, CARD_TH[w])}">${pct(c.q)}</span></li>`;
-    const ups = mv.filter((c) => c.d > 0).sort((a, b) => b.d - a.d).slice(0, 5);
-    const dns = mv.filter((c) => c.d < 0).sort((a, b) => a.d - b.d).slice(0, 5);
-    const complete = st.owned_cards === st.n_cards;
-    return `<div class="ms">
-      <div class="msh">
-        <h4>${esc(st.set_name)}</h4>
-        <span class="done"><span class="g"><i style="width:${(st.owned_cards / st.n_cards * 100).toFixed(1)}%"></i></span><span><b>${st.owned_cards}/${st.n_cards}</b> cartes${complete ? ' · complet' : ''} · ${st.entries} variantes · ${st.copies} exemplaires</span></span>
-        <span class="vd ${t === 'up' ? 'l-ok' : t === 'dn' ? 'l-bad' : 'l-off'}" style="color:${t ? 'var(--c)' : 'var(--ink)'}"><i class="lamp"></i>${win ? `${pct(p)} sur ${WLABEL[w]}` : '—'}</span>
-      </div>
+function setSpark(h) {
+  // Courbe compacte de la valeur du set sur tout l'historique.
+  const xs = h.map((p) => pdate(p.date)), vs = h.map((p) => p.value);
+  const x0 = xs[0], x1 = xs[xs.length - 1], lo = Math.min(...vs), hi = Math.max(...vs), r = hi - lo || 1;
+  const pts = h.map((p, i) => (((xs[i] - x0) / (x1 - x0 || 1)) * 100).toFixed(1) + ',' + (26 - ((p.value - lo) / r) * 24).toFixed(1)).join(' ');
+  return `<svg class="sp" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}"/></svg>`;
+}
+
+function setDetail(st, i, w) {
+  const h = st.history.map((p) => ({ date: p.date, value: p.set_value }));
+  const win = st.windows[w];
+  const ch = valueChart(h, win);
+  const now = h[h.length - 1].value, first = h[0];
+  const owned = st.history[st.history.length - 1].owned_value;
+  const kv = WINDOWS.map((k) => {
+    const x = st.windows[k];
+    if (!x) return `<div><dt>${WLABEL[k]}</dt><dd>—</dd></div>`;
+    const q = (x.delta / x.value) * 100;
+    return `<div class="${k === w ? 'sel' : ''}"><dt>${WLABEL[k]}</dt><dd><span class="${tone(q, COLL_TH[k])}">${dusd(x.delta)}</span><small>${pct(q)}</small></dd></div>`;
+  }).join('');
+  const sinceP = (now / first.value - 1) * 100;
+  // Valeur par rareté (un exemplaire de chaque carte)
+  const rar = new Map();
+  st.cards.forEach((c) => {
+    const r = rar.get(c.rarity || '—') || { name: c.rarity || '—', n: 0, v: 0, d: 0, past: 0 };
+    r.n++; r.v += c.price || 0;
+    const pp = c.past[w];
+    if (c.price != null && pp != null) { r.d += c.price - pp; r.past += pp; }
+    rar.set(r.name, r);
+  });
+  const rr = [...rar.values()].sort((a, b) => b.v - a.v);
+  const head = rr.slice(0, 5), rest = rr.slice(5);
+  const other = rest.reduce((a, r) => ({ ...a, n: a.n + r.n, v: a.v + r.v, d: a.d + r.d, past: a.past + r.past }), { name: `${rest.length} autres raretés`, n: 0, v: 0, d: 0, past: 0, other: true });
+  const rows = rest.length ? [...head, other] : head;
+  const stack = rows.map((r) => `<i class="${r.other ? 'o' : ''}" style="flex:${r.v.toFixed(2)}" title="${esc(r.name)} · ${usd(r.v)}"></i>`).join('');
+  const rarRows = `<span></span><span class="h">Rareté</span><span class="h r">Cartes</span><span class="h r">Valeur</span><span class="h r hide">Part</span><span class="h r">Δ ${WLABEL[w]}</span>` + rows.map((r, j) => {
+    const q = r.past ? (r.d / r.past) * 100 : null;
+    return `<span class="sw ${r.other ? 'o' : j % 2 ? 'e' : ''}"></span><span class="n">${esc(r.name)}</span><span class="r">${r.n}</span><span class="r">${usd(r.v)}</span><span class="r hide">${nf0.format(r.v / now * 100)} %</span><span class="r ${tone(q, CARD_TH[w])}" title="${pct(q)}">${dusd(r.d)}</span>`;
+  }).join('');
+  const mv = st.cards.filter((c) => c.price != null && c.past[w] != null).map((c) => ({ ...c, d: c.price - c.past[w], q: (c.price / c.past[w] - 1) * 100 }));
+  const li = (c) => `<li><span><b>${esc(c.name)}</b><small>${esc(c.rarity || '')}${c.quantity ? ` · ×${c.quantity} à toi` : ' · manquante'}</small></span><span class="r">${dusd(c.d)}</span><span class="r ${tone(c.q, CARD_TH[w])}">${pct(c.q)}</span></li>`;
+  const ups = mv.filter((c) => c.d > 0).sort((a, b) => b.d - a.d).slice(0, 5);
+  const dns = mv.filter((c) => c.d < 0).sort((a, b) => a.d - b.d).slice(0, 5);
+  const missing = st.cards.filter((c) => !c.quantity).sort((a, b) => (b.price || 0) - (a.price || 0));
+  const cost = missing.reduce((a, c) => a + (c.price || 0), 0);
+  const miss = missing.length ? `<p class="lbl">Cartes manquantes · ${missing.length} · ${usd(cost)} pour compléter</p>
+      <ul class="miss">${missing.slice(0, 12).map((c) => `<li><span><b>${esc(c.name)}</b><small>${esc(c.rarity || '')}</small></span><span class="r">${usd(c.price)}</span></li>`).join('')}${missing.length > 12 ? `<li><span style="color:var(--faint)">et ${missing.length - 12} autres</span><span></span></li>` : ''}</ul>` : '';
+  return `<div class="msb">
       <div class="strip">
         <div>
           <div class="nm">Set complet</div>
@@ -810,6 +832,7 @@ function renderMasterSets() {
         </dl>
       </div>
       <div class="axis" aria-hidden="true"><div>${axisTicks(h, ch)}</div></div>
+      ${miss}
       <p class="lbl">Valeur par rareté</p>
       <div class="stack">${stack}</div>
       <div class="rar">${rarRows}</div>
@@ -818,10 +841,52 @@ function renderMasterSets() {
         <div><h5>Plus fortes baisses · ${WLABEL[w]}</h5><ul>${dns.map(li).join('') || '<li><span>Aucune</span></li>'}</ul></div>
       </div>
     </div>`;
+}
+
+function renderMasterSets() {
+  const m = state.ms, w = state.win;
+  const blk = document.getElementById('sets-blk');
+  if (!m || !m.sets.length) { blk.hidden = true; return; }
+  blk.hidden = false;
+  const open = new Set(store.get('openSets', []));
+  // En-tête du bloc : valeur cumulée des sets suivis (un exemplaire de chaque carte).
+  const tot = m.sets.reduce((a, st) => a + st.history[st.history.length - 1].set_value, 0);
+  const past = m.sets.reduce((a, st) => a + (st.windows[w]?.value ?? NaN), 0);
+  const p = Number.isFinite(past) ? (tot / past - 1) * 100 : null;
+  const t = tone(p, COLL_TH[w]);
+  const v = document.getElementById('ms-verdict');
+  v.className = 'verdict ' + (t === 'up' ? 'l-ok' : t === 'dn' ? 'l-bad' : 'l-off');
+  v.querySelector('span').textContent = p == null ? '—' : `${pct(p)} sur ${WLABEL[w]}`;
+  document.getElementById('j-sets').className = v.className.replace('verdict ', '');
+  const complete = m.sets.filter((st) => st.owned_cards === st.n_cards).length;
+  document.getElementById('ms-sub').innerHTML = `<span><b>${m.sets.length}</b> set${m.sets.length > 1 ? 's' : ''} possédé${m.sets.length > 1 ? 's' : ''} à plus de ${nf0.format(m.min_share * 100)} %${complete ? ` · ${complete} complet${complete > 1 ? 's' : ''}` : ''}</span><span><b>${usd(tot)}</b> pour un exemplaire de chaque carte</span><span>prix de la variante principale</span>`;
+  document.getElementById('ms').innerHTML = m.sets.map((st, i) => {
+    const h = st.history.map((x) => ({ date: x.date, value: x.set_value }));
+    const win = st.windows[w];
+    const q = win ? (win.delta / win.value) * 100 : null;
+    const tq = tone(q, COLL_TH[w]);
+    const now = h[h.length - 1].value;
+    const share = st.owned_cards / st.n_cards * 100;
+    return `<details class="ms" data-set="${esc(st.set_id)}"${open.has(st.set_id) ? ' open' : ''}>
+      <summary>
+        <svg class="i chev"><use href="#i-chev"/></svg>
+        <span class="nm2"><b>${esc(st.set_name)}${st.owned_cards === st.n_cards ? '<span class="badge l-ok"><i class="lamp"></i>complet</span>' : ''}</b><span class="done"><span class="g"><i style="width:${share.toFixed(1)}%"></i></span><span><b>${st.owned_cards}/${st.n_cards}</b> cartes${st.owned_cards === st.n_cards ? '' : ` · ${nf0.format(share)} %`} · ${st.entries} variantes · ${st.copies} exemplaires</span></span></span>
+        <span class="spc">${setSpark(h)}</span>
+        <span class="val">${nf0.format(now)}<em>$</em></span>
+        <span class="vd ${tq === 'up' ? 'l-ok' : tq === 'dn' ? 'l-bad' : 'l-off'}"><span style="color:${tq ? 'var(--c)' : 'var(--ink)'}">${win ? dusd(win.delta) : '—'}<small>${pct(q)} · ${WLABEL[w]}</small></span></span>
+      </summary>
+      ${setDetail(st, i, w)}
+    </details>`;
   }).join('');
-  m.sets.forEach((st, i) => {
-    const h = st.history.map((p) => ({ date: p.date, value: p.set_value }));
+  document.querySelectorAll('#ms details.ms').forEach((d, i) => {
+    const st = m.sets[i];
+    const h = st.history.map((x) => ({ date: x.date, value: x.set_value }));
     hover(document.getElementById('ms-tr-' + i), h, valueChart(h, st.windows[w]));
+    d.addEventListener('toggle', () => {
+      const cur = new Set(store.get('openSets', []));
+      if (d.open) cur.add(d.dataset.set); else cur.delete(d.dataset.set);
+      store.set('openSets', [...cur]);
+    });
   });
 }
 
