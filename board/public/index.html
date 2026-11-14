@@ -129,8 +129,15 @@
   .breadth .lg { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin-top: 8px; font-size: 12px; color: var(--dim); }
   .breadth .lg b { color: var(--ink); font-weight: 400; }
   .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 0 var(--pad) 10px; }
-  .tools label { color: var(--dim); font-size: 12px; }
-  .tools .r { margin-left: auto; color: var(--faint); font-size: 12px; }
+  .tools label { display: inline-flex; align-items: center; gap: 7px; color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .tools select, .tools input { font: inherit; font-size: 12.5px; color: var(--ink); background: var(--bg); border: 1px solid var(--rule2); min-height: 30px; padding: 3px 8px; }
+  .tools select { padding-right: 22px; max-width: 220px; }
+  .tools input { width: 64px; }
+  .tools select:focus-visible, .tools input:focus-visible { outline: 2px solid var(--ink); outline-offset: -1px; border-color: var(--ink); }
+  .tools .on { border-color: var(--ink); }
+  .tools button { min-height: 30px; padding: 3px 10px; font-size: 12px; }
+  .mnote { padding: 0 var(--pad) 10px; color: var(--faint); font-size: 12px; }
+  .mnote b { color: var(--ink); font-weight: 400; }
   .thead, .mv > summary { display: grid; grid-template-columns: minmax(0, 1fr) 30px 66px 92px 84px 62px 56px 12px; gap: 0 12px; align-items: center; }
   .thead { padding: 0 var(--pad) 6px; font-size: 11px; color: var(--faint); }
   .thead .r, .mv .r { text-align: right; }
@@ -329,6 +336,9 @@
     .ms .vd small { display: inline; margin-left: 6px; }
     .thead, .mv > summary { grid-template-columns: minmax(0, 1fr) 72px 56px 12px; }
     .thead .px, .mv .px { display: none; }
+    /* Tri par prix : le prix prend la place du Δ $ sur petit écran. */
+    [data-sort^="price"] .thead .px, [data-sort^="price"] .mv .px { display: block; }
+    [data-sort^="price"] .thead .dd, [data-sort^="price"] .mv .dd { display: none; }
   }
   @container sig (max-width: 480px) {
     .sg > summary { grid-template-columns: 62px minmax(0, 1fr) 76px 12px; }
@@ -345,6 +355,13 @@
   }
   @media (max-width: 620px), (pointer: coarse) {
     button, .seg button { min-height: 40px; }
+  }
+  @media (max-width: 620px) {
+    .tools label { flex: 1 1 100%; justify-content: space-between; }
+    .tools select { flex: 1; max-width: none; min-height: 40px; }
+    .tools input { min-height: 40px; flex: 1; width: auto; min-width: 0; }
+    .tools .price { gap: 6px; min-width: 0; }
+    .tools .price input { flex: 1 1 0; width: 0; }
   }
   @media (max-width: 620px) {
     :root { --pad: 16px; }
@@ -395,15 +412,32 @@
       <div class="strip" id="v-strip"></div>
       <div class="axis" aria-hidden="true"><div id="v-axis"></div></div>
     </section>
-    <section class="sec" aria-label="Mouvements">
+    <section class="sec" aria-label="Mouvements" id="mv-sec">
       <div class="sh"><svg class="i"><use href="#i-mv"/></svg><h3 id="m-title">Mouvements</h3><span class="r" id="m-sum"></span></div>
       <div class="breadth" id="breadth"></div>
-      <div class="tools">
-        <label for="sort">Classer par</label>
-        <div class="seg" id="sort" role="group" aria-label="Classer par"></div>
-        <span class="r" id="m-note"></span>
+      <div class="tools" id="m-tools">
+        <label>Trier par
+          <select id="f-sort">
+            <option value="impact">Impact $ (hausses et baisses)</option>
+            <option value="up">Plus fortes hausses ($)</option>
+            <option value="down">Plus fortes baisses ($)</option>
+            <option value="pct">Variation % (hausses et baisses)</option>
+            <option value="pctup">Plus fortes hausses (%)</option>
+            <option value="pctdown">Plus fortes baisses (%)</option>
+            <option value="pricedesc">Prix, du plus cher</option>
+            <option value="priceasc">Prix, du moins cher</option>
+            <option value="value">Valeur détenue</option>
+            <option value="rarity">Rareté, de la plus rare</option>
+            <option value="set">Set, de A à Z</option>
+          </select>
+        </label>
+        <label>Rareté <select id="f-rarity"><option value="">Toutes</option></select></label>
+        <label>Set <select id="f-set"><option value="">Tous</option></select></label>
+        <label class="price">Prix <input id="f-pmin" type="number" min="0" step="1" inputmode="decimal" placeholder="min"> – <input id="f-pmax" type="number" min="0" step="1" inputmode="decimal" placeholder="max"> $</label>
+        <button type="button" id="f-reset" hidden>Réinitialiser</button>
       </div>
-      <div class="thead"><span>Carte</span><span class="r hide">Qté</span><span class="r px">Prix</span><span class="hide">Courbe</span><span class="hide">Impact</span><span class="r">Δ $</span><span class="r">Δ %</span><span></span></div>
+      <p class="mnote" id="m-note"></p>
+      <div class="thead"><span>Carte</span><span class="r hide">Qté</span><span class="r px">Prix</span><span class="hide">Courbe</span><span class="hide">Impact</span><span class="r dd">Δ $</span><span class="r">Δ %</span><span></span></div>
       <div id="movers"></div>
     </section>
     <section class="sec" aria-label="Répartition par set">
@@ -483,7 +517,7 @@ const store = {
 };
 const state = {
   win: WINDOWS.includes(store.get('win', 7)) ? store.get('win', 7) : 7,
-  sort: store.get('sort', 'impact'),
+  f: { sort: 'impact', rarity: '', set: '', pmin: '', pmax: '', ...store.get('filters', {}) },
   days: [7, 14, 30].includes(store.get('days', 14)) ? store.get('days', 14) : 14,
   all: false, allNews: false, allOwn: false, allBuzz: false, allMarket: false,
   coll: null, sig: null,
@@ -655,7 +689,13 @@ function renderMovers() {
   const w = state.win;
   const everyCard = moves(w);
   const cr = chase();
-  const all = everyCard.filter((m) => cr.has(m.rarity));
+  const chaseCards = everyCard.filter((m) => cr.has(m.rarity));
+  fillFilters(chaseCards);
+  const f = state.f;
+  document.getElementById('mv-sec').dataset.sort = f.sort;
+  const pmin = f.pmin === '' ? null : +f.pmin, pmax = f.pmax === '' ? null : +f.pmax;
+  const all = chaseCards.filter((m) => (!f.rarity || m.rarity === f.rarity) && (!f.set || m.set_name === f.set)
+    && (pmin == null || (m.price ?? -1) >= pmin) && (pmax == null || (m.price ?? Infinity) <= pmax));
   const known = all.filter((m) => m.d != null);
   const up = known.filter((m) => m.d > 0.005), dn = known.filter((m) => m.d < -0.005);
   const upS = up.reduce((a, m) => a + m.d, 0), dnS = dn.reduce((a, m) => a + m.d, 0);
@@ -666,14 +706,28 @@ function renderMovers() {
   document.getElementById('breadth').innerHTML = `
     <div class="bar" role="img" aria-label="Baisses ${dusd(dnS)}, hausses ${dusd(upS)}"><i class="lo" style="width:${(-dnS / mx * 100).toFixed(1)}%"></i><i class="ax"></i><i class="hi" style="width:${(upS / mx * 100).toFixed(1)}%"></i></div>
     <div class="lg"><span>▼ <b>${dn.length}</b> en baisse · <b>${dusd(dnS)}</b></span><span class="hide">${flat} stables</span><span><b>${up.length}</b> en hausse · <b>${dusd(upS)}</b> ▲</span></div>`;
-  const key = { impact: (m) => -Math.abs(m.d), pct: (m) => -Math.abs(m.p), up: (m) => -m.d, down: (m) => m.d, value: (m) => -m.value }[state.sort];
-  const list = known.slice().sort((a, b) => key(a) - key(b) || a.name.localeCompare(b.name));
+  const byImpact = (a, b) => Math.abs(b.d) - Math.abs(a.d);
+  const cmp = {
+    impact: byImpact,
+    up: (a, b) => b.d - a.d,
+    down: (a, b) => a.d - b.d,
+    pct: (a, b) => Math.abs(b.p) - Math.abs(a.p),
+    pctup: (a, b) => b.p - a.p,
+    pctdown: (a, b) => a.p - b.p,
+    pricedesc: (a, b) => b.price - a.price,
+    priceasc: (a, b) => a.price - b.price,
+    value: (a, b) => b.value - a.value,
+    rarity: (a, b) => rarityRank(a.rarity) - rarityRank(b.rarity) || b.price - a.price,
+    set: (a, b) => a.set_name.localeCompare(b.set_name) || byImpact(a, b),
+  }[f.sort] || byImpact;
+  const list = known.slice().sort((a, b) => cmp(a, b) || a.name.localeCompare(b.name));
   const shown = state.all ? list : list.slice(0, TOP_N);
   const maxAbs = Math.max(...known.map((m) => Math.abs(m.d)), 0.01);
   const missing = all.length - known.length;
-  const excluded = everyCard.length - all.length;
-  document.getElementById('m-note').textContent = `${all.length} cartes AR, SAR, full art, gold · ${excluded} communes, rares et ex simples exclues` + (missing ? ` · ${missing} sans prix à cette date` : '');
-  document.getElementById('movers').innerHTML = shown.map((m) => {
+  const excluded = everyCard.length - chaseCards.length;
+  const filtered = chaseCards.length - all.length;
+  document.getElementById('m-note').innerHTML = (filtered ? `<b>${all.length}</b> cartes sur ${chaseCards.length} avec ces filtres` : `<b>${all.length}</b> cartes AR, SAR, full art, gold`) + ` · ${excluded} communes, rares et ex simples exclues` + (missing ? ` · ${missing} sans prix à cette date` : '');
+  document.getElementById('movers').innerHTML = !shown.length ? '<p class="empty">Aucune carte avec ces filtres.</p>' : shown.map((m) => {
     const wd = Math.abs(m.d) / maxAbs * 50;
     const tg = m.signals[0];
     const tag = tg ? `<span class="tag ${tg.side === 'sell' ? 'l-warn' : 'l-ok'}"><i class="lamp"></i>${tg.side === 'sell' ? 'vente' : 'achat'} · ${esc(SIGNAL_TEXT[tg.signals[0]] || tg.signals[0])}</span>` : '';
@@ -687,7 +741,7 @@ function renderMovers() {
         <span class="num px">${usd(m.price)}</span>
         <span class="hide">${spark(m.card_id, w)}</span>
         <span class="hide"><span class="div" title="${dusd(m.d)}"><i class="${m.d < 0 ? 'neg' : ''}" style="${m.d < 0 ? 'right:50%' : 'left:50%'};width:${wd.toFixed(1)}%"></i></span></span>
-        <span class="num">${dusd(m.d)}</span>
+        <span class="num dd">${dusd(m.d)}</span>
         <span class="num ${tone(m.p, CARD_TH[w])}">${pct(m.p)}</span>
         <svg class="i chev"><use href="#i-chev"/></svg>
       </summary>
@@ -709,6 +763,54 @@ function mentionsByName() {
   (state.sig?.buzz?.owned_mentions || []).forEach((o) => o.cards.forEach((c) => out.set(c, o.week)));
   return out;
 }
+
+// Ordre « de la plus rare » pour le tri par rareté.
+const RARITY_ORDER = ['Mega Hyper Rare', 'Black White Rare', 'Hyper Rare', 'Rare Secret', 'Special Illustration Rare',
+  'MEGA_ATTACK_RARE', 'Shiny Ultra Rare', 'Rare Rainbow', 'Illustration Rare', 'Trainer Gallery Rare Holo',
+  'Ultra Rare', 'Rare Ultra', 'Rare Shiny GX', 'Amazing Rare', 'Futuristic Rare'];
+const rarityRank = (r) => { const i = RARITY_ORDER.indexOf(r); return i < 0 ? 99 : i; };
+
+function fillFilters(cards) {
+  // Options construites depuis les cartes recherchées possédées ; les champs gardent
+  // le focus (ils ne sont pas réécrits, seules les listes d'options le sont).
+  const f = state.f;
+  const rar = [...new Set(cards.map((c) => c.rarity))].sort((a, b) => rarityRank(a) - rarityRank(b));
+  const setVal = new Map();
+  cards.forEach((c) => setVal.set(c.set_name, (setVal.get(c.set_name) || 0) + c.value));
+  const sets = [...setVal.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const count = (k, v) => cards.filter((c) => c[k] === v).length;
+  const opts = (first, items, cur) => `<option value="">${first}</option>` + items.map(([v, l]) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(l)}</option>`).join('');
+  document.getElementById('f-rarity').innerHTML = opts('Toutes', rar.map((r) => [r, `${r} (${count('rarity', r)})`]), f.rarity);
+  document.getElementById('f-set').innerHTML = opts('Tous', sets.map(([v]) => [v, `${v} (${count('set_name', v)})`]), f.set);
+  document.getElementById('f-sort').value = f.sort;
+  const pmin = document.getElementById('f-pmin'), pmax = document.getElementById('f-pmax');
+  if (document.activeElement !== pmin) pmin.value = f.pmin;
+  if (document.activeElement !== pmax) pmax.value = f.pmax;
+  ['f-sort', 'f-rarity', 'f-set'].forEach((id) => document.getElementById(id).classList.toggle('on', id !== 'f-sort' && !!document.getElementById(id).value));
+  pmin.classList.toggle('on', f.pmin !== ''); pmax.classList.toggle('on', f.pmax !== '');
+  document.getElementById('f-reset').hidden = !(f.rarity || f.set || f.pmin !== '' || f.pmax !== '' || f.sort !== 'impact');
+}
+
+function setFilter(k, v) {
+  state.f = { ...state.f, [k]: v };
+  store.set('filters', state.f);
+  state.all = false;
+  renderMovers();
+}
+document.getElementById('f-sort').addEventListener('change', (e) => setFilter('sort', e.target.value));
+document.getElementById('f-rarity').addEventListener('change', (e) => setFilter('rarity', e.target.value));
+document.getElementById('f-set').addEventListener('change', (e) => setFilter('set', e.target.value));
+let priceTimer;
+['pmin', 'pmax'].forEach((k) => document.getElementById('f-' + k).addEventListener('input', (e) => {
+  clearTimeout(priceTimer);
+  priceTimer = setTimeout(() => setFilter(k, e.target.value.trim()), 250);
+}));
+document.getElementById('f-reset').addEventListener('click', () => {
+  state.f = { sort: 'impact', rarity: '', set: '', pmin: '', pmax: '' };
+  store.set('filters', state.f);
+  state.all = false;
+  renderMovers();
+});
 
 async function cardHistory(id) {
   if (!state.history.has(id)) {
@@ -915,8 +1017,6 @@ function renderCollection() {
   const copies = c.cards.reduce((a, k) => a + k.quantity, 0);
   document.getElementById('c-sub').innerHTML = `<span><b>${usd(c.total_value)}</b> de valeur market</span><span><b>${c.cards.length}</b> cartes · ${copies} exemplaires</span><span>prix TCGplayer du ${fdate(c.as_of)}</span>`;
   document.getElementById('win').innerHTML = WINDOWS.map((k) => `<button type="button" data-w="${k}" aria-pressed="${k === w}">${WLABEL[k]}</button>`).join('');
-  document.getElementById('sort').innerHTML = [['impact', 'impact $'], ['pct', '%'], ['up', 'hausses'], ['down', 'baisses'], ['value', 'valeur']]
-    .map(([k, l]) => `<button type="button" data-s="${k}" aria-pressed="${k === state.sort}">${l}</button>`).join('');
   renderValue(); renderMovers(); renderMasterSets(); renderSets();
 }
 
@@ -1131,7 +1231,6 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;
   if (b.dataset.w) { state.win = +b.dataset.w; store.set('win', state.win); renderCollection(); }
-  else if (b.dataset.s) { state.sort = b.dataset.s; store.set('sort', state.sort); state.all = false; renderCollection(); }
   else if (b.dataset.x) { const k = { own: 'allOwn', buzz: 'allBuzz', market: 'allMarket' }[b.dataset.x]; state[k] = !state[k]; renderSignals(); }
   else if (b.dataset.n) { state.allNews = !state.allNews; renderSignals(); }
   else if (b.dataset.d) { state.days = +b.dataset.d; store.set('days', state.days); loadSignals().catch((err) => toast(err.message)); }
