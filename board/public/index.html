@@ -818,10 +818,14 @@ function setDetail(st, i, w) {
   const li = (c) => `<li><span><b>${esc(c.name)}</b><small>${esc(c.rarity || '')}${c.quantity ? ` · ×${c.quantity} à toi` : ' · manquante'}</small></span><span class="r">${dusd(c.d)}</span><span class="r ${tone(c.q, CARD_TH[w])}">${pct(c.q)}</span></li>`;
   const ups = mv.filter((c) => c.d > 0).sort((a, b) => b.d - a.d).slice(0, 5);
   const dns = mv.filter((c) => c.d < 0).sort((a, b) => a.d - b.d).slice(0, 5);
-  const missing = st.cards.filter((c) => !c.quantity).sort((a, b) => (b.price || 0) - (a.price || 0));
+  const cr = new Set(state.ms.chase_rarities || []);
+  const allMissing = st.cards.filter((c) => !c.quantity);
+  const missing = allMissing.filter((c) => cr.has(c.rarity)).sort((a, b) => (b.price || 0) - (a.price || 0));
   const cost = missing.reduce((a, c) => a + (c.price || 0), 0);
-  const miss = missing.length ? `<p class="lbl">Cartes manquantes · ${missing.length} · ${usd(cost)} pour compléter</p>
-      <ul class="miss">${missing.slice(0, 12).map((c) => `<li><span><b>${esc(c.name)}</b><small>${esc(c.rarity || '')}</small></span><span class="r">${usd(c.price)}</span></li>`).join('')}${missing.length > 12 ? `<li><span style="color:var(--faint)">et ${missing.length - 12} autres</span><span></span></li>` : ''}</ul>` : '';
+  const others = allMissing.length - missing.length;
+  const otherCost = allMissing.reduce((a, c) => a + (c.price || 0), 0) - cost;
+  const miss = allMissing.length ? `<p class="lbl">Cartes recherchées manquantes · ${missing.length} · ${usd(cost)} pour les avoir toutes${others ? ` · plus ${others} autres cartes du set (${usd(otherCost)})` : ''}</p>
+      <ul class="miss">${missing.slice(0, 12).map((c) => `<li><span><b>${esc(c.name)}</b><small>${esc(c.rarity || '')}</small></span><span class="r">${usd(c.price)}</span></li>`).join('')}${missing.length > 12 ? `<li><span style="color:var(--faint)">et ${missing.length - 12} autres</span><span></span></li>` : ''}${missing.length ? '' : '<li><span style="color:var(--dim)">Toutes les cartes recherchées sont là.</span><span></span></li>'}</ul>` : '';
   return `<div class="msb">
       <div class="strip">
         <div>
@@ -865,7 +869,7 @@ function renderMasterSets() {
   v.querySelector('span').textContent = p == null ? '—' : `${pct(p)} sur ${WLABEL[w]}`;
   document.getElementById('j-sets').className = v.className.replace('verdict ', '');
   const complete = m.sets.filter((st) => st.owned_cards === st.n_cards).length;
-  document.getElementById('ms-sub').innerHTML = `<span><b>${m.sets.length}</b> set${m.sets.length > 1 ? 's' : ''} possédé${m.sets.length > 1 ? 's' : ''} à plus de ${nf0.format(m.min_share * 100)} %${complete ? ` · ${complete} complet${complete > 1 ? 's' : ''}` : ''}</span><span><b>${usd(tot)}</b> pour un exemplaire de chaque carte</span><span>prix de la variante principale</span>`;
+  document.getElementById('ms-sub').innerHTML = `<span><b>${m.sets.length}</b> sets suivis : ${nf0.format(m.min_share * 100)} % du set ou de ses cartes recherchées${complete ? ` · ${complete} complet${complete > 1 ? 's' : ''}` : ''}</span><span><b>${usd(tot)}</b> pour un exemplaire de chaque carte</span><span>prix de la variante principale</span>`;
   document.getElementById('ms').innerHTML = m.sets.map((st, i) => {
     const h = st.history.map((x) => ({ date: x.date, value: x.set_value }));
     const win = st.windows[w];
@@ -873,10 +877,13 @@ function renderMasterSets() {
     const tq = tone(q, COLL_TH[w]);
     const now = h[h.length - 1].value;
     const share = st.owned_cards / st.n_cards * 100;
+    const full = st.owned_cards === st.n_cards;
+    const chaseShare = st.n_chase ? st.owned_chase / st.n_chase * 100 : 0;
+    const gauge = full ? 100 : Math.max(share, chaseShare);
     return `<details class="ms" data-set="${esc(st.set_id)}"${open.has(st.set_id) ? ' open' : ''}>
       <summary>
         <svg class="i chev"><use href="#i-chev"/></svg>
-        <span class="nm2"><b>${esc(st.set_name)}${st.owned_cards === st.n_cards ? '<span class="badge l-ok"><i class="lamp"></i>complet</span>' : ''}</b><span class="done"><span class="g"><i style="width:${share.toFixed(1)}%"></i></span><span><b>${st.owned_cards}/${st.n_cards}</b> cartes${st.owned_cards === st.n_cards ? '' : ` · ${nf0.format(share)} %`} · ${st.entries} variantes · ${st.copies} exemplaires</span></span></span>
+        <span class="nm2"><b>${esc(st.set_name)}${st.owned_cards === st.n_cards ? '<span class="badge l-ok"><i class="lamp"></i>complet</span>' : ''}</b><span class="done"><span class="g" title="${full ? 'set complet' : 'part des cartes recherchées possédées'}"><i style="width:${gauge.toFixed(1)}%"></i></span><span>${full ? `<b>${st.owned_cards}/${st.n_cards}</b> cartes · ${st.entries} variantes` : `<b>${st.owned_chase}/${st.n_chase}</b> recherchées · ${st.owned_cards}/${st.n_cards} cartes du set`} · ${st.copies} exemplaires</span></span></span>
         <span class="spc">${setSpark(h)}</span>
         <span class="val">${nf0.format(now)}<em>$</em></span>
         <span class="vd ${tq === 'up' ? 'l-ok' : tq === 'dn' ? 'l-bad' : 'l-off'}"><span style="color:${tq ? 'var(--c)' : 'var(--ink)'}">${win ? dusd(win.delta) : '—'}<small>${pct(q)} · ${WLABEL[w]}</small></span></span>

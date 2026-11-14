@@ -187,7 +187,8 @@ def get_collection_board(conn) -> dict:
     }
 
 
-# Sets suivis : sets dont on possède au moins cette part des cartes. Détectés
+# Sets suivis : sets dont on possède au moins cette part des cartes (du set
+# entier ou de ses cartes recherchées, voir CHASE_RARITIES). Détectés
 # dans prod.dim_owned_card (pas de liste à tenir à jour) ; aujourd'hui Paldea
 # Evolved et Paldean Fates, complets à 100 % ; le seuil est de 20 %.
 MASTER_SET_MIN_SHARE = 0.2
@@ -201,19 +202,29 @@ def get_master_sets(conn) -> dict:
     compte au prix de sa variante principale (voir src/transform/validate.py)."""
     sets = conn.execute(
         """
-        WITH s AS (SELECT set_id, max(set_name) AS set_name, count(*) AS n
+        WITH s AS (SELECT set_id, max(set_name) AS set_name, count(*) AS n,
+                          count(*) FILTER (WHERE rarity = ANY(%(chase)s)) AS n_chase
                    FROM prod.dim_card GROUP BY set_id),
-        o AS (SELECT c.set_id, count(DISTINCT o.card_id) AS owned_cards, count(*) AS entries,
-                     sum(o.quantity)::int AS copies
+        o AS (SELECT c.set_id, count(DISTINCT o.card_id) AS owned_cards,
+                     count(DISTINCT o.card_id) FILTER (WHERE c.rarity = ANY(%(chase)s))
+                         AS owned_chase,
+                     count(*) AS entries, sum(o.quantity)::int AS copies
               FROM prod.dim_owned_card o JOIN prod.dim_card c ON c.card_id = o.card_id
               GROUP BY c.set_id)
-        SELECT s.set_id, s.set_name, s.n::int AS n_cards, o.owned_cards::int, o.entries::int,
-               o.copies
+        SELECT s.set_id, s.set_name, s.n::int AS n_cards, o.owned_cards::int,
+               s.n_chase::int AS n_chase, o.owned_chase::int, o.entries::int, o.copies
         FROM s JOIN o USING (set_id)
+        -- Suivi dès MASTER_SET_MIN_SHARE du set entier OU de ses cartes
+        -- recherchées : on collectionne souvent les AR / SAR d'un set sans ses
+        -- communes (151 : 32 cartes recherchées sur 42, 33 cartes sur 207).
         WHERE o.owned_cards >= %(share)s * s.n
-        ORDER BY o.owned_cards::float / s.n DESC, s.set_name
+           OR (s.n_chase > 0 AND o.owned_chase >= %(share)s * s.n_chase)
+        ORDER BY (o.owned_cards = s.n) DESC,
+                 greatest(o.owned_cards::float / s.n,
+                          o.owned_chase::float / nullif(s.n_chase, 0)) DESC,
+                 s.set_name
         """,
-        {"share": MASTER_SET_MIN_SHARE},
+        {"share": MASTER_SET_MIN_SHARE, "chase": list(CHASE_RARITIES)},
     ).fetchall()
     out = []
     for st in sets:
@@ -300,7 +311,7 @@ def get_master_sets(conn) -> dict:
                 "cards": out_cards,
             }
         )
-    return {"min_share": MASTER_SET_MIN_SHARE, "sets": out}
+    return {"min_share": MASTER_SET_MIN_SHARE, "chase_rarities": list(CHASE_RARITIES), "sets": out}
 
 
 def get_signals_board(conn, *, days: int) -> dict:
