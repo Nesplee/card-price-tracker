@@ -175,8 +175,8 @@ def get_collection_board(conn) -> dict:
 
 # Sets suivis : sets dont on possède au moins cette part des cartes. Détectés
 # dans prod.dim_owned_card (pas de liste à tenir à jour) ; aujourd'hui Paldea
-# Evolved et Paldean Fates, complets à 100 % ; le seuil est de 60 %.
-MASTER_SET_MIN_SHARE = 0.6
+# Evolved et Paldean Fates, complets à 100 % ; le seuil est de 20 %.
+MASTER_SET_MIN_SHARE = 0.2
 
 
 def get_master_sets(conn) -> dict:
@@ -197,7 +197,7 @@ def get_master_sets(conn) -> dict:
                o.copies
         FROM s JOIN o USING (set_id)
         WHERE o.owned_cards >= %(share)s * s.n
-        ORDER BY s.set_name
+        ORDER BY o.owned_cards::float / s.n DESC, s.set_name
         """,
         {"share": MASTER_SET_MIN_SHARE},
     ).fetchall()
