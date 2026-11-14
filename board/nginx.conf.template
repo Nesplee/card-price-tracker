@@ -20,6 +20,12 @@ server {
     ssl_certificate /certs/cert.pem;
     ssl_certificate_key /certs/key.pem;
     root /usr/share/nginx/html;
+
+    # Compression : la réponse de /api/board/collection (courbes de ~400
+    # cartes) pèse ~400 Ko en JSON brut, ~10 fois moins compressée.
+    gzip on;
+    gzip_proxied any;
+    gzip_types application/json text/css application/javascript;
     index index.html;
 
     location /api/ {

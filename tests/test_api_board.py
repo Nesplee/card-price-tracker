@@ -41,7 +41,7 @@ def test_collection_board_values_and_moves():
             "name": "Mew ex",
             "set_name": "Paldean Fates",
             "series": "SV",
-            "rarity": "SIR",
+            "rarity": "Special Illustration Rare",
             "quantity": 2,
             "variances": ["Holofoil"],
             "grades": [None],
@@ -76,7 +76,8 @@ def test_collection_board_values_and_moves():
     assert a["signals"][0]["side"] == "sell" and a["variances"] == ["Holofoil"]
     b = next(c for c in out["cards"] if c["card_id"] == "b")
     assert b["grades"] == ["PSA 10"] and b["past"][7] == 10 and b["past"][1] is None
-    assert set(out["sparks"]) == {"a", "b"} and len(out["sparks"]["a"]) == len(out["dates"])
+    # Mini-courbes seulement pour les raretés recherchées (pas la Common).
+    assert set(out["sparks"]) == {"a"} and len(out["sparks"]["a"]) == len(out["dates"])
 
 
 @pytest.fixture

@@ -24,9 +24,27 @@ _PLATFORM = "tcgplayer"
 # (l'historique a des trous : 26/08, 16 au 25/10) : au-delà, pas de variation.
 WINDOWS = (1, 7, 30, 90)
 _WINDOW_SLACK = {1: 3, 7: 4, 30: 12, 90: 12}
-# Mini-courbes : seulement pour les cartes qui figurent dans les N plus gros
-# impacts (en $) d'au moins une fenêtre, pour garder la réponse légère.
-SPARK_TOP = 30
+# Raretés « recherchées » (AR, SAR, full art, gold...) : les seules montrées
+# dans les mouvements du board, et les seules dont on renvoie la mini-courbe.
+# Common / Uncommon / Rare, ex simples (Double Rare), Shiny Rare non full art,
+# promos et ACE SPEC comptent dans la valeur mais pas dans les mouvements.
+CHASE_RARITIES = (
+    "Illustration Rare",
+    "Special Illustration Rare",
+    "Ultra Rare",
+    "Hyper Rare",
+    "Shiny Ultra Rare",
+    "Mega Hyper Rare",
+    "MEGA_ATTACK_RARE",
+    "Black White Rare",
+    "Trainer Gallery Rare Holo",
+    "Rare Ultra",
+    "Rare Secret",
+    "Rare Rainbow",
+    "Rare Shiny GX",
+    "Amazing Rare",
+    "Futuristic Rare",
+)
 # Signaux de contexte : déclenchés par une news ou par la méta (le reste vient
 # des prix seuls, voir src/signals/opportunities.py).
 CONTEXT_SIGNALS = ("actu_hausse", "actu_baisse", "meta_hausse", "meta_baisse")
@@ -147,20 +165,15 @@ def get_collection_board(conn) -> dict:
         p = _past(hist, as_of - timedelta(days=w), _WINDOW_SLACK[w])
         windows[w] = {"date": p[0], "value": p[1], "delta": total - p[1]} if p else None
 
-    # Cartes dont on renvoie la courbe : le top SPARK_TOP en impact absolu ($)
-    # de chaque fenêtre. Les courbes partagent l'axe `dates` (None = trou).
-    spark_ids: set[str] = set()
-    for w in WINDOWS:
-        ranked = sorted(
-            (c for c in out_cards if c["price"] is not None and c["past"].get(w) is not None),
-            key=lambda c: -abs(c["quantity"] * (c["price"] - c["past"][w])),
-        )
-        spark_ids.update(c["card_id"] for c in ranked[:SPARK_TOP])
+    # Mini-courbes : toutes les cartes recherchées qui ont un prix (~400).
+    spark_ids = {
+        c["card_id"] for c in out_cards if c["rarity"] in CHASE_RARITIES and c["price"] is not None
+    }
     dates = [d for d, _ in hist]
     sparks = {}
     for cid in sorted(spark_ids):
         m = dict(by_card[cid])
-        sparks[cid] = [m.get(d) for d in dates]
+        sparks[cid] = [round(m[d], 2) if d in m else None for d in dates]
 
     return {
         "as_of": as_of,
@@ -170,6 +183,7 @@ def get_collection_board(conn) -> dict:
         "cards": out_cards,
         "dates": dates,
         "sparks": sparks,
+        "chase_rarities": list(CHASE_RARITIES),
     }
 
 
