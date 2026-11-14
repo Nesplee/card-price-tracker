@@ -128,3 +128,132 @@ export async function fetchMovers(windowSize: 7 | 30): Promise<MoverCard[]> {
   }
   return response.json()
 }
+
+// --- Opportunités (signaux d'achat / de vente)
+
+export interface OpportunityNews {
+  title: string
+  url: string
+  source: string
+  published_on: string
+  event_type: string
+  confidence: number
+  resume: string | null
+}
+
+export interface Opportunity {
+  card_id: string
+  name: string
+  set_name: string
+  series: string | null
+  rarity: string | null
+  bloc: string | null
+  side: 'buy' | 'sell'
+  score: number
+  signals: string[]
+  reason: string
+  market_price: number
+  low_price: number | null
+  ma30: number | null
+  change_7d: number | null
+  change_30d: number | null
+  owned_quantity: number
+  is_selection: boolean
+  proven_signal: boolean
+  news: OpportunityNews[]
+  news_against: number
+}
+
+export interface OpportunityCounts {
+  date_id: string | null
+  buy_total: number
+  buy_selection: number
+  sell_total: number
+  sell_selection: number
+}
+
+export interface OpportunityList {
+  items: Opportunity[]
+  total: number
+  page: number
+  page_size: number
+  counts: OpportunityCounts
+}
+
+export interface OpportunityFilters {
+  side?: 'buy' | 'sell'
+  selection?: boolean
+  signal?: string
+  bloc?: string
+  min_score?: number
+  search?: string
+  page?: number
+}
+
+export interface SignalPerformance {
+  side: string
+  signal: string
+  n: number
+  n_7d: number
+  hit_rate_7d: number | null
+  avg_edge_7d: number | null
+  n_30d: number
+  hit_rate_30d: number | null
+  avg_edge_30d: number | null
+}
+
+export interface SetTrend {
+  set_name: string
+  series: string | null
+  cards: number
+  median_change_30d: number
+  buy_signals: number
+  sell_signals: number
+  news_up: number
+  news_down: number
+}
+
+export interface MarketNews {
+  title: string
+  url: string
+  source: string
+  published_on: string
+  direction: 'hausse' | 'baisse'
+  event_type: string
+  confidence: number
+  resume: string | null
+  cards: number
+  sets: string[]
+}
+
+export interface MetaShift {
+  card_name: string
+  share_now: number
+  share_prev: number
+}
+
+export interface OpportunityTrends {
+  sets: SetTrend[]
+  news: MarketNews[]
+  meta: MetaShift[]
+}
+
+async function getJson<T>(path: string): Promise<T> {
+  const response = await fetch(path)
+  if (!response.ok) {
+    throw new Error(`Erreur API ${path.split('?')[0]} : ${response.status}`)
+  }
+  return response.json()
+}
+
+export function fetchOpportunities(filters: OpportunityFilters): Promise<OpportunityList> {
+  return getJson(`/api/opportunities?${buildQuery(filters as CardFilters)}`)
+}
+
+export function fetchSignalPerformance(): Promise<SignalPerformance[]> {
+  return getJson('/api/opportunities/performance')
+}
+
+export function fetchOpportunityTrends(): Promise<OpportunityTrends> {
+  return getJson('/api/opportunities/trends')
+}

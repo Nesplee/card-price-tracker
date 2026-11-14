@@ -17,8 +17,12 @@ from src.api.schemas import (
     CollectionResponse,
     CollectionValuePoint,
     MoverCard,
+    Opportunity,
+    OpportunityListResponse,
+    OpportunityTrends,
     OwnedCard,
     PricePoint,
+    SignalPerformance,
 )
 
 app = FastAPI(title="Card Price Tracker — Dashboard API")
@@ -158,3 +162,52 @@ def reports_movers(window: int, conn=Depends(get_api_connection)) -> list[MoverC
     # quand plusieurs cartes sont à égalité sur abs(pct_change).
     movers.sort(key=lambda m: (-abs(m.pct_change), m.card_id))
     return movers
+
+
+# Les routes /api/opportunities/performance et /trends sont déclarées avant
+# toute route à paramètre de chemin : aucune n'existe ici, mais l'ordre évite
+# qu'un futur /api/opportunities/{id} les masque.
+@app.get("/api/opportunities/performance", response_model=list[SignalPerformance])
+def opportunities_performance(conn=Depends(get_api_connection)) -> list[SignalPerformance]:
+    return [SignalPerformance(**row) for row in queries.get_signal_performance(conn)]
+
+
+@app.get("/api/opportunities/trends", response_model=OpportunityTrends)
+def opportunities_trends(conn=Depends(get_api_connection)) -> OpportunityTrends:
+    return OpportunityTrends(**queries.get_opportunity_trends(conn))
+
+
+@app.get("/api/opportunities", response_model=OpportunityListResponse)
+def list_opportunities(
+    conn=Depends(get_api_connection),
+    side: str | None = Query(default=None, pattern="^(buy|sell)$"),
+    # selection=true (défaut) : seulement les signaux de qualité ; false : tous.
+    selection: bool = True,
+    signal: str | None = None,
+    bloc: str | None = Query(default=None, pattern="^(recent|ancien|retro)$"),
+    min_score: int | None = Query(default=None, ge=0, le=100),
+    search: str | None = None,
+    page: int = Query(default=1, ge=1),
+) -> OpportunityListResponse:
+    page_size = 25
+    rows, total, counts = queries.get_opportunities(
+        conn,
+        side=side,
+        selection_only=selection,
+        signal=signal,
+        bloc=bloc,
+        min_score=min_score,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
+    items = [
+        Opportunity(
+            **{k: row[k] for k in Opportunity.model_fields if k not in ("news",)},
+            news=row["news"],
+        )
+        for row in rows
+    ]
+    return OpportunityListResponse(
+        items=items, total=total, page=page, page_size=page_size, counts=counts
+    )

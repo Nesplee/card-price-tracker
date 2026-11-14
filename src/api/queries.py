@@ -237,3 +237,252 @@ def get_collection_movers(conn, *, window: int) -> list[dict]:
         """,
         {"platform": _PLATFORM, "window": window},
     ).fetchall()
+
+
+# --- Opportunités (signaux d'achat / de vente, voir src/signals/opportunities.py)
+
+# Un signal est "éprouvé" quand son backtest à 30 jours tient : au moins 100
+# cas mesurés, 65 % de réussite et un rendement moyen positif dans le sens de
+# la recommandation (prod.v_opportunity_signal_performance). Les seuils vivent
+# ici et non en base pour pouvoir les durcir sans migration.
+PROVEN_MIN_CASES = 100
+PROVEN_MIN_HIT_RATE = 0.65
+# Score minimal d'une recommandation à signal éprouvé pour entrer dans la
+# sélection. Une news concordante (même sens, confiance x poids >= 0,25 sur 14
+# jours) suffit à elle seule : c'est le contexte qui manque aux signaux de prix.
+SELECTION_MIN_SCORE = 50
+NEWS_WINDOW_DAYS = 14
+
+_OPPORTUNITY_CTES = """
+WITH d AS (
+    SELECT coalesce(%(date_id)s::date, max(date_id)) AS date_id FROM prod.fact_opportunity
+), proven AS (
+    SELECT side, array_agg(signal) AS signals
+    FROM prod.v_opportunity_signal_performance
+    WHERE n_30d >= %(proven_n)s AND hit_rate_30d >= %(proven_rate)s AND avg_edge_30d > 0
+    GROUP BY side
+), base AS (
+    SELECT o.opportunity_id, o.date_id, o.card_id, o.side, o.score, o.signals, o.reason,
+           o.market_price, o.low_price, o.ma30, o.change_7d, o.change_30d,
+           c.name, c.set_name, c.series, c.rarity, u.bloc,
+           coalesce(o.signals && p.signals, false) AS proven_signal,
+           coalesce(own.quantity, 0) AS owned_quantity,
+           nw.news, nw.n_for, ag.news_against
+    FROM prod.fact_opportunity o
+    JOIN d ON d.date_id = o.date_id
+    JOIN prod.dim_card c ON c.card_id = o.card_id
+    LEFT JOIN prod.v_opportunity_universe u ON u.card_id = o.card_id
+    LEFT JOIN proven p ON p.side = o.side
+    LEFT JOIN LATERAL (
+        SELECT sum(quantity) AS quantity FROM prod.dim_owned_card WHERE card_id = o.card_id
+    ) own ON true
+    LEFT JOIN LATERAL (
+        SELECT coalesce(jsonb_agg(jsonb_build_object(
+                   'title', title, 'url', url, 'source', source, 'published_on', published_on,
+                   'event_type', event_type, 'confidence', confidence, 'resume', resume)
+               ORDER BY confidence * weight DESC), '[]'::jsonb) AS news,
+               count(*)::int AS n_for
+        FROM (
+            SELECT * FROM prod.v_news_event e
+            WHERE e.card_id = o.card_id
+              AND e.published_on BETWEEN o.date_id - %(news_days)s AND o.date_id
+              AND e.direction = CASE o.side WHEN 'buy' THEN 'hausse' ELSE 'baisse' END
+              AND e.confidence * e.weight >= 0.25
+            ORDER BY e.confidence * e.weight DESC LIMIT 3
+        ) x
+    ) nw ON true
+    LEFT JOIN LATERAL (
+        SELECT count(*)::int AS news_against
+        FROM prod.v_news_event e
+        WHERE e.card_id = o.card_id
+          AND e.published_on BETWEEN o.date_id - %(news_days)s AND o.date_id
+          AND e.direction = CASE o.side WHEN 'buy' THEN 'baisse' ELSE 'hausse' END
+          AND e.confidence * e.weight >= 0.25
+    ) ag ON true
+), scored AS (
+    SELECT *,
+           (news_against = 0 AND ((proven_signal AND score >= %(min_selection)s) OR n_for > 0))
+               AS is_selection
+    FROM base
+)
+"""
+
+
+def get_opportunities(
+    conn,
+    *,
+    side: str | None = None,
+    selection_only: bool = True,
+    signal: str | None = None,
+    bloc: str | None = None,
+    min_score: int | None = None,
+    search: str | None = None,
+    date_id=None,
+    page: int = 1,
+    page_size: int = 25,
+) -> tuple[list[dict], int, dict]:
+    """Renvoie (lignes de la page, total filtré, compteurs du jour).
+
+    Les compteurs ignorent les filtres de signal / bloc / score / recherche
+    (seul `side` et `selection_only` ne comptent pas non plus) : ils décrivent
+    la journée entière, pour l'en-tête de la page."""
+    params = {
+        "date_id": date_id,
+        "proven_n": PROVEN_MIN_CASES,
+        "proven_rate": PROVEN_MIN_HIT_RATE,
+        "min_selection": SELECTION_MIN_SCORE,
+        "news_days": NEWS_WINDOW_DAYS,
+    }
+    conditions = ["true"]
+    if side:
+        conditions.append("side = %(side)s")
+        params["side"] = side
+    if selection_only:
+        conditions.append("is_selection")
+    if signal:
+        conditions.append("%(signal)s = ANY(signals)")
+        params["signal"] = signal
+    if bloc:
+        conditions.append("bloc = %(bloc)s")
+        params["bloc"] = bloc
+    if min_score is not None:
+        conditions.append("score >= %(min_score)s")
+        params["min_score"] = min_score
+    if search:
+        conditions.append("name ILIKE %(search)s")
+        params["search"] = f"%{search}%"
+    where = " AND ".join(conditions)
+    rows = conn.execute(
+        _OPPORTUNITY_CTES
+        + f"""
+        SELECT *, count(*) OVER () AS total
+        FROM scored WHERE {where}
+        ORDER BY is_selection DESC, score DESC, market_price DESC, card_id
+        LIMIT %(limit)s OFFSET %(offset)s
+        """,
+        {**params, "limit": page_size, "offset": (page - 1) * page_size},
+    ).fetchall()
+    counts = conn.execute(
+        _OPPORTUNITY_CTES
+        + """
+        SELECT (SELECT date_id FROM d) AS date_id,
+               count(*) FILTER (WHERE side = 'buy') AS buy_total,
+               count(*) FILTER (WHERE side = 'buy' AND is_selection) AS buy_selection,
+               count(*) FILTER (WHERE side = 'sell') AS sell_total,
+               count(*) FILTER (WHERE side = 'sell' AND is_selection) AS sell_selection
+        FROM scored
+        """,
+        params,
+    ).fetchone()
+    total = rows[0]["total"] if rows else 0
+    return rows, total, counts
+
+
+def get_signal_performance(conn) -> list[dict]:
+    return conn.execute(
+        """
+        SELECT side, signal, n, n_7d, hit_rate_7d, avg_edge_7d, n_30d, hit_rate_30d, avg_edge_30d
+        FROM prod.v_opportunity_signal_performance
+        ORDER BY side, n_30d DESC
+        """
+    ).fetchall()
+
+
+def get_opportunity_trends(conn, *, date_id=None) -> dict:
+    """Tendances qui entourent les signaux : sets (prix + signaux + news),
+    news de marché de la semaine, évolution de la méta compétitive."""
+    params = {"date_id": date_id, "platform": _PLATFORM, "news_days": NEWS_WINDOW_DAYS}
+    sets = conn.execute(
+        """
+        WITH d AS (
+            SELECT coalesce(%(date_id)s::date, max(date_id)) AS date_id FROM prod.fact_opportunity
+        ), px AS (
+            SELECT u.card_id, c.set_name, c.series,
+                   cur.average_sell_price AS cur_price, past.average_sell_price AS past_price
+            FROM prod.v_opportunity_universe u
+            JOIN prod.dim_card c ON c.card_id = u.card_id
+            CROSS JOIN d
+            JOIN LATERAL (
+                SELECT f.average_sell_price FROM prod.fact_price_history f
+                JOIN prod.dim_platform p ON p.platform_id = f.platform_id
+                WHERE f.card_id = u.card_id AND p.platform_name = %(platform)s
+                  AND f.date_id BETWEEN d.date_id - 3 AND d.date_id
+                  AND f.average_sell_price >= 5
+                ORDER BY f.date_id DESC LIMIT 1
+            ) cur ON true
+            JOIN LATERAL (
+                SELECT f.average_sell_price FROM prod.fact_price_history f
+                JOIN prod.dim_platform p ON p.platform_id = f.platform_id
+                WHERE f.card_id = u.card_id AND p.platform_name = %(platform)s
+                  AND f.date_id BETWEEN d.date_id - 36 AND d.date_id - 30
+                  AND f.average_sell_price > 0
+                ORDER BY f.date_id DESC LIMIT 1
+            ) past ON true
+        ), by_set AS (
+            SELECT set_name, max(series) AS series, count(*)::int AS cards,
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY cur_price / past_price - 1)
+                       AS median_change_30d
+            FROM px GROUP BY set_name HAVING count(*) >= 5
+        ), sig AS (
+            SELECT c.set_name,
+                   count(*) FILTER (WHERE o.side = 'buy')::int AS buy_signals,
+                   count(*) FILTER (WHERE o.side = 'sell')::int AS sell_signals
+            FROM prod.fact_opportunity o
+            JOIN d ON d.date_id = o.date_id
+            JOIN prod.dim_card c ON c.card_id = o.card_id
+            GROUP BY c.set_name
+        ), nw AS (
+            SELECT e.set_name,
+                   count(DISTINCT e.url) FILTER (WHERE e.direction = 'hausse')::int AS news_up,
+                   count(DISTINCT e.url) FILTER (WHERE e.direction = 'baisse')::int AS news_down
+            FROM prod.v_news_event e CROSS JOIN d
+            WHERE e.published_on BETWEEN d.date_id - %(news_days)s AND d.date_id
+            GROUP BY e.set_name
+        )
+        SELECT b.set_name, b.series, b.cards, round(b.median_change_30d::numeric, 4)
+                   AS median_change_30d,
+               coalesce(s.buy_signals, 0) AS buy_signals,
+               coalesce(s.sell_signals, 0) AS sell_signals,
+               coalesce(n.news_up, 0) AS news_up, coalesce(n.news_down, 0) AS news_down
+        FROM by_set b
+        LEFT JOIN sig s ON s.set_name = b.set_name
+        LEFT JOIN nw n ON n.set_name = b.set_name
+        ORDER BY abs(b.median_change_30d) DESC
+        LIMIT 40
+        """,
+        params,
+    ).fetchall()
+    news = conn.execute(
+        """
+        WITH d AS (
+            SELECT coalesce(%(date_id)s::date, max(date_id)) AS date_id FROM prod.fact_opportunity
+        )
+        SELECT e.title, e.url, e.source, e.published_on, e.direction, e.event_type,
+               max(e.confidence) AS confidence, max(e.resume) AS resume,
+               count(DISTINCT e.card_id)::int AS cards,
+               (array_agg(DISTINCT e.set_name))[1:3] AS sets
+        FROM prod.v_news_event e CROSS JOIN d
+        WHERE e.published_on BETWEEN d.date_id - 7 AND d.date_id
+        GROUP BY e.title, e.url, e.source, e.published_on, e.direction, e.event_type
+        ORDER BY max(e.confidence) DESC, e.published_on DESC
+        LIMIT 12
+        """,
+        params,
+    ).fetchall()
+    # Méta : part des decklists du top 8 par carte, dernière semaine contre la
+    # précédente. Les cartes à moins de 5 % dans les deux semaines sont ignorées.
+    meta = conn.execute(
+        """
+        WITH w AS (SELECT max(week) AS cur FROM prod.v_meta_usage_weekly)
+        SELECT coalesce(a.card_name, b.card_name) AS card_name,
+               coalesce(a.share, 0) AS share_now, coalesce(b.share, 0) AS share_prev
+        FROM w
+        LEFT JOIN prod.v_meta_usage_weekly a ON a.week = w.cur
+        FULL JOIN prod.v_meta_usage_weekly b
+               ON b.week = w.cur - 7 AND b.card_name = a.card_name
+        WHERE greatest(coalesce(a.share, 0), coalesce(b.share, 0)) >= 0.05
+        ORDER BY abs(coalesce(a.share, 0) - coalesce(b.share, 0)) DESC
+        LIMIT 10
+        """
+    ).fetchall()
+    return {"sets": sets, "news": news, "meta": meta}

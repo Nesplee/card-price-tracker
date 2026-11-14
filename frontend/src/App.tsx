@@ -1,6 +1,7 @@
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
 import { Catalogue } from './pages/Catalogue'
 import { DetailCarte } from './pages/DetailCarte'
+import { Opportunites } from './pages/Opportunites'
 import { MaCollection } from './pages/MaCollection'
 import { Rapports } from './pages/Rapports'
 
@@ -16,6 +17,9 @@ export default function App() {
           <NavLink to="/collection" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
             Ma collection
           </NavLink>
+          <NavLink to="/opportunites" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+            Opportunités
+          </NavLink>
           <NavLink to="/rapports" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
             Rapports
           </NavLink>
@@ -25,6 +29,7 @@ export default function App() {
         <Route path="/" element={<Catalogue />} />
         <Route path="/cartes/:cardId" element={<DetailCarte />} />
         <Route path="/collection" element={<MaCollection />} />
+        <Route path="/opportunites" element={<Opportunites />} />
         <Route path="/rapports" element={<Rapports />} />
       </Routes>
     </BrowserRouter>

@@ -406,3 +406,55 @@ th.cell-price {
 .mini-mover-chart-placeholder {
   height: 60px;
 }
+
+/* Page Opportunités */
+.opp-row {
+  cursor: pointer;
+}
+.opp-sub {
+  color: var(--ink-muted);
+  font-size: 0.85em;
+}
+.opp-chip {
+  display: inline-block;
+  margin: 0 4px 2px 0;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.8em;
+  background: var(--surface);
+}
+.opp-chip-proven {
+  border-color: #166534;
+  color: #166534;
+}
+.opp-chip-news {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.opp-detail td {
+  background: var(--bg);
+}
+.opp-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: 24px;
+  align-items: start;
+}
+.opp-warn {
+  color: #991b1b;
+}
+.opp-news {
+  margin: 4px 0;
+}
+.opp-list {
+  padding-left: 18px;
+}
+.opp-list li {
+  margin-bottom: 8px;
+}
+@media (max-width: 720px) {
+  .opp-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}

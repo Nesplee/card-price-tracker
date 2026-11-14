@@ -132,7 +132,12 @@ GET /api/cards                     # search + filter the full catalog (name, ser
 GET /api/cards/{card_id}/history   # full price history for one card
 GET /api/collection                # owned cards with market value and gain/loss
 GET /api/collection/movers         # daily/weekly biggest price movers, owned cards only
+GET /api/opportunities             # buy/sell signals of the latest day; quality selection by default
+GET /api/opportunities/performance # hit rate and average return per signal (backtest)
+GET /api/opportunities/trends      # set trends, market news, competitive meta shifts
 ```
+
+The **Opportunités** tab shows the daily buy/sell signals (`prod.fact_opportunity`). By default it shows only a quality *selection* (about 10% of the signals): a signal whose 30-day backtest holds (at least 100 measured cases, 65% hit rate, positive average return) with a score of 50 or more, or a signal backed by a matching news item of the last 14 days, and never one contradicted by a news item. Each row opens onto the reason, the matching news and a price sparkline; the page also shows set trends, market news, meta shifts and the per-signal reliability table. The thresholds live in [`src/api/queries.py`](src/api/queries.py).
 
 > [!TIP]
 > **Movers are computed on the fly, not pre-aggregated.** The daily (7-day) and weekly (30-day) windows deliberately differ so the two reports never show the same thing, and both run as a plain SQL query against `fact_price_history` at request time. At a few hundred owned cards, this stays well within the budget for a synchronous request, so no new Airflow task or pre-computed table was introduced just for this feature.

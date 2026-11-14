@@ -73,3 +73,102 @@ class MoverCard(BaseModel):
     past_price: float
     pct_change: float
     threshold: int
+
+
+class OpportunityNews(BaseModel):
+    title: str
+    url: str
+    source: str
+    published_on: date
+    event_type: str
+    confidence: float
+    resume: str | None
+
+
+class Opportunity(BaseModel):
+    card_id: str
+    name: str
+    set_name: str
+    series: str | None
+    rarity: str | None
+    bloc: str | None
+    side: str
+    score: int
+    signals: list[str]
+    reason: str
+    market_price: float
+    low_price: float | None
+    ma30: float | None
+    change_7d: float | None
+    change_30d: float | None
+    owned_quantity: int
+    # Au moins un signal dont le backtest à 30 jours tient (voir
+    # queries.PROVEN_MIN_*), ou une news concordante, et aucune news contraire.
+    is_selection: bool
+    proven_signal: bool
+    news: list[OpportunityNews]
+    news_against: int
+
+
+class OpportunityCounts(BaseModel):
+    date_id: date | None
+    buy_total: int
+    buy_selection: int
+    sell_total: int
+    sell_selection: int
+
+
+class OpportunityListResponse(BaseModel):
+    items: list[Opportunity]
+    total: int
+    page: int
+    page_size: int
+    counts: OpportunityCounts
+
+
+class SignalPerformance(BaseModel):
+    side: str
+    signal: str
+    n: int
+    n_7d: int
+    hit_rate_7d: float | None
+    avg_edge_7d: float | None
+    n_30d: int
+    hit_rate_30d: float | None
+    avg_edge_30d: float | None
+
+
+class SetTrend(BaseModel):
+    set_name: str
+    series: str | None
+    cards: int
+    median_change_30d: float
+    buy_signals: int
+    sell_signals: int
+    news_up: int
+    news_down: int
+
+
+class MarketNews(BaseModel):
+    title: str
+    url: str
+    source: str
+    published_on: date
+    direction: str
+    event_type: str
+    confidence: float
+    resume: str | None
+    cards: int
+    sets: list[str]
+
+
+class MetaShift(BaseModel):
+    card_name: str
+    share_now: float
+    share_prev: float
+
+
+class OpportunityTrends(BaseModel):
+    sets: list[SetTrend]
+    news: list[MarketNews]
+    meta: list[MetaShift]
