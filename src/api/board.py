@@ -173,6 +173,122 @@ def get_collection_board(conn) -> dict:
     }
 
 
+# Master sets : sets dont on possède au moins cette part des cartes. Détectés
+# dans prod.dim_owned_card (pas de liste à tenir à jour) ; aujourd'hui Paldea
+# Evolved et Paldean Fates, complets à 100 %.
+MASTER_SET_MIN_SHARE = 0.9
+
+
+def get_master_sets(conn) -> dict:
+    """Évolution des sets complets ou presque : valeur du set entier (un
+    exemplaire de chaque carte, au prix de sa variante principale), valeur de
+    nos exemplaires, et cartes du set avec leur prix aux fenêtres 1 à 90 j.
+    Les variantes (Reverse Holo...) n'ont pas de prix propre ici : une carte
+    compte au prix de sa variante principale (voir src/transform/validate.py)."""
+    sets = conn.execute(
+        """
+        WITH s AS (SELECT set_id, max(set_name) AS set_name, count(*) AS n
+                   FROM prod.dim_card GROUP BY set_id),
+        o AS (SELECT c.set_id, count(DISTINCT o.card_id) AS owned_cards, count(*) AS entries,
+                     sum(o.quantity)::int AS copies
+              FROM prod.dim_owned_card o JOIN prod.dim_card c ON c.card_id = o.card_id
+              GROUP BY c.set_id)
+        SELECT s.set_id, s.set_name, s.n::int AS n_cards, o.owned_cards::int, o.entries::int,
+               o.copies
+        FROM s JOIN o USING (set_id)
+        WHERE o.owned_cards >= %(share)s * s.n
+        ORDER BY s.set_name
+        """,
+        {"share": MASTER_SET_MIN_SHARE},
+    ).fetchall()
+    out = []
+    for st in sets:
+        cards = conn.execute(
+            """
+            SELECT c.card_id, c.name, c.rarity,
+                   coalesce(sum(o.quantity), 0)::int AS quantity,
+                   array_remove(array_agg(DISTINCT nullif(o.variance, '')), NULL) AS variances
+            FROM prod.dim_card c
+            LEFT JOIN prod.dim_owned_card o ON o.card_id = c.card_id
+            WHERE c.set_id = %(set_id)s
+            GROUP BY c.card_id, c.name, c.rarity
+            """,
+            {"set_id": st["set_id"]},
+        ).fetchall()
+        prices = conn.execute(
+            """
+            SELECT f.card_id, f.date_id, f.average_sell_price AS price
+            FROM prod.fact_price_history f
+            WHERE f.card_id = ANY(%(ids)s)
+              AND f.platform_id = (SELECT platform_id FROM prod.dim_platform
+                                   WHERE platform_name = %(platform)s)
+              AND f.average_sell_price IS NOT NULL
+            ORDER BY f.card_id, f.date_id
+            """,
+            {"ids": [c["card_id"] for c in cards], "platform": _PLATFORM},
+        ).fetchall()
+        by_card: dict[str, list[tuple[date, float]]] = {}
+        for r in prices:
+            by_card.setdefault(r["card_id"], []).append((r["date_id"], float(r["price"])))
+        qty = {c["card_id"]: c["quantity"] for c in cards}
+        per_day: dict[date, list[float]] = {}
+        for cid, h in by_card.items():
+            for d, v in h:
+                e = per_day.setdefault(d, [0.0, 0.0, 0])
+                e[0] += v
+                e[1] += qty[cid] * v
+                e[2] += 1
+        if not per_day:
+            continue
+        hist = sorted(per_day.items())
+        as_of = hist[-1][0]
+        set_hist = [(d, e[0]) for d, e in hist]
+        windows = {}
+        for w in WINDOWS:
+            p = _past(set_hist, as_of - timedelta(days=w), _WINDOW_SLACK[w])
+            windows[w] = (
+                {"date": p[0], "value": p[1], "delta": set_hist[-1][1] - p[1]} if p else None
+            )
+        out_cards = []
+        for c in cards:
+            h = by_card.get(c["card_id"], [])
+            cur = h[-1] if h and (as_of - h[-1][0]).days <= 3 else None
+            past = {}
+            if cur:
+                for w in WINDOWS:
+                    p = _past(h, as_of - timedelta(days=w), _WINDOW_SLACK[w])
+                    past[w] = p[1] if p and p[1] > 0 else None
+            out_cards.append(
+                {
+                    "card_id": c["card_id"],
+                    "name": c["name"],
+                    "rarity": c["rarity"],
+                    "quantity": c["quantity"],
+                    "variances": c["variances"],
+                    "price": cur[1] if cur else None,
+                    "past": past,
+                }
+            )
+        out.append(
+            {
+                **st,
+                "as_of": as_of,
+                "history": [
+                    {
+                        "date": d,
+                        "set_value": round(e[0], 2),
+                        "owned_value": round(e[1], 2),
+                        "priced": e[2],
+                    }
+                    for d, e in hist
+                ],
+                "windows": windows,
+                "cards": out_cards,
+            }
+        )
+    return {"min_share": MASTER_SET_MIN_SHARE, "sets": out}
+
+
 def get_signals_board(conn, *, days: int) -> dict:
     params = {
         "days": days,
@@ -434,6 +550,11 @@ def _default(value):
 @router.get("/collection")
 def collection_board(conn=Depends(get_api_connection)) -> Response:
     return _json(get_collection_board(conn))
+
+
+@router.get("/master-sets")
+def master_sets_board(conn=Depends(get_api_connection)) -> Response:
+    return _json(get_master_sets(conn))
 
 
 @router.get("/signals")

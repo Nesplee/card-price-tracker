@@ -169,6 +169,35 @@
   .detail .why p { display: flex; gap: 9px; align-items: baseline; }
   .detail .why .lamp { transform: translateY(-1px); }
 
+  /* Master sets : un bloc par set complet */
+  .ms + .ms { border-top: 1px solid var(--rule2); }
+  .ms { padding-bottom: 6px; }
+  .msh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 4px var(--pad) 12px; }
+  .msh h4 { margin: 0; font-size: 20px; line-height: 1.1; font-weight: 700; letter-spacing: -.02em; }
+  .msh .done { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--dim); font-size: 12px; }
+  .msh .done b { color: var(--ink); font-weight: 400; }
+  .msh .done .g { width: 80px; height: 4px; }
+  .msh .vd { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 300; letter-spacing: -.02em; white-space: nowrap; }
+  .msh .vd .lamp { width: 8px; height: 8px; }
+  .ms .strip .big { font-size: 38px; }
+  .ms .tr { min-height: 104px; }
+  .ms .sub2 { color: var(--faint); font-size: 11.5px; margin-top: 6px; }
+  .ms .sub2 b { color: var(--ink); font-weight: 400; }
+  .ms .lbl { padding: 10px var(--pad) 6px; font-size: 11px; color: var(--faint); }
+  .ms .stack { margin-bottom: 8px; }
+  .ms .stack i:nth-child(even) { background: var(--dim); }
+  .rar { padding: 0 var(--pad) 6px; display: grid; grid-template-columns: 10px minmax(0, 1.4fr) 40px 70px 44px 70px; gap: 4px 12px; align-items: center; font-size: 12.5px; }
+  .rar .h { color: var(--faint); font-size: 11px; }
+  .rar .sw { width: 8px; height: 8px; background: var(--ink); } .rar .sw.e { background: var(--dim); } .rar .sw.o { background: var(--mark); }
+  .rar .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rar .r { text-align: right; white-space: nowrap; }
+  .mvs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; padding: 0 var(--pad) 10px; }
+  .mvs h5 { margin: 0 0 4px; font-size: 11px; font-weight: 400; color: var(--faint); }
+  .mvs li { display: grid; grid-template-columns: minmax(0, 1fr) 62px 54px; gap: 0 10px; align-items: baseline; padding: 4px 0; border-top: 1px solid var(--rule); font-size: 12.5px; }
+  .mvs li b { font-weight: 700; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mvs li small { display: block; color: var(--faint); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mvs .r { text-align: right; white-space: nowrap; }
+
   /* Répartition */
   .stack { display: flex; height: 10px; gap: 1px; margin: 0 var(--pad) 12px; background: var(--bg); }
   .stack i { display: block; height: 100%; background: var(--ink); min-width: 1px; }
@@ -274,8 +303,12 @@
     .detail { grid-template-columns: 1fr; }
     .sets { grid-template-columns: minmax(0, 1fr) 36px 66px 52px 64px; } .sets .bar, .sets .hide { display: none; }
     .breadth .hide { display: none; }
+    .mvs { grid-template-columns: 1fr; gap: 10px; }
+    .rar { grid-template-columns: 10px minmax(0, 1fr) 36px 66px 64px; } .rar .hide { display: none; }
   }
   @container coll (max-width: 460px) {
+    .axis span:not(.first):not(.last) { display: none; }
+    .msh .vd { margin-left: 0; flex-basis: 100%; }
     .thead, .mv > summary { grid-template-columns: minmax(0, 1fr) 72px 56px 12px; }
     .thead .px, .mv .px { display: none; }
   }
@@ -351,6 +384,10 @@
       </div>
       <div class="thead"><span>Carte</span><span class="r hide">Qté</span><span class="r px">Prix</span><span class="hide">Courbe</span><span class="hide">Impact</span><span class="r">Δ $</span><span class="r">Δ %</span><span></span></div>
       <div id="movers"></div>
+    </section>
+    <section class="sec" aria-label="Master sets" id="ms-sec" hidden>
+      <div class="sh"><svg class="i"><use href="#i-set"/></svg><h3>Master sets</h3><span class="r" id="ms-sum"></span></div>
+      <div id="ms"></div>
     </section>
     <section class="sec" aria-label="Répartition par set">
       <div class="sh"><svg class="i"><use href="#i-set"/></svg><h3>Répartition par set</h3><span class="r" id="s-sum"></span></div>
@@ -440,6 +477,7 @@ const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'aoû
 const pdate = (s) => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); };
 const fdate = (s, short) => { const d = new Date(pdate(s)); return d.getUTCDate() + (short ? '/' + String(d.getUTCMonth() + 1).padStart(2, '0') : ' ' + MONTHS[d.getUTCMonth()]); };
 const DAY = 86400000;
+const kfmt = (v) => v >= 1000 ? nf1.format(v / 1000) + ' k' : nf0.format(v);
 const tone = (p, th) => p == null ? '' : p >= th ? 'up' : p <= -th ? 'dn' : '';
 
 function toast(msg) {
@@ -465,7 +503,7 @@ function moves(w) {
 }
 
 // ---------- tracé de la valeur
-function valueChart(h, w) {
+function valueChart(h, win) {
   const xs = h.map((p) => pdate(p.date));
   const x0 = xs[0], x1 = xs[xs.length - 1];
   const vals = h.map((p) => p.value);
@@ -490,7 +528,6 @@ function valueChart(h, w) {
     seg.push([X(xs[i]), Y(p.value)]);
   });
   flush();
-  const win = state.coll.windows[w];
   let band = '';
   if (win) {
     const bx = X(pdate(win.date));
@@ -500,10 +537,22 @@ function valueChart(h, w) {
   return { svg: `<svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">${band}${grid}<path class="ar" d="${area}"/>${gaps}<path class="ln" d="${line}"/></svg>`, lo, hi, x0, x1 };
 }
 
+function axisTicks(h, ch) {
+  // Axe : premier jour, débuts de mois, dernier jour.
+  const span = ch.x1 - ch.x0;
+  let ticks = `<span class="first" style="left:0">${fdate(h[0].date)}</span>`;
+  const d0 = new Date(ch.x0);
+  for (let m = new Date(Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() + 1, 1)); m.getTime() < ch.x1 - 6 * DAY; m = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + 1, 1))) {
+    const l = (m.getTime() - ch.x0) / span * 100;
+    if (l > 15 && l < 86) ticks += `<span style="left:${l.toFixed(2)}%">1 ${MONTHS[m.getUTCMonth()]}</span>`;
+  }
+  return ticks + `<span class="last" style="left:100%">${fdate(h[h.length - 1].date)}</span>`;
+}
+
 function renderValue() {
   const c = state.coll, w = state.win;
   const h = c.history;
-  const ch = valueChart(h, w);
+  const ch = valueChart(h, c.windows[w]);
   const top10 = [...c.cards].map((k) => (k.price || 0) * k.quantity).sort((a, b) => b - a);
   const tot = c.total_value;
   const share10 = top10.slice(0, 10).reduce((a, b) => a + b, 0) / tot * 100;
@@ -530,15 +579,7 @@ function renderValue() {
       <div class="sep"><dt>depuis ${fdate(first.date)}</dt><dd><span class="${tone(sinceP, COLL_TH[90])}">${dusd(tot - first.value)}</span><small>${pct(sinceP)}</small></dd></div>
       <div><dt>10 plus grosses</dt><dd title="part de la valeur totale">${nf0.format(share10)} %</dd></div>
     </dl>`;
-  // axe : premier jour, débuts de mois, aujourd'hui
-  const span = ch.x1 - ch.x0;
-  let ticks = `<span class="first" style="left:0">${fdate(first.date)}</span>`;
-  const d0 = new Date(ch.x0);
-  for (let m = new Date(Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() + 1, 1)); m.getTime() < ch.x1 - 6 * DAY; m = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + 1, 1))) {
-    const l = (m.getTime() - ch.x0) / span * 100;
-    if (l > 15 && l < 86) ticks += `<span style="left:${l.toFixed(2)}%">1 ${MONTHS[m.getUTCMonth()]}</span>`;
-  }
-  ticks += `<span class="last" style="left:100%">${fdate(h[h.length - 1].date)}</span>`;
+  const ticks = axisTicks(h, ch);
   document.getElementById('v-axis').innerHTML = ticks;
   const win = c.windows[w];
   document.getElementById('v-sum').innerHTML = win ? `zone claire : ${WLABEL[w]}, depuis le ${fdate(win.date)}` : '';
@@ -703,6 +744,87 @@ function renderSets() {
     }).join('');
 }
 
+function renderMasterSets() {
+  const m = state.ms, w = state.win;
+  const sec = document.getElementById('ms-sec');
+  if (!m || !m.sets.length) { sec.hidden = true; return; }
+  sec.hidden = false;
+  document.getElementById('ms-sum').innerHTML = `sets possédés à ${nf0.format(m.min_share * 100)} % ou plus · une carte de chaque, prix de sa variante principale`;
+  document.getElementById('ms').innerHTML = m.sets.map((st, i) => {
+    const h = st.history.map((p) => ({ date: p.date, value: p.set_value }));
+    const win = st.windows[w];
+    const ch = valueChart(h, win);
+    const now = h[h.length - 1].value, first = h[0];
+    const p = win ? (win.delta / win.value) * 100 : null;
+    const t = tone(p, COLL_TH[w]);
+    const owned = st.history[st.history.length - 1].owned_value;
+    const kv = WINDOWS.map((k) => {
+      const x = st.windows[k];
+      if (!x) return `<div><dt>${WLABEL[k]}</dt><dd>—</dd></div>`;
+      const q = (x.delta / x.value) * 100;
+      return `<div class="${k === w ? 'sel' : ''}"><dt>${WLABEL[k]}</dt><dd><span class="${tone(q, COLL_TH[k])}">${dusd(x.delta)}</span><small>${pct(q)}</small></dd></div>`;
+    }).join('');
+    const sinceP = (now / first.value - 1) * 100;
+    // Valeur par rareté (un exemplaire de chaque carte)
+    const rar = new Map();
+    st.cards.forEach((c) => {
+      const r = rar.get(c.rarity || '—') || { name: c.rarity || '—', n: 0, v: 0, d: 0, past: 0 };
+      r.n++; r.v += c.price || 0;
+      const pp = c.past[w];
+      if (c.price != null && pp != null) { r.d += c.price - pp; r.past += pp; }
+      rar.set(r.name, r);
+    });
+    const rr = [...rar.values()].sort((a, b) => b.v - a.v);
+    const head = rr.slice(0, 5), rest = rr.slice(5);
+    const other = rest.reduce((a, r) => ({ ...a, n: a.n + r.n, v: a.v + r.v, d: a.d + r.d, past: a.past + r.past }), { name: `${rest.length} autres raretés`, n: 0, v: 0, d: 0, past: 0, other: true });
+    const rows = rest.length ? [...head, other] : head;
+    const stack = rows.map((r) => `<i class="${r.other ? 'o' : ''}" style="flex:${r.v.toFixed(2)}" title="${esc(r.name)} · ${usd(r.v)}"></i>`).join('');
+    const rarRows = `<span></span><span class="h">Rareté</span><span class="h r">Cartes</span><span class="h r">Valeur</span><span class="h r hide">Part</span><span class="h r">Δ ${WLABEL[w]}</span>` + rows.map((r, j) => {
+      const q = r.past ? (r.d / r.past) * 100 : null;
+      return `<span class="sw ${r.other ? 'o' : j % 2 ? 'e' : ''}"></span><span class="n">${esc(r.name)}</span><span class="r">${r.n}</span><span class="r">${usd(r.v)}</span><span class="r hide">${nf0.format(r.v / now * 100)} %</span><span class="r ${tone(q, CARD_TH[w])}" title="${pct(q)}">${dusd(r.d)}</span>`;
+    }).join('');
+    // Plus fortes hausses et baisses du set (un exemplaire)
+    const mv = st.cards.filter((c) => c.price != null && c.past[w] != null).map((c) => ({ ...c, d: c.price - c.past[w], q: (c.price / c.past[w] - 1) * 100 }));
+    const li = (c) => `<li><span><b>${esc(c.name)}</b><small>${esc(c.rarity || '')}${c.quantity ? ` · ×${c.quantity} à toi` : ''}</small></span><span class="r">${dusd(c.d)}</span><span class="r ${tone(c.q, CARD_TH[w])}">${pct(c.q)}</span></li>`;
+    const ups = mv.filter((c) => c.d > 0).sort((a, b) => b.d - a.d).slice(0, 5);
+    const dns = mv.filter((c) => c.d < 0).sort((a, b) => a.d - b.d).slice(0, 5);
+    const complete = st.owned_cards === st.n_cards;
+    return `<div class="ms">
+      <div class="msh">
+        <h4>${esc(st.set_name)}</h4>
+        <span class="done"><span class="g"><i style="width:${(st.owned_cards / st.n_cards * 100).toFixed(1)}%"></i></span><span><b>${st.owned_cards}/${st.n_cards}</b> cartes${complete ? ' · complet' : ''} · ${st.entries} variantes · ${st.copies} exemplaires</span></span>
+        <span class="vd ${t === 'up' ? 'l-ok' : t === 'dn' ? 'l-bad' : 'l-off'}" style="color:${t ? 'var(--c)' : 'var(--ink)'}"><i class="lamp"></i>${win ? `${pct(p)} sur ${WLABEL[w]}` : '—'}</span>
+      </div>
+      <div class="strip">
+        <div>
+          <div class="nm">Set complet</div>
+          <div class="big">${nf0.format(now)}<em>$</em></div>
+          <p class="sub2">un exemplaire de chaque carte<br>tes ${st.copies} exemplaires : <b>${usd(owned)}</b></p>
+        </div>
+        <div class="tr" id="ms-tr-${i}">${ch.svg}
+          <span class="tl" style="top:0">${kfmt(ch.hi)}</span>
+          <span class="tl" style="bottom:2px">${kfmt(ch.lo)}</span>
+        </div>
+        <dl class="kv">${kv}
+          <div class="sep"><dt>depuis ${fdate(first.date)}</dt><dd><span class="${tone(sinceP, COLL_TH[90])}">${dusd(now - first.value)}</span><small>${pct(sinceP)}</small></dd></div>
+        </dl>
+      </div>
+      <div class="axis" aria-hidden="true"><div>${axisTicks(h, ch)}</div></div>
+      <p class="lbl">Valeur par rareté</p>
+      <div class="stack">${stack}</div>
+      <div class="rar">${rarRows}</div>
+      <div class="mvs">
+        <div><h5>Plus fortes hausses · ${WLABEL[w]}</h5><ul>${ups.map(li).join('') || '<li><span>Aucune</span></li>'}</ul></div>
+        <div><h5>Plus fortes baisses · ${WLABEL[w]}</h5><ul>${dns.map(li).join('') || '<li><span>Aucune</span></li>'}</ul></div>
+      </div>
+    </div>`;
+  }).join('');
+  m.sets.forEach((st, i) => {
+    const h = st.history.map((p) => ({ date: p.date, value: p.set_value }));
+    hover(document.getElementById('ms-tr-' + i), h, valueChart(h, st.windows[w]));
+  });
+}
+
 function renderCollection() {
   const c = state.coll, w = state.win;
   const win = c.windows[w];
@@ -717,7 +839,7 @@ function renderCollection() {
   document.getElementById('win').innerHTML = WINDOWS.map((k) => `<button type="button" data-w="${k}" aria-pressed="${k === w}">${WLABEL[k]}</button>`).join('');
   document.getElementById('sort').innerHTML = [['impact', 'impact $'], ['pct', '%'], ['up', 'hausses'], ['down', 'baisses'], ['value', 'valeur']]
     .map(([k, l]) => `<button type="button" data-s="${k}" aria-pressed="${k === state.sort}">${l}</button>`).join('');
-  renderValue(); renderMovers(); renderSets();
+  renderValue(); renderMovers(); renderMasterSets(); renderSets();
 }
 
 // ---------- signaux : tendances (répétition des signaux, buzz)
@@ -908,13 +1030,17 @@ async function loadCollection() {
   if (!state.coll.as_of) { document.getElementById('v-strip').innerHTML = '<p class="empty">Aucun prix pour la collection.</p>'; return; }
   renderCollection(); freshness();
 }
+async function loadMasterSets() {
+  state.ms = await getJSON(API + '/master-sets');
+  renderMasterSets();
+}
 async function loadSignals() {
   state.sig = await getJSON(API + '/signals?days=' + state.days);
   renderSignals();
   if (state.coll?.as_of) renderMovers();
 }
 async function load() {
-  const res = await Promise.allSettled([loadCollection(), loadSignals()]);
+  const res = await Promise.allSettled([loadCollection(), loadSignals(), loadMasterSets()]);
   const bad = res.filter((r) => r.status === 'rejected');
   if (bad.length) {
     toast('Lecture impossible : ' + bad[0].reason.message);

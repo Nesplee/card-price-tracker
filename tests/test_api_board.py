@@ -101,3 +101,45 @@ def test_signals_endpoint_passes_days_and_serializes_dates(client, monkeypatch):
 @pytest.mark.parametrize("days", [0, 31])
 def test_signals_endpoint_rejects_out_of_range_days(client, days):
     assert client.get(f"/api/board/signals?days={days}").status_code == 422
+
+
+def test_master_sets_value_whole_set_and_owned_copies():
+    sets = [
+        {
+            "set_id": "sv2",
+            "set_name": "Paldea Evolved",
+            "n_cards": 2,
+            "owned_cards": 2,
+            "entries": 3,
+            "copies": 4,
+        }
+    ]
+    cards = [
+        {
+            "card_id": "sv2-1",
+            "name": "Sprigatito",
+            "rarity": "Common",
+            "quantity": 3,
+            "variances": ["Normal", "Reverse Holofoil"],
+        },
+        {
+            "card_id": "sv2-2",
+            "name": "Magikarp",
+            "rarity": "Illustration Rare",
+            "quantity": 1,
+            "variances": ["Holofoil"],
+        },
+    ]
+    prices = [
+        {"card_id": "sv2-1", "date_id": D - timedelta(days=7), "price": 1.0},
+        {"card_id": "sv2-1", "date_id": D, "price": 2.0},
+        {"card_id": "sv2-2", "date_id": D - timedelta(days=7), "price": 100.0},
+        {"card_id": "sv2-2", "date_id": D, "price": 90.0},
+    ]
+    out = board.get_master_sets(FakeConn(sets, cards, prices))
+    st = out["sets"][0]
+    # Set complet = un exemplaire de chaque carte ; nos exemplaires = quantités.
+    assert st["history"][-1] == {"date": D, "set_value": 92.0, "owned_value": 96.0, "priced": 2}
+    assert st["windows"][7]["delta"] == 92.0 - 101.0
+    magikarp = next(c for c in st["cards"] if c["card_id"] == "sv2-2")
+    assert magikarp["price"] == 90.0 and magikarp["past"][7] == 100.0

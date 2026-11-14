@@ -299,7 +299,9 @@ services:
     volumes:
       - ./tailscale-certs:/certs:ro
       # Page montée en lecture seule : une modification de board/public est
-      # servie aussitôt, sans reconstruire l'image.
+      # servie aussitôt, sans reconstruire l'image. Piège : un changement de
+      # branche git qui supprime puis recrée board/public laisse le conteneur
+      # sur l'ancien dossier (erreur 500) : redémarrer dashboard-frontend.
       - ./board/public:/usr/share/nginx/html:ro
     # Mapping asymétrique : port externe 5173 (inchangé), port interne 443
     # (nginx écoute désormais en HTTPS, voir Task 3).
