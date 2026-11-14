@@ -1,4 +1,4 @@
-# Sert le build statique React (dist/) et proxifie /api/ vers le conteneur
+# Sert le board (page statique board/public/index.html) et proxifie /api/ vers le conteneur
 # dashboard-api -- "dashboard-api" est résolu par le DNS interne de Docker
 # Compose (nom du service, voir resolver ci-dessous pour la ré-résolution
 # à chaque requête plutôt qu'une résolution figée au démarrage).
@@ -74,10 +74,15 @@ server {
         proxy_ssl_server_name on;
     }
 
-    # try_files ... /index.html : nécessaire pour un routeur côté client
-    # (react-router-dom, Task 7) -- sans ça, un accès direct à /collection ou
-    # /cartes/xyz renverrait un 404 Nginx (le fichier collection/xyz n'existe
-    # pas sur le disque, seul index.html + JS sait router ces chemins).
+    # Ancienne adresse du board pendant sa validation (/v2/) et anciennes
+    # routes du front React : tout renvoie vers la page unique.
+    location /v2/ {
+        # Redirection relative : nginx écoute en 443 dans le conteneur mais
+        # le port publié est 5173, une URL absolue perdrait le port.
+        absolute_redirect off;
+        return 301 /;
+    }
+
     location / {
         try_files $uri /index.html;
     }

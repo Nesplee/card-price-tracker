@@ -68,13 +68,13 @@ prod.fact_price_history         star schema, price by card / day / platform
 prod.dim_card / dim_date / dim_platform   (currency: EUR for CardMarket, USD for TCGPlayer)
     -> dashboard_reader (read-only)
         -> Metabase                shared BI instance
-        -> dashboard-api + frontend  purpose-built FastAPI + React dashboard
+        -> dashboard-api + board     purpose-built FastAPI + single-page dashboard
 ```
 
 - **Apache Airflow** (LocalExecutor) is the only orchestrator. The daily DAG in [`dags/card_price_pipeline_dag.py`](dags/card_price_pipeline_dag.py) chains three tasks, `extract >> clean >> load`, each wrapped in its own Postgres transaction.
 - **PostgreSQL** is the single source of truth, running as its own service in [`docker-compose.yml`](docker-compose.yml), never shared with another project on the host.
 - **A personal collection import path** ([`src/load/collection_loader.py`](src/load/collection_loader.py), [`src/transform/collection_match.py`](src/transform/collection_match.py)) matches an external CSV against `prod.dim_card` into `prod.dim_owned_card`, with its own quarantine for rows that fail to match any known set or card.
-- **Two read-only consumers, one shared role.** Metabase and a custom FastAPI + React dashboard ([`src/api/`](src/api), [`frontend/`](frontend)) both connect through `dashboard_reader`, never through the pipeline's own `pipeline_app` role.
+- **Two read-only consumers, one shared role.** Metabase and a custom FastAPI dashboard ([`src/api/`](src/api), [`board/`](board)) both connect through `dashboard_reader`, never through the pipeline's own `pipeline_app` role.
 
 <img src=".assets/divider.png" width="100%" alt="" />
 
@@ -124,7 +124,7 @@ prod.dim_card / dim_date / dim_platform   (currency: EUR for CardMarket, USD for
 The warehouse is read two different ways, both through the same read-only `dashboard_reader` role and never through the pipeline's own:
 
 - **Metabase**, a shared, self-hosted instance, for open-ended exploration of the star schema without writing a custom UI for every question.
-- **A purpose-built dashboard** ([`src/api/`](src/api), a FastAPI service, and [`frontend/`](frontend), a React and TypeScript single-page app) scoped to four concrete views instead of free exploration: a searchable card catalog, the owner's collection with current market value, per-card price history, and daily (7-day) / weekly (30-day) reports of the biggest movers in the owned collection.
+- **A purpose-built dashboard** ([`src/api/`](src/api), a FastAPI service, and [`board/`](board), one static page served by Nginx on port 5173) with two blocks face to face, the collection and the market signals (see *Board* below).
 
 ```bash
 GET /api/health                    # liveness probe, never touches the database
@@ -139,9 +139,9 @@ GET /api/board/collection          # board: collection value history, per-card p
 GET /api/board/signals?days=14     # board: signal trends (repeated signals, buzz), news, meta shifts
 ```
 
-**Board** ([`board/index.html`](board/index.html), served under `/v2/` while it is being validated) is a single static page in the same visual grammar as the VPS agent-manager: black, neutral greys, square corners, colour only for status lamps and out-of-threshold numbers. Two blocks face to face. *Collection*: market value over time, biggest movers ranked by dollar impact (quantity × price change) over 24 h / 7 d / 30 d / 90 d, value split by set. *Signaux* is about trends rather than single-day alerts: how many days out of the last 7 / 14 / 30 a buy or sell signal came back for a card (a ribbon of days, and the current streak), and the **buzz**, the number of Reddit posts and press articles that mention each Pokémon over the last 7 days against the 7 before ([`src/api/mentions.py`](src/api/mentions.py), counted per species: "Mega Charizard X ex" counts as Charizard; Trainer names such as "Will" or "Switch" are left out using the Pokémon list in `src/api/data/pokemon_names.txt`, taken from the pokemontcg.io catalogue). Then the directional news and the week-over-week competitive meta. A card turns green/red only past ±5 / 10 / 20 / 30 % (24 h / 7 d / 30 d / 90 d).
+**Board** ([`board/public/index.html`](board/public/index.html), served on port 5173; it replaced the former React front end on 2026-11-14) is a single static page in the same visual grammar as the VPS agent-manager: black, neutral greys, square corners, colour only for status lamps and out-of-threshold numbers. Two blocks face to face. *Collection*: market value over time, biggest movers ranked by dollar impact (quantity × price change) over 24 h / 7 d / 30 d / 90 d, value split by set. *Signaux* is about trends rather than single-day alerts: how many days out of the last 7 / 14 / 30 a buy or sell signal came back for a card (a ribbon of days, and the current streak), and the **buzz**, the number of Reddit posts and press articles that mention each Pokémon over the last 7 days against the 7 before ([`src/api/mentions.py`](src/api/mentions.py), counted per species: "Mega Charizard X ex" counts as Charizard; Trainer names such as "Will" or "Switch" are left out using the Pokémon list in `src/api/data/pokemon_names.txt`, taken from the pokemontcg.io catalogue). Then the directional news and the week-over-week competitive meta. A card turns green/red only past ±5 / 10 / 20 / 30 % (24 h / 7 d / 30 d / 90 d).
 
-The **Opportunités** tab shows the daily buy/sell signals (`prod.fact_opportunity`). By default it shows only a quality *selection* (about 10% of the signals): a signal whose 30-day backtest holds (at least 100 measured cases, 65% hit rate, positive average return) with a score of 50 or more, or a signal backed by a matching news item of the last 14 days, and never one contradicted by a news item. Each row opens onto the reason, the matching news and a price sparkline; the page also shows set trends, market news, meta shifts and the per-signal reliability table. The thresholds live in [`src/api/queries.py`](src/api/queries.py).
+The `/api/opportunities` endpoints (used by the former **Opportunités** tab of the React front end, still served for Metabase-style ad hoc use) return the daily buy/sell signals (`prod.fact_opportunity`). By default it shows only a quality *selection* (about 10% of the signals): a signal whose 30-day backtest holds (at least 100 measured cases, 65% hit rate, positive average return) with a score of 50 or more, or a signal backed by a matching news item of the last 14 days, and never one contradicted by a news item. The thresholds live in [`src/api/queries.py`](src/api/queries.py).
 
 > [!TIP]
 > **Movers are computed on the fly, not pre-aggregated.** The daily (7-day) and weekly (30-day) windows deliberately differ so the two reports never show the same thing, and both run as a plain SQL query against `fact_price_history` at request time. At a few hundred owned cards, this stays well within the budget for a synchronous request, so no new Airflow task or pre-computed table was introduced just for this feature.
@@ -207,7 +207,7 @@ src/
   api/          FastAPI dashboard backend, read-only (dashboard_reader role)
   common/       configuration and database connection helpers
 dags/           Airflow DAG (extract >> clean >> load), production reliability hardening
-frontend/       React + TypeScript dashboard (catalog, collection, card history, movers reports)
+board/          Dashboard: one static page (public/index.html), Nginx image proxying /api/
 migrations/     Numbered SQL, applied once, never modified after merge
 scripts/        Manual entry points (one-off extraction, migrations, collection import)
 tests/          73 tests, unit and integration (pytest + a real Postgres instance)
