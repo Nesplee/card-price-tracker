@@ -91,7 +91,7 @@ cd card-price-tracker
 cp .env.example .env   # remplir toutes les valeurs (jamais commité)
 ```
 
-Démarrage de la stack complète (Postgres applicatif, Postgres métadonnées Airflow, Airflow webserver + scheduler, Metabase) :
+Démarrage de la stack complète (Postgres applicatif, Postgres métadonnées Airflow, Airflow webserver + scheduler, API et front du dashboard) :
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d
@@ -111,7 +111,7 @@ git pull
 Si une migration SQL a été ajoutée : `./scripts/apply_migrations.sh docker-compose.prod.yml`.
 Si `docker-compose.prod.yml` a changé (nouveau service, image mise à jour) : `docker compose -f docker-compose.prod.yml up -d`.
 
-### Accéder aux interfaces web (Airflow, Metabase, dashboard)
+### Accéder aux interfaces web (Airflow, dashboard)
 
 Aucune de ces interfaces n'est exposée publiquement (voir Firewall ci-dessus)
 — accès en HTTPS via le tailnet Tailscale (certificat Let's Encrypt émis
@@ -121,19 +121,18 @@ ouvrir.
 
 ```
 https://<TAILSCALE_HOSTNAME>:8080   # UI Airflow
-https://<TAILSCALE_HOSTNAME>:3000   # UI Metabase
 https://<TAILSCALE_HOSTNAME>:5173   # Dashboard sur mesure
 ```
 
-### Piège Metabase : collision du nom d'hôte "db" (2026-08-23)
+### Piège : collision du nom d'hôte "db" entre deux réseaux Docker (2026-08-23)
 
-Le conteneur `metabase` de ce projet est aussi rattaché à un second réseau Docker, `annonces-metabase-shared`, partagé avec un autre projet ("annonces") qui a son propre conteneur Postgres également nommé/aliasé `db` (`annonces-db-1`). Un conteneur rattaché à deux réseaux où le même alias existe des deux côtés voit sa résolution DNS de cet alias devenir ambiguë : Metabase configuré avec `db` comme hôte de connexion peut résoudre vers le **mauvais** Postgres (celui d'"annonces" au lieu de `card_tracker`), avec pour symptôme des échecs d'authentification (`password authentication failed for user "dashboard_reader"`) alors que le mot de passe est parfaitement correct — le test de connexion au moment de la sauvegarde peut même passer par intermittence si la résolution retombe sur le bon conteneur à cet instant précis, ce qui rend le problème trompeur.
+Un conteneur rattaché à deux réseaux Docker où le même alias existe des deux côtés voit sa résolution DNS de cet alias devenir ambiguë. Incident vécu avec l'ancien conteneur `metabase` (retiré depuis), rattaché aussi au réseau `annonces-metabase-shared` où le Postgres du projet "annonces" porte lui aussi l'alias `db` : la connexion vers `db` tombait par intermittence sur la mauvaise base, avec pour symptôme des échecs d'authentification (`password authentication failed for user "dashboard_reader"`) malgré un mot de passe correct.
 
-**Symptôme observé** : dashboards "cartes" cassés dans Metabase (graphiques en erreur), alors que la connexion réseau ↔ Postgres fonctionne parfaitement pour tout le reste de la stack (`dashboard-api`, `psql` direct) — ces services ne sont que sur `card-price-tracker_default`, jamais sur le réseau partagé, donc jamais concernés par la collision.
+Règle qui en découle : tout service rattaché à un second réseau (aujourd'hui `airflow-scheduler`, sur `ollama-shared`) ne doit voir aucun autre alias `db` sur ce réseau, ou alors se connecter par le nom complet du conteneur (`card-price-tracker-db-1`).
 
-**Fix appliqué** : dans la config de connexion Metabase (Admin settings → Databases → `Card_tracker`), le champ **Hôte** doit être `card-price-tracker-db-1` (nom complet du conteneur, unique sur tous les réseaux) et non `db` (alias court, ambigu tant que le réseau partagé existe).
+### Retrait de Metabase
 
-Ce changement a été fait via l'API Metabase (`PUT /api/database/2`), donc **pas versionné** dans `docker-compose.prod.yml` ni ailleurs — si le conteneur `metabase` est un jour recréé et que sa config de connexion doit être ressaisie depuis zéro, utiliser `card-price-tracker-db-1` comme hôte dès le départ pour éviter de reproduire ce piège.
+Metabase (service `metabase`, port 3000) a été retiré du compose. Sur un hôte où il tournait encore, le conteneur devient orphelin : `docker compose -f docker-compose.prod.yml up -d --remove-orphans` le supprime. Le volume `card-price-tracker_metabase_data` (comptes et dashboards Metabase) et le fichier `tailscale-certs/keystore.p12` ne sont plus utilisés et peuvent être supprimés à la main. Le réseau externe `annonces-metabase-shared` appartient à d'autres projets : ne pas le supprimer.
 
 ### Vérifier l'état de la stack
 
@@ -141,4 +140,4 @@ Ce changement a été fait via l'API Metabase (`PUT /api/database/2`), donc **pa
 docker compose -f docker-compose.prod.yml ps
 ```
 
-Tous les services persistants (`db`, `airflow-db`, `airflow-webserver`, `airflow-scheduler`, `metabase`) doivent afficher `Up ... (healthy)`. `airflow-init` est un conteneur à usage unique (migration + création du compte admin) : il apparaît `Exited (0)` après son passage, ce qui est l'état normal, pas une erreur.
+Tous les services persistants (`db`, `airflow-db`, `airflow-webserver`, `airflow-scheduler`, `dashboard-api`) doivent afficher `Up ... (healthy)`. `airflow-init` est un conteneur à usage unique (migration + création du compte admin) : il apparaît `Exited (0)` après son passage, ce qui est l'état normal, pas une erreur.

@@ -140,8 +140,8 @@ def get_owned_cards(
 ) -> list[dict]:
     # cost_unknown : average_cost_paid NULL OU littéralement 0 -- ce dernier
     # cas vient du CSV importé (coût non renseigné saisi comme "0.0000"), pas
-    # d'un vrai achat gratuit. Voir la mise en garde déjà posée sur le
-    # dashboard Metabase (docs/superpowers/specs/2026-08-10-interactive-dashboard-design.md).
+    # d'un vrai achat gratuit (même mise en garde que dans
+    # docs/superpowers/specs/2026-08-10-interactive-dashboard-design.md).
     # LEFT JOIN LATERAL : une carte possédée sans observation de prix tcgplayer
     # doit toujours apparaître dans "Ma Collection", avec current_price = NULL.
     # Réutilise _card_filters (mêmes filtres/mêmes correspondances partielles

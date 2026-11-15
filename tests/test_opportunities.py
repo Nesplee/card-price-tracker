@@ -260,7 +260,7 @@ def test_outcome_view_measures_return(db_connection) -> None:
         (D - timedelta(days=7),),
     )
     db_connection.commit()
-    # Les vues de suivi sont lues par Metabase / le dashboard (dashboard_reader),
+    # Les vues de suivi sont lues par le dashboard (dashboard_reader),
     # pas par le pipeline : on vérifie aussi ces droits.
     with psycopg.connect(load_dashboard_reader_config().dsn) as reader:
         outcome = reader.execute(

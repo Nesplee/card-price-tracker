@@ -33,7 +33,7 @@
 
 <div align="center">
 
-Every day, an Apache Airflow DAG extracts the full Pokemon card catalog from [pokemontcg.io](https://pokemontcg.io) (roughly 80 paginated calls, around 20,000 cards, which relays pricing from both TCGPlayer and CardMarket), validates and cleans it into a staging layer with an explicit quarantine for rejects, then loads it into a PostgreSQL star schema. A second, independent import path lets the owner's personal collection (a CSV export from a third-party portfolio tool) be matched against that same catalog. The result is queried two ways: a shared Metabase instance for open-ended exploration, and a purpose-built FastAPI and React dashboard for four specific views (catalog search, collection value, per-card history, and daily/weekly price movers). Both read through the same read-only database role, never through the pipeline's own.
+Every day, an Apache Airflow DAG extracts the full Pokemon card catalog from [pokemontcg.io](https://pokemontcg.io) (roughly 80 paginated calls, around 20,000 cards, which relays pricing from both TCGPlayer and CardMarket), validates and cleans it into a staging layer with an explicit quarantine for rejects, then loads it into a PostgreSQL star schema. A second, independent import path lets the owner's personal collection (a CSV export from a third-party portfolio tool) be matched against that same catalog. The result is read through a purpose-built FastAPI dashboard, connected through a dedicated read-only database role, never through the pipeline's own.
 
 The interesting part isn't calling one API and writing rows to a table. It's building resilience against a third-party API measured at roughly 37% transient failure (5xx and timeouts) on a full extraction, so a page-level checkpoint has to survive crashes without ever losing already-fetched pages or duplicating them. It's a real production incident on 2026-08-07, where a prolonged outage exhausted the retry budget mid-run, diagnosed from execution logs and fixed by raising the retry ceiling, capping the DAG's cumulative duration separately from any single attempt, and catching a date-rollover bug that could have silently corrupted the checkpoint. It's discovering mid-project that the underlying market had effectively shifted from CardMarket to TCGPlayer and having to model that as a currency-aware dimension rather than mixing EUR and USD in the same aggregates. None of this shows up in a demo, only in what breaks in production and how it gets diagnosed (see [Production Hardening](#production-hardening)).
 
@@ -49,7 +49,7 @@ This isn't a script that fetches an API once and calls it done. A handful of dec
 - **Idempotent end-to-end, proven rather than assumed.** Every layer, from the raw copy to the staging quarantine to the star schema itself, upserts through a `UNIQUE` constraint instead of a delete-and-reload. [`tests/test_idempotence.py`](tests/test_idempotence.py) replays the entire pipeline twice in a row against a real database and asserts zero duplication and zero drift in the historical record.
 - **A page-level checkpoint turns a ~37% failure rate into a non-issue.** Each successfully fetched page commits immediately in [`src/extract/pipeline.py`](src/extract/pipeline.py), so a crash mid-extraction never loses work already done; a retry resumes from the last confirmed page instead of restarting an 80-page extraction from scratch.
 - **A real incident reshaped the DAG's failure handling, not a hypothetical one.** The automated run of 2026-08-07 exhausted its then-20-retry budget during a prolonged `pokemontcg.io` outage. The fix raised the retry ceiling to 60, added a 4-hour `dagrun_timeout` that bounds the cumulative run rather than any single attempt, and closed a UTC date-rollover bug, then was verified by replaying that exact failed run to `success` in production.
-- **Least privilege is enforced at the database role level, not just documented.** `pipeline_app` (read/write, scoped to the schemas the pipeline needs) and `dashboard_reader` (read-only, scoped to `prod` alone) are two separate Postgres roles: no interface capable of exploring the data, whether Metabase or the custom dashboard, can also write to it.
+- **Least privilege is enforced at the database role level, not just documented.** `pipeline_app` (read/write, scoped to the schemas the pipeline needs) and `dashboard_reader` (read-only, scoped to `prod` alone) are two separate Postgres roles: the dashboard that reads the data cannot also write to it.
 
 <img src=".assets/divider.png" width="100%" alt="" />
 
@@ -67,14 +67,13 @@ staging.card_prices_quarantine   rejected cards + explicit reason
 prod.fact_price_history         star schema, price by card / day / platform
 prod.dim_card / dim_date / dim_platform   (currency: EUR for CardMarket, USD for TCGPlayer)
     -> dashboard_reader (read-only)
-        -> Metabase                shared BI instance
         -> dashboard-api + board     purpose-built FastAPI + single-page dashboard
 ```
 
 - **Apache Airflow** (LocalExecutor) is the only orchestrator. The daily DAG in [`dags/card_price_pipeline_dag.py`](dags/card_price_pipeline_dag.py) chains three tasks, `extract >> clean >> load`, each wrapped in its own Postgres transaction.
 - **PostgreSQL** is the single source of truth, running as its own service in [`docker-compose.yml`](docker-compose.yml), never shared with another project on the host.
 - **A personal collection import path** ([`src/load/collection_loader.py`](src/load/collection_loader.py), [`src/transform/collection_match.py`](src/transform/collection_match.py)) matches an external CSV against `prod.dim_card` into `prod.dim_owned_card`, with its own quarantine for rows that fail to match any known set or card.
-- **Two read-only consumers, one shared role.** Metabase and a custom FastAPI dashboard ([`src/api/`](src/api), [`board/`](board)) both connect through `dashboard_reader`, never through the pipeline's own `pipeline_app` role.
+- **A read-only consumer with its own role.** The custom FastAPI dashboard ([`src/api/`](src/api), [`board/`](board)) connects through `dashboard_reader`, never through the pipeline's own `pipeline_app` role.
 
 <img src=".assets/divider.png" width="100%" alt="" />
 
@@ -121,10 +120,7 @@ prod.dim_card / dim_date / dim_platform   (currency: EUR for CardMarket, USD for
 <a name="dashboard"></a>
 <h2 align="center">Dashboard</h2>
 
-The warehouse is read two different ways, both through the same read-only `dashboard_reader` role and never through the pipeline's own:
-
-- **Metabase**, a shared, self-hosted instance, for open-ended exploration of the star schema without writing a custom UI for every question.
-- **A purpose-built dashboard** ([`src/api/`](src/api), a FastAPI service, and [`board/`](board), one static page served by Nginx on port 5173) with two blocks face to face, the collection and the market signals (see *Board* below).
+The warehouse is read through the read-only `dashboard_reader` role, never through the pipeline's own, by a purpose-built dashboard ([`src/api/`](src/api), a FastAPI service, and [`board/`](board), one static page served by Nginx on port 5173) with two blocks face to face, the collection and the market signals (see *Board* below).
 
 ```bash
 GET /api/health                    # liveness probe, never touches the database
@@ -142,7 +138,7 @@ GET /api/board/master-sets          # board: sets owned at 20 %+ (whole set or c
 
 **Board** ([`board/public/index.html`](board/public/index.html), served on port 5173; it replaced the former React front end on 2026-11-14) is a single static page in the same visual grammar as the VPS agent-manager: black, neutral greys, square corners, colour only for status lamps and out-of-threshold numbers. Two blocks face to face. *Collection*: market value over time, biggest movers ranked by dollar impact (quantity × price change) over 24 h / 7 d / 30 d / 90 d (chase cards only: Illustration Rare, Special Illustration Rare, full art, gold...; commons, plain rares and regular ex are left out, see `CHASE_RARITIES` in [`src/api/board.py`](src/api/board.py)); the list can be sorted by impact, rise, fall, %, price, owned value, rarity or set, and filtered by rarity, set and price range (choices kept in the browser), value split by set, and below it a *Sets* block: one collapsible row per set where at least 20 % of the cards, or 20 % of its chase cards, are owned (nine sets today: Paldea Evolved and Paldean Fates complete and flagged as such, then 151, Ascended Heroes, White Flare...) with its value and change; unfolded, the value of the whole set over time (one copy of each card, at the price of its main variant), the value of the owned copies, the missing chase cards first and the cost to get them all, value by rarity and the set's biggest movers. *Signaux* is about trends rather than single-day alerts: how many days out of the last 7 / 14 / 30 a buy or sell signal came back for a card (a ribbon of days, and the current streak), and the **buzz**, the number of Reddit posts and press articles that mention each Pokémon over the last 7 days against the 7 before ([`src/api/mentions.py`](src/api/mentions.py), counted per species: "Mega Charizard X ex" counts as Charizard; Trainer names such as "Will" or "Switch" are left out using the Pokémon list in `src/api/data/pokemon_names.txt`, taken from the pokemontcg.io catalogue). Then the directional news and the week-over-week competitive meta. A card turns green/red only past ±5 / 10 / 20 / 30 % (24 h / 7 d / 30 d / 90 d).
 
-The `/api/opportunities` endpoints (used by the former **Opportunités** tab of the React front end, still served for Metabase-style ad hoc use) return the daily buy/sell signals (`prod.fact_opportunity`). By default it shows only a quality *selection* (about 10% of the signals): a signal whose 30-day backtest holds (at least 100 measured cases, 65% hit rate, positive average return) with a score of 50 or more, or a signal backed by a matching news item of the last 14 days, and never one contradicted by a news item. The thresholds live in [`src/api/queries.py`](src/api/queries.py).
+The `/api/opportunities` endpoints (used by the former **Opportunités** tab of the React front end, still served for ad hoc use) return the daily buy/sell signals (`prod.fact_opportunity`). By default it shows only a quality *selection* (about 10% of the signals): a signal whose 30-day backtest holds (at least 100 measured cases, 65% hit rate, positive average return) with a score of 50 or more, or a signal backed by a matching news item of the last 14 days, and never one contradicted by a news item. The thresholds live in [`src/api/queries.py`](src/api/queries.py).
 
 > [!TIP]
 > **Movers are computed on the fly, not pre-aggregated.** The daily (7-day) and weekly (30-day) windows deliberately differ so the two reports never show the same thing, and both run as a plain SQL query against `fact_price_history` at request time. At a few hundred owned cards, this stays well within the budget for a synchronous request, so no new Airflow task or pre-computed table was introduced just for this feature.
@@ -193,7 +189,7 @@ A few of the constraints and trade-offs that only became visible once the pipeli
 > The VPS firewall never opens Postgres (5432) or Airflow (8080) publicly, only SSH (see [`infra/ovh_vps_setup.md`](infra/ovh_vps_setup.md)); every internal service stays bound to `127.0.0.1`, and the actual production access is exclusively through the Tailscale tailnet (see [Deployment](#deployment)), not database-level restriction alone.
 
 > [!TIP]
-> **Metabase's second Docker network once resolved to the wrong database.** In production, the `metabase` container also joins a second, shared Docker network used by another project on the same host, which happens to alias its own Postgres container as `db` too. A container attached to two networks with the same alias on both sides gets an ambiguous DNS resolution for that alias, and Metabase could intermittently connect to the wrong project's database, surfacing as password authentication failures despite a correct password. Fixed by pointing Metabase's connection at the full, unique container name instead of the short alias.
+> **A second Docker network once resolved to the wrong database.** In production, the former Metabase container (since removed) also joined a second, shared Docker network used by another project on the same host, which happens to alias its own Postgres container as `db` too. A container attached to two networks with the same alias on both sides gets an ambiguous DNS resolution for that alias, and Metabase could intermittently connect to the wrong project's database, surfacing as password authentication failures despite a correct password. Fixed at the time by pointing the connection at the full, unique container name instead of the short alias; the same rule still applies to the Airflow scheduler, which joins a second network to reach Ollama.
 
 <img src=".assets/divider.png" width="100%" alt="" />
 
@@ -220,7 +216,7 @@ infra/          VPS provisioning runbook (SSH hardening, firewall, Docker, deplo
 <a name="deployment"></a>
 <h2 align="center">Deployment</h2>
 
-Self-hosted on an OVH VPS (Ubuntu 24.04), provisioned and hardened as documented in [`infra/ovh_vps_setup.md`](infra/ovh_vps_setup.md): SSH key-only authentication, no root login, and a firewall that exposes SSH alone. Every other service, Airflow, Metabase, and the custom dashboard, is reachable exclusively over the Tailscale tailnet with a Let's Encrypt certificate issued for the VPS's MagicDNS name, never on the public interface.
+Self-hosted on an OVH VPS (Ubuntu 24.04), provisioned and hardened as documented in [`infra/ovh_vps_setup.md`](infra/ovh_vps_setup.md): SSH key-only authentication, no root login, and a firewall that exposes SSH alone. Every other service, Airflow and the custom dashboard, is reachable exclusively over the Tailscale tailnet with a Let's Encrypt certificate issued for the VPS's MagicDNS name, never on the public interface.
 
 ```bash
 ssh <vps-alias>
