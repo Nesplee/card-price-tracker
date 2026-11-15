@@ -33,7 +33,7 @@
 
 <div align="center">
 
-Every day, an Apache Airflow DAG extracts the full Pokemon card catalog from [pokemontcg.io](https://pokemontcg.io) (roughly 80 paginated calls, around 20,000 cards, which relays pricing from both TCGPlayer and CardMarket), validates and cleans it into a staging layer with an explicit quarantine for rejects, then loads it into a PostgreSQL star schema. A second, independent import path lets the owner's personal collection (a CSV export from a third-party portfolio tool) be matched against that same catalog. The result is read through a purpose-built FastAPI dashboard, connected through a dedicated read-only database role, never through the pipeline's own.
+Every Monday, an Apache Airflow DAG extracts the full Pokemon card catalog from [pokemontcg.io](https://pokemontcg.io) (roughly 80 paginated calls, around 20,000 cards); every day, a second DAG applies that day's TCGPlayer prices from [TCGCSV](https://tcgcsv.com) to the latest catalog snapshot (pokemontcg.io prices were used until 2026-10-26). Each run is validated and cleaned into a staging layer with an explicit quarantine for rejects, then loaded into a PostgreSQL star schema. A second, independent import path lets the owner's personal collection (a CSV export from a third-party portfolio tool) be matched against that same catalog. The result is read through a purpose-built FastAPI dashboard, connected through a dedicated read-only database role, never through the pipeline's own.
 
 The interesting part isn't calling one API and writing rows to a table. It's building resilience against a third-party API measured at roughly 37% transient failure (5xx and timeouts) on a full extraction, so a page-level checkpoint has to survive crashes without ever losing already-fetched pages or duplicating them. It's a real production incident on 2026-08-07, where a prolonged outage exhausted the retry budget mid-run, diagnosed from execution logs and fixed by raising the retry ceiling, capping the DAG's cumulative duration separately from any single attempt, and catching a date-rollover bug that could have silently corrupted the checkpoint. It's discovering mid-project that the underlying market had effectively shifted from CardMarket to TCGPlayer and having to model that as a currency-aware dimension rather than mixing EUR and USD in the same aggregates. None of this shows up in a demo, only in what breaks in production and how it gets diagnosed (see [Production Hardening](#production-hardening)).
 
@@ -57,7 +57,7 @@ This isn't a script that fetches an API once and calls it done. A handful of dec
 <h2 align="center">Architecture</h2>
 
 ```text
-pokemontcg.io API (TCGPlayer + CardMarket pricing)
+pokemontcg.io API (catalog, weekly) + TCGCSV (TCGPlayer prices, daily, since 2026-10-26)
     -> extract_and_load_raw     page-level checkpoint, resumes after failure
 raw.card_prices                 raw copy (full JSON payload, traceable)
     -> clean_to_staging          validation + cleaning
@@ -198,7 +198,7 @@ A few of the constraints and trade-offs that only became visible once the pipeli
 
 ```text
 src/
-  extract/      pokemontcg.io API client, retry/backoff, page-level checkpoint
+  extract/      pokemontcg.io API client (retry/backoff, page-level checkpoint), catalog snapshot, TCGCSV prices, news feeds, meta
   transform/    validation, cleaning, and collection-to-catalog matching (pure functions, no DB needed)
   load/         idempotent loading: raw, staging, quarantine, warehouse, owned collection
   api/          FastAPI dashboard backend, read-only (dashboard_reader role)
