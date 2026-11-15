@@ -21,6 +21,7 @@ from airflow.models import DagRun
 from src.common.config import load_db_config, load_pokemontcg_config
 from src.extract.pipeline import run_extract_load
 from src.extract.pokemontcg_client import PokemonTcgClient
+from src.monitor.failure_callback import record_failure
 
 
 @dag(
@@ -31,6 +32,10 @@ from src.extract.pokemontcg_client import PokemonTcgClient
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(hours=4),
+    # C1 (2026-11-15) : seul l'échec FINAL du DagRun est enregistré (logs/failures.jsonl, sans
+    # ntfy). Pas de callback sur les tâches : extract_and_load_raw a retries=60 et le callback de
+    # tâche ne part qu'à l'échec final, mais on garde un seul enregistrement par run.
+    on_failure_callback=record_failure,
 )
 def card_catalog_refresh():
     # retries=60 (porté de 20 à 60 le 2026-08-08, voir
