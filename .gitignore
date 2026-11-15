@@ -37,3 +37,8 @@ docs/superpowers/
 # contient key.pem (clé privée TLS) et le keystore PKCS12 dérivé -- jamais
 # commité, régénéré sur le VPS par scripts/renew_tailscale_cert.sh.
 tailscale-certs/
+
+# Archive zstd des jours purgés de raw.card_prices (voir
+# src/maintenance/retention.py et README) : données volumineuses, sauvegardées
+# par restic avec le reste du dossier, jamais commitées.
+raw-archive/

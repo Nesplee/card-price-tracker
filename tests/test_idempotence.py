@@ -142,3 +142,42 @@ def test_full_pipeline_is_idempotent_when_replayed(db_connection) -> None:
     # si un des étages avait fait un "ON CONFLICT DO NOTHING" au lieu d'un
     # DO UPDATE, cette assertion échouerait avec stored_price == 12.5.
     assert stored_price == 20.0
+
+
+def test_replay_inside_retention_window_after_purge(db_connection) -> None:
+    """La rétention (migration 016) ne doit rien changer à la promesse de
+    rejouabilité DANS la fenêtre, ni toucher à l'historique de prod pour les
+    jours purgés de raw/staging."""
+    from datetime import timedelta
+
+    from src.maintenance.retention import purge_old_days
+
+    recent = date(2026, 11, 15)
+    old = recent - timedelta(days=61)
+    card = {
+        "id": "base1-1",
+        "name": "Alakazam",
+        "rarity": "Rare Holo",
+        "set": {"id": "base1", "name": "Base"},
+        "tcgplayer": {"prices": {"normal": {"low": 8.0, "mid": 13.0, "market": 12.5}}},
+    }
+    for day in (old, recent):
+        load_cards(db_connection, [card], extracted_date=day)
+        clean_raw_to_staging(db_connection, day)
+        load_staging_to_warehouse(db_connection, day)
+
+    report = purge_old_days(db_connection, keep_days=60)
+    assert [d for d, _ in report["raw.card_prices"]] == [old]
+
+    # Rejeu du jour récent, toujours dans la fenêtre : même résultat.
+    clean_raw_to_staging(db_connection, recent)
+    load_staging_to_warehouse(db_connection, recent)
+
+    with db_connection.cursor() as cur:
+        cur.execute("SELECT extracted_date FROM raw.card_prices ORDER BY 1;")
+        raw_days = [r[0] for r in cur.fetchall()]
+        cur.execute("SELECT date_id FROM prod.fact_price_history ORDER BY 1;")
+        fact_days = [r[0] for r in cur.fetchall()]
+    assert raw_days == [recent]
+    # L'historique de prod garde le jour purgé de raw, sans doublon pour le jour rejoué.
+    assert fact_days == [old, recent]

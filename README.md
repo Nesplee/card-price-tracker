@@ -94,7 +94,7 @@ prod.dim_card / dim_date / dim_platform   (currency: EUR for CardMarket, USD for
 <table width="100%">
 <tr><th width="24%">Table</th><th>Role<img src=".assets/spacer.png" width="900" height="1" alt="" /></th></tr>
 <tr><td colspan="2" align="right"><img src=".assets/badges/raw.png" height="22" alt="Raw" /></td></tr>
-<tr><td align="center"><code>raw.card_prices</code></td><td>Full, untouched API response per card and per day, kept for traceability and to allow the pipeline to be replayed if a downstream bug is ever found.</td></tr>
+<tr><td align="center"><code>raw.card_prices</code></td><td>Full, untouched API response per card and per day, kept for traceability and to allow the pipeline to be replayed if a downstream bug is ever found. Since 2026-11-15 it is a <b>rolling 60-day window</b> (see <i>Retention</i> below): it held 4.3 GB of a 5.2 GB database after 101 days, while the price history itself lives in <code>prod.fact_price_history</code>.</td></tr>
 
 <tr><td colspan="2" align="right"><img src=".assets/badges/staging.png" height="22" alt="Staging" /></td></tr>
 <tr><td align="center"><code>staging.card_prices</code></td><td>Cleaned, typed rows that passed validation (well-formed price, known card identifier).</td></tr>
@@ -111,6 +111,9 @@ prod.dim_card / dim_date / dim_platform   (currency: EUR for CardMarket, USD for
 <tr><td align="center"><code>collection.match_quarantine</code></td><td>Import rows whose set or card could not be matched to <code>prod.dim_card</code>, with the rejection reason kept alongside a reference to the original row.</td></tr>
 <tr><td align="center"><code>prod.dim_owned_card</code></td><td>Successfully matched, owned cards with quantity, the table every collection view and price-mover report is built on.</td></tr>
 </table>
+
+> [!NOTE]
+> **Retention: raw and staging keep 60 days, prod keeps everything.** The daily DAG `card_raw_retention` ([`dags/card_raw_retention_dag.py`](dags/card_raw_retention_dag.py), 09:30 UTC) deletes, one day at a time, the days of `raw.card_prices`, `staging.card_prices` and `staging.card_prices_quarantine` older than 60 days, counted from the latest day present in `raw` (a stalled pipeline never loses its window, and the latest catalog that the daily snapshot copies is never touched). The deletion goes through `raw.purge_oldest_day()` ([`migration 016`](migrations/016_raw_retention.sql)), a `SECURITY DEFINER` function limited to those three tables and to a window of at least 30 days: `pipeline_app` still has no `DELETE` privilege. A replay is therefore possible within the last 60 days; older raw days live in the restic backups and in a zstd archive (`raw-archive/`, one file per day, git-ignored). Storing only changed payloads was considered and rejected: about 80 % of the cards change price every day. Quarantine reasons per day are exposed in the view `staging.v_quarantine_reasons_daily` and logged by the same DAG.
 
 > [!NOTE]
 > **Two pricing platforms coexist by design.** Historical CardMarket data is never deleted (the schema forbids any `DELETE` on `fact_price_history`); TCGPlayer simply became the default source after a documented mid-project design change. The `currency` column on `dim_platform` is what keeps a careless aggregation from mixing euros and dollars.
@@ -203,11 +206,12 @@ src/
   load/         idempotent loading: raw, staging, quarantine, warehouse, owned collection
   api/          FastAPI dashboard backend, read-only (dashboard_reader role)
   common/       configuration and database connection helpers
-dags/           Airflow DAG (extract >> clean >> load), production reliability hardening
+  maintenance/  rolling retention of raw and staging (60 days)
+dags/           Airflow DAGs (catalog, daily prices, news, retention), production reliability hardening
 board/          Dashboard: one static page (public/index.html), Nginx image proxying /api/
 migrations/     Numbered SQL, applied once, never modified after merge
 scripts/        Manual entry points (one-off extraction, migrations, collection import)
-tests/          73 tests, unit and integration (pytest + a real Postgres instance)
+tests/          171 tests, unit and integration (pytest + a real Postgres instance)
 infra/          VPS provisioning runbook (SSH hardening, firewall, Docker, deployment)
 ```
 
@@ -235,13 +239,22 @@ Application code (`src/`, `dags/`) is bind-mounted into the already-running Airf
 <h2 align="center">Tests</h2>
 
 ```bash
-docker compose up -d db      # integration tests need a real Postgres instance
+# integration tests TRUNCATE raw, staging, prod and collection: run them against a
+# disposable Postgres only, named explicitly in the environment (as in CI)
+docker run -d --rm --name cpt-test -p 127.0.0.1:55432:5432 \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=card_tracker postgres:16
+for f in migrations/*.sql; do docker exec -i cpt-test psql -q -U postgres -d card_tracker < "$f"; done
+export POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=55432 POSTGRES_DB=card_tracker \
+  POSTGRES_ADMIN_USER=postgres POSTGRES_ADMIN_PASSWORD=postgres \
+  POSTGRES_APP_USER=pipeline_app POSTGRES_APP_PASSWORD=pipeline_app_password
+docker exec cpt-test psql -U postgres -d card_tracker \
+  -c "ALTER ROLE pipeline_app WITH PASSWORD 'pipeline_app_password'"
 pytest
 ruff check .
 black --check .
 ```
 
-73 tests covering retrying extraction ([`tests/test_extract.py`](tests/test_extract.py)), checkpoint resumption ([`tests/test_run_extract_load.py`](tests/test_run_extract_load.py)), validation and cleaning ([`tests/test_transform.py`](tests/test_transform.py)), idempotent loading at every stage ([`tests/test_raw_loader.py`](tests/test_raw_loader.py), [`test_staging_loader.py`](tests/test_staging_loader.py), [`test_warehouse_loader.py`](tests/test_warehouse_loader.py)), personal collection matching ([`tests/test_collection_match.py`](tests/test_collection_match.py), [`test_collection_loader.py`](tests/test_collection_loader.py)), the dashboard API ([`tests/test_api_main.py`](tests/test_api_main.py), [`test_api_queries.py`](tests/test_api_queries.py)), and a full end-to-end idempotence run ([`tests/test_idempotence.py`](tests/test_idempotence.py)). CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) rebuilds a disposable Postgres and replays the entire suite on every push and pull request against `main`.
+171 tests covering retrying extraction ([`tests/test_extract.py`](tests/test_extract.py)), checkpoint resumption ([`tests/test_run_extract_load.py`](tests/test_run_extract_load.py)), validation and cleaning ([`tests/test_transform.py`](tests/test_transform.py)), idempotent loading at every stage ([`tests/test_raw_loader.py`](tests/test_raw_loader.py), [`test_staging_loader.py`](tests/test_staging_loader.py), [`test_warehouse_loader.py`](tests/test_warehouse_loader.py)), personal collection matching ([`tests/test_collection_match.py`](tests/test_collection_match.py), [`test_collection_loader.py`](tests/test_collection_loader.py)), the dashboard API ([`tests/test_api_main.py`](tests/test_api_main.py), [`test_api_queries.py`](tests/test_api_queries.py)), a full end-to-end idempotence run ([`tests/test_idempotence.py`](tests/test_idempotence.py)), including a replay inside the retention window after a purge, and the retention itself ([`tests/test_retention.py`](tests/test_retention.py)). A guard in [`tests/conftest.py`](tests/conftest.py) stops the session unless the database is named by the process environment (never by `.env`, which `load_dotenv()` would otherwise pick up) and holds fewer than 5,000 rows in its large tables: the suite can never run against production. CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) rebuilds a disposable Postgres and replays the entire suite on every push and pull request against `main`.
 
 <img src=".assets/divider.png" width="100%" alt="" />
 
