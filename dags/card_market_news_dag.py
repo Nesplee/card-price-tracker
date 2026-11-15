@@ -18,6 +18,7 @@ from src.common.config import load_db_config, load_ollama_config
 from src.common.db import get_connection
 from src.extract.limitless_meta import LimitlessClient, load_meta
 from src.extract.news_feeds import fetch_all, store_news
+from src.monitor.failure_callback import record_failure
 from src.signals.news_llm import OllamaClient, analyze_pending_news
 
 
@@ -29,6 +30,9 @@ from src.signals.news_llm import OllamaClient, analyze_pending_news
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(hours=2),
+    # C1 (2026-11-15) : échecs enregistrés (logs/failures.jsonl), sans ntfy.
+    on_failure_callback=record_failure,
+    default_args={"on_failure_callback": record_failure},
 )
 def card_market_news():
     # Sources externes : quelques retries espacés. Un flux en panne est sauté

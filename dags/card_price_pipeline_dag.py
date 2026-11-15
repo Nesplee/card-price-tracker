@@ -8,7 +8,7 @@
 #      sur TCGCSV (pokemontcg.io les renvoie figés depuis le 2026-10-15).
 #   2. clean_to_staging      : valide/nettoie raw -> staging (Task 2).
 #   3. load_to_warehouse     : charge staging -> star schema prod (Task 3).
-#   4. check_freshness       : alerte ntfy si aucun prix n'a bougé depuis le
+#   4. check_freshness       : enregistre un signal (failures.jsonl) si aucun prix n'a bougé depuis le
 #      jour précédent (source figée, ajouté le 2026-10-26).
 #   4b. compute_opportunities : signaux d'achat / de vente du jour, en
 #      parallèle de check_freshness (ajouté le 2026-11-01).
@@ -22,12 +22,13 @@ from datetime import UTC, date, datetime, timedelta
 from airflow.decorators import dag, task
 from airflow.models import DagRun
 
-from src.common.config import load_db_config, load_ntfy_config
+from src.common.config import load_db_config
 from src.common.db import get_connection
 from src.extract.catalog_snapshot import copy_previous_catalog
 from src.extract.tcgcsv_prices import TcgCsvClient, apply_tcgcsv_prices
 from src.load.warehouse_loader import load_staging_to_warehouse
-from src.monitor.price_freshness import check_price_freshness, send_ntfy
+from src.monitor.failure_callback import record_event, record_failure
+from src.monitor.price_freshness import check_price_freshness
 from src.signals.opportunities import compute_opportunities
 from src.transform.clean import clean_raw_to_staging
 
@@ -129,6 +130,10 @@ from src.transform.clean import clean_raw_to_staging
     # qui reste donc éprouvée et réutilisable si dagrun_timeout se déclenche
     # un jour en cours de retries).
     dagrun_timeout=timedelta(hours=4),
+    # C1 (2026-11-15) : échec du DagRun et de chaque tâche (à l'échec final, pas à chaque retry)
+    # enregistré dans logs/failures.jsonl, sans ntfy ; lu par ~/bin/check-jobs.sh.
+    on_failure_callback=record_failure,
+    default_args={"on_failure_callback": record_failure},
 )
 def card_price_pipeline():
     # snapshot_catalog (remplace extract_and_load_raw le 2026-10-26) : le
@@ -184,7 +189,7 @@ def card_price_pipeline():
     # check_freshness (ajouté le 2026-10-26) : pokemontcg.io a renvoyé les
     # mêmes prix du 2026-10-16 au 2026-10-26 sans aucune erreur, et le
     # pipeline "réussissait" donc en silence. Cette tâche compare le jour
-    # chargé au précédent et envoie une alerte ntfy si aucun prix n'a bougé
+    # chargé au précédent et enregistre un signal (pas de ntfy) si aucun prix n'a bougé
     # (voir src/monitor/price_freshness.py). Elle ne fait PAS échouer le
     # DagRun quand les prix sont figés : les données du jour sont chargées
     # correctement, c'est la source qui est en cause, pas le pipeline.
@@ -196,11 +201,9 @@ def card_price_pipeline():
         log.info("Fraîcheur des prix : %s", report)
         if not report.is_stale:
             return
-        ntfy = load_ntfy_config()
-        if ntfy is None:
-            log.warning("NTFY_TOPIC absent, alerte NON envoyée : %s", report.message())
-            return
-        send_ntfy(ntfy, report.message())
+        # Plus de ntfy immédiat (règle du 2026-11-15) : le signal est enregistré dans
+        # logs/failures.jsonl, lu par ~/bin/check-jobs.sh (message quotidien de 08:05).
+        record_event("prices_stale", "card_price_pipeline", report.message(), "check_freshness")
 
     # compute_opportunities (ajouté le 2026-11-01) : signaux d'achat / de vente
     # du jour dans prod.fact_opportunity (voir src/signals/opportunities.py).
