@@ -13,6 +13,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    # mem_limit (2026-11-15) : pic 4495 Mio (cgroup memory.peak depuis le 14/11 14:36), 433 Mio au repos.
+    # Le pic est surtout du cache de pages, récupérable : 3g borne la base sans risque d OOM.
+    # Après l OOM global du 13/11.
+    mem_limit: 3g
     restart: unless-stopped
 
   airflow-db:
@@ -110,6 +114,9 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+    # mem_limit (2026-11-15) : pic 866 Mio (memory.peak depuis le 14/11), 258 Mio au repos (1 worker gunicorn).
+    # 1280m = ~1,5x le pic ; le swap (4 Go) reste le filet.
+    mem_limit: 1280m
     restart: unless-stopped
 
   airflow-scheduler:
@@ -161,6 +168,9 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+    # mem_limit (2026-11-15) : pic 1193 Mio (memory.peak depuis le 14/11), 431 Mio au repos.
+    # LocalExecutor : les tâches tournent ici. 2g = ~1,7x le pic ; le swap (4 Go) reste le filet.
+    mem_limit: 2g
     restart: unless-stopped
 
   # dashboard-api : API FastAPI en lecture seule pour le dashboard sur mesure
