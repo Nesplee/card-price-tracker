@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-from collections import Counter, defaultdict
+from collections import Counter
 
 import psycopg
 
 from src.common.config import load_db_config
 from src.load.collection_loader import load_match_quarantine, load_owned_cards, load_raw_import
-from src.transform.collection_match import _name_key, match_row, read_collection_csv
+from src.transform.collection_match import build_catalog, match_row, read_collection_csv
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -32,12 +32,7 @@ logger = logging.getLogger(__name__)
 def _catalog(conn) -> tuple[dict[str, str], set[str], dict[str, dict[str, list[str]]]]:
     with conn.cursor() as cur:
         cur.execute("SELECT card_id, name, set_id, set_name FROM prod.dim_card")
-        cards = cur.fetchall()
-    set_name_to_id = {set_name: set_id for _, _, set_id, set_name in cards}
-    names_by_set: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
-    for card_id, name, set_id, _ in cards:
-        names_by_set[set_id][_name_key(name)].append(card_id)
-    return set_name_to_id, {c[0] for c in cards}, names_by_set
+        return build_catalog(cur.fetchall())
 
 
 def main() -> None:

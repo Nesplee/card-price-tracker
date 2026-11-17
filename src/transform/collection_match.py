@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import re
+from collections import defaultdict
 from dataclasses import dataclass, replace
 
 
@@ -97,35 +98,43 @@ def read_collection_csv(
     un master set) : ce sont des exemplaires distincts, regroupés ici sur la
     clé naturelle (set, numéro, nom, variante, état) en additionnant les
     quantités, avec un coût moyen pondéré par la quantité."""
-    merged: dict[tuple, CollectionRow] = {}
     with open(path, newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        market_price_column = _find_market_price_column(reader.fieldnames or [])
-        for record in reader:
-            if record["Category"] != "Pokemon":
-                continue
-            if portfolios is not None and record["Portfolio Name"] not in portfolios:
-                continue
-            if not include_commons and record["Rarity"] in COMMON_RARITIES:
-                continue
-            quantity = int(_number(record["Quantity"]) or 0)
-            if quantity <= 0:
-                continue
-            market_price_raw = record.get(market_price_column, "") if market_price_column else ""
-            row = CollectionRow(
-                set_name=record["Set"],
-                card_number=record["Card Number"],
-                product_name=record["Product Name"],
-                variance=record["Variance"] or "",
-                grade=record["Grade"] or "",
-                rarity=record["Rarity"],
-                quantity=quantity,
-                average_cost_paid=_number(record["Average Cost Paid"]),
-                market_price_at_export=_number(market_price_raw),
-            )
-            key = (row.set_name, row.card_number, row.product_name, row.variance, row.grade)
-            prev = merged.get(key)
-            merged[key] = row if prev is None else _merge(prev, row)
+        return read_collection_lines(f, portfolios=portfolios, include_commons=include_commons)
+
+
+def read_collection_lines(
+    lines, *, portfolios: set[str] | None = frozenset({"Main"}), include_commons: bool = False
+) -> list[CollectionRow]:
+    """Comme read_collection_csv, sur des lignes déjà ouvertes (fichier ou
+    texte envoyé depuis le board, voir src/api/collection_import.py)."""
+    merged: dict[tuple, CollectionRow] = {}
+    reader = csv.DictReader(lines)
+    market_price_column = _find_market_price_column(reader.fieldnames or [])
+    for record in reader:
+        if record["Category"] != "Pokemon":
+            continue
+        if portfolios is not None and record["Portfolio Name"] not in portfolios:
+            continue
+        if not include_commons and record["Rarity"] in COMMON_RARITIES:
+            continue
+        quantity = int(_number(record["Quantity"]) or 0)
+        if quantity <= 0:
+            continue
+        market_price_raw = record.get(market_price_column, "") if market_price_column else ""
+        row = CollectionRow(
+            set_name=record["Set"],
+            card_number=record["Card Number"],
+            product_name=record["Product Name"],
+            variance=record["Variance"] or "",
+            grade=record["Grade"] or "",
+            rarity=record["Rarity"],
+            quantity=quantity,
+            average_cost_paid=_number(record["Average Cost Paid"]),
+            market_price_at_export=_number(market_price_raw),
+        )
+        key = (row.set_name, row.card_number, row.product_name, row.variance, row.grade)
+        prev = merged.get(key)
+        merged[key] = row if prev is None else _merge(prev, row)
     return list(merged.values())
 
 
@@ -204,3 +213,16 @@ def match_row(
         card_id=None,
         rejection_reason=f"card_id introuvable dans le catalogue : {tried}",
     )
+
+
+def build_catalog(
+    cards: list[tuple[str, str, str, str]],
+) -> tuple[dict[str, str], set[str], dict[str, dict[str, list[str]]]]:
+    """Index du catalogue pour match_row, à partir des lignes (card_id, name,
+    set_id, set_name) de prod.dim_card : set_name -> set_id, card_id connus,
+    et par set les card_id de chaque nom normalisé."""
+    set_name_to_id = {set_name: set_id for _, _, set_id, set_name in cards}
+    names_by_set: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    for card_id, name, set_id, _ in cards:
+        names_by_set[set_id][_name_key(name)].append(card_id)
+    return set_name_to_id, {c[0] for c in cards}, names_by_set

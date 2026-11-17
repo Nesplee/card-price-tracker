@@ -226,7 +226,8 @@ def db_connection():
         admin_conn.execute(
             "TRUNCATE TABLE prod.fact_opportunity, prod.fact_news_event, raw.news_item, "
             "raw.meta_card_usage, raw.meta_tournament, prod.dim_owned_card, "
-            "prod.fact_price_history, prod.dim_card RESTART IDENTITY CASCADE;"
+            "prod.fact_price_history, prod.dim_card, prefs.set_setting, prefs.card_setting, "
+            "prefs.wishlist_card RESTART IDENTITY CASCADE;"
         )
         _seed(admin_conn)
         admin_conn.commit()
@@ -335,3 +336,106 @@ def test_rising_meta_card_from_limitless_usage(db_connection) -> None:
     ).fetchone()
     assert signals == ["meta_hausse"]
     assert "38 % des top 8" in reason
+
+
+# ---------- réglages de l'utilisateur (migration 017, prefs.v_card_rules)
+
+
+def test_blocked_buy_gives_no_buy_signal():
+    f = _features(low=30.0, buy_blocked=True)
+    assert _codes(f, "buy") == []
+    assert _codes(replace(f, buy_blocked=False), "buy") == ["annonce_sous_cote"]
+
+
+def test_blocked_sell_and_min_price():
+    f = _features(owned_quantity=1, market=150.0, ma30=100.0)
+    assert _codes(f, "sell") == ["pic"]
+    assert _codes(replace(f, sell_blocked=True), "sell") == []
+    # Aucun signal de vente tant que market reste sous le seuil.
+    assert _codes(replace(f, min_sell_price=200.0), "sell") == []
+    assert _codes(replace(f, min_sell_price=150.0), "sell") == ["pic"]
+
+
+def test_wishlist_target_reached_even_outside_scope_and_cheap():
+    f = _features(in_universe=False, market=3.0, low=2.5, ma30=3.0, price_7d=3.0, price_30d=3.0)
+    assert evaluate(f) == []
+    wished = replace(f, wishlisted=True, target_price=3.5)
+    assert _codes(wished, "buy") == ["cible_atteinte"]
+    # Cible atteinte seulement par l'annonce la moins chère : signal plus faible.
+    by_low = replace(wished, target_price=2.8)
+    (opp,) = evaluate(by_low)
+    assert [s.code for s in opp.signals] == ["cible_atteinte"] and opp.score == 40
+
+
+def test_wishlist_drop_without_target():
+    f = _features(in_universe=False, wishlisted=True, price_7d=115.0)
+    assert _codes(f, "buy") == ["baisse_suivie"]
+    # Saut de prix anormal (changement de variante TCGplayer) : pas de signal.
+    assert _codes(replace(f, max_jump_7d=0.9), "buy") == []
+
+
+def _rules_seed(sql: str, params=()) -> None:
+    with psycopg.connect(_admin_dsn()) as admin_conn:
+        admin_conn.execute(sql, params)
+
+
+def _signals(conn) -> list[tuple[str, str]]:
+    return [
+        (r[0], r[1])
+        for r in conn.execute(
+            "SELECT card_id, side FROM prod.fact_opportunity ORDER BY card_id, side"
+        ).fetchall()
+    ]
+
+
+def test_owned_card_gets_no_buy_unless_wishlisted(db_connection) -> None:
+    # Une reverse seule suffit : la carte est possédée.
+    _rules_seed(
+        "INSERT INTO prod.dim_owned_card (card_id, variance, grade, quantity) "
+        "VALUES ('base1-4', 'Reverse Holofoil', 'Ungraded', 1)"
+    )
+    compute_opportunities(db_connection, D)
+    assert ("base1-4", "buy") not in _signals(db_connection)
+    _rules_seed("INSERT INTO prefs.wishlist_card (list_id, card_id) VALUES (1, 'base1-4')")
+    compute_opportunities(db_connection, D)
+    assert ("base1-4", "buy") in _signals(db_connection)
+
+
+def test_unfollowed_card_has_no_signal(db_connection) -> None:
+    _rules_seed(
+        "INSERT INTO prefs.card_setting (card_id, unfollowed) VALUES ('base1-4', true), "
+        "('sv1-50', true)"
+    )
+    counts = compute_opportunities(db_connection, D)
+    assert counts["buy"] == 0 and counts["sell"] == 0
+
+
+def test_min_sell_price_and_unsellable(db_connection) -> None:
+    # sv1-50 vaut 150 $ à J (pic) : seuil à 200 $, pas de vente.
+    _rules_seed("INSERT INTO prefs.card_setting (card_id, min_sell_price) VALUES ('sv1-50', 200)")
+    assert compute_opportunities(db_connection, D)["sell"] == 0
+    _rules_seed("UPDATE prefs.card_setting SET min_sell_price = 150 WHERE card_id = 'sv1-50'")
+    assert compute_opportunities(db_connection, D)["sell"] == 1
+
+
+def test_masterset_sells_only_rare_duplicates(db_connection) -> None:
+    _rules_seed(
+        "DELETE FROM prod.fact_opportunity; "
+        "INSERT INTO prefs.set_setting (set_id, masterset) VALUES ('sv1', true)"
+    )
+    # Commune en un exemplaire dans un masterset : invendable.
+    assert compute_opportunities(db_connection, D)["sell"] == 0
+    # Doublon (2 holo) mais commune : toujours invendable.
+    _rules_seed("UPDATE prod.dim_owned_card SET quantity = 2 WHERE card_id = 'sv1-50'")
+    assert compute_opportunities(db_connection, D)["sell"] == 0
+    # Doublon d'une Illustration Rare : vendable.
+    _rules_seed("UPDATE prod.dim_card SET rarity = 'Illustration Rare' WHERE card_id = 'sv1-50'")
+    assert compute_opportunities(db_connection, D)["sell"] == 1
+    # Une reverse en plus d'un seul holo n'est pas un doublon.
+    _rules_seed(
+        "DELETE FROM prod.fact_opportunity; "
+        "UPDATE prod.dim_owned_card SET quantity = 1 WHERE card_id = 'sv1-50'; "
+        "INSERT INTO prod.dim_owned_card (card_id, variance, grade, quantity) "
+        "VALUES ('sv1-50', 'Reverse Holofoil', 'Ungraded', 1)"
+    )
+    assert compute_opportunities(db_connection, D)["sell"] == 0

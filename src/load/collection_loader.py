@@ -87,13 +87,10 @@ def load_raw_import(conn: Connection, rows: list[CollectionRow]) -> list[int]:
     return ids
 
 
-def load_owned_cards(conn: Connection, matched: list[tuple[int, MatchResult]]) -> int:
-    """Charge les MatchResult RÉUSSIS (card_id renseigné) dans
-    prod.dim_owned_card. `matched` est une liste de (raw_import_id,
-    MatchResult) -- raw_import_id n'est pas utilisé dans cette table (elle
-    référence directement card_id, pas raw_import), gardé uniquement pour
-    une signature d'appel cohérente avec load_match_quarantine. Idempotent
-    sur (card_id, variance, grade)."""
+def aggregate_owned(matched: list[tuple[int, MatchResult]]) -> list[dict]:
+    """Lignes de prod.dim_owned_card à partir des rapprochements réussis, une
+    par (card_id, variance, grade). Utilisée aussi par l'import depuis le board
+    (src/api/collection_import.py)."""
     # Plusieurs lignes de l'export peuvent désigner la même carte (même
     # card_id, variante et état : « Chi-Yu » et « Chi-Yu ex », ou un numéro
     # écrit de deux façons) : quantités additionnées et coût moyen pondéré,
@@ -118,7 +115,17 @@ def load_owned_cards(conn: Connection, matched: list[tuple[int, MatchResult]]) -
             total, n = cur["_paid"]
             cur["_paid"] = (total + cost * q, n + q)
             cur["average_cost_paid"] = cur["_paid"][0] / cur["_paid"][1]
-    rows = [{k: v for k, v in r.items() if k != "_paid"} for r in merged.values()]
+    return [{k: v for k, v in r.items() if k != "_paid"} for r in merged.values()]
+
+
+def load_owned_cards(conn: Connection, matched: list[tuple[int, MatchResult]]) -> int:
+    """Charge les MatchResult RÉUSSIS (card_id renseigné) dans
+    prod.dim_owned_card. `matched` est une liste de (raw_import_id,
+    MatchResult) -- raw_import_id n'est pas utilisé dans cette table (elle
+    référence directement card_id, pas raw_import), gardé uniquement pour
+    une signature d'appel cohérente avec load_match_quarantine. Idempotent
+    sur (card_id, variance, grade)."""
+    rows = aggregate_owned(matched)
     if not rows:
         return 0
     with conn.cursor() as cur:

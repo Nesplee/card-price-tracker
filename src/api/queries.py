@@ -253,6 +253,16 @@ PROVEN_MIN_HIT_RATE = 0.65
 SELECTION_MIN_SCORE = 50
 NEWS_WINDOW_DAYS = 14
 
+# Filtre des signaux selon les réglages de l'utilisateur (prefs.v_card_rules,
+# migration 017), à joindre sous l'alias r sur une ligne o de
+# prod.fact_opportunity : même règle qu'au calcul (src/signals/opportunities.py),
+# le seuil de vente comparé au prix du jour du signal.
+RULES_FILTER = """
+NOT (o.side = 'buy' AND coalesce(r.buy_blocked, false))
+AND NOT (o.side = 'sell' AND (coalesce(r.sell_blocked, false)
+                              OR o.market_price < coalesce(r.min_sell_price, 0)))
+"""
+
 _OPPORTUNITY_CTES = """
 WITH d AS (
     SELECT coalesce(%(date_id)s::date, max(date_id)) AS date_id FROM prod.fact_opportunity
@@ -299,6 +309,11 @@ WITH d AS (
           AND e.direction = CASE o.side WHEN 'buy' THEN 'baisse' ELSE 'hausse' END
           AND e.confidence * e.weight >= 0.25
     ) ag ON true
+    -- Réglages de l'utilisateur (migration 017) : appliqués aussi en lecture,
+    -- pour qu'un réglage saisi aujourd'hui vaille tout de suite et sur les
+    -- jours passés.
+    LEFT JOIN prefs.v_card_rules r ON r.card_id = o.card_id
+    WHERE {rules}
 ), scored AS (
     SELECT *,
            (news_against = 0 AND ((proven_signal AND score >= %(min_selection)s) OR n_for > 0))
@@ -306,6 +321,7 @@ WITH d AS (
     FROM base
 )
 """
+_OPPORTUNITY_CTES = _OPPORTUNITY_CTES.replace("{rules}", RULES_FILTER.strip())
 
 
 def get_opportunities(
@@ -353,8 +369,7 @@ def get_opportunities(
         params["search"] = f"%{search}%"
     where = " AND ".join(conditions)
     rows = conn.execute(
-        _OPPORTUNITY_CTES
-        + f"""
+        _OPPORTUNITY_CTES + f"""
         SELECT *, count(*) OVER () AS total
         FROM scored WHERE {where}
         ORDER BY is_selection DESC, score DESC, market_price DESC, card_id
@@ -363,8 +378,7 @@ def get_opportunities(
         {**params, "limit": page_size, "offset": (page - 1) * page_size},
     ).fetchall()
     counts = conn.execute(
-        _OPPORTUNITY_CTES
-        + """
+        _OPPORTUNITY_CTES + """
         SELECT (SELECT date_id FROM d) AS date_id,
                count(*) FILTER (WHERE side = 'buy') AS buy_total,
                count(*) FILTER (WHERE side = 'buy' AND is_selection) AS buy_selection,
@@ -379,13 +393,11 @@ def get_opportunities(
 
 
 def get_signal_performance(conn) -> list[dict]:
-    return conn.execute(
-        """
+    return conn.execute("""
         SELECT side, signal, n, n_7d, hit_rate_7d, avg_edge_7d, n_30d, hit_rate_30d, avg_edge_30d
         FROM prod.v_opportunity_signal_performance
         ORDER BY side, n_30d DESC
-        """
-    ).fetchall()
+        """).fetchall()
 
 
 def get_opportunity_trends(conn, *, date_id=None) -> dict:
@@ -430,6 +442,10 @@ def get_opportunity_trends(conn, *, date_id=None) -> dict:
             FROM prod.fact_opportunity o
             JOIN d ON d.date_id = o.date_id
             JOIN prod.dim_card c ON c.card_id = o.card_id
+            LEFT JOIN prefs.v_card_rules r ON r.card_id = o.card_id
+            WHERE """
+        + RULES_FILTER
+        + """
             GROUP BY c.set_name
         ), nw AS (
             SELECT e.set_name,
@@ -471,8 +487,7 @@ def get_opportunity_trends(conn, *, date_id=None) -> dict:
     ).fetchall()
     # Méta : part des decklists du top 8 par carte, dernière semaine contre la
     # précédente. Les cartes à moins de 5 % dans les deux semaines sont ignorées.
-    meta = conn.execute(
-        """
+    meta = conn.execute("""
         WITH w AS (SELECT max(week) AS cur FROM prod.v_meta_usage_weekly),
         -- Chaque semaine filtrée AVANT le FULL JOIN : avec le filtre de b dans
         -- la clause ON, les lignes de toutes les semaines passées remontaient.
@@ -483,6 +498,5 @@ def get_opportunity_trends(conn, *, date_id=None) -> dict:
         WHERE greatest(coalesce(a.share, 0), coalesce(b.share, 0)) >= 0.05
         ORDER BY abs(coalesce(a.share, 0) - coalesce(b.share, 0)) DESC
         LIMIT 10
-        """
-    ).fetchall()
+        """).fetchall()
     return {"sets": sets, "news": news, "meta": meta}

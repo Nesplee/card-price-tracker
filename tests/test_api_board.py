@@ -42,6 +42,8 @@ def test_collection_board_values_and_moves():
             "set_name": "Paldean Fates",
             "series": "SV",
             "rarity": "Special Illustration Rare",
+            "image_small": "https://images.pokemontcg.io/sv4pt5/232.png",
+            "image_alt": None,
             "quantity": 2,
             "variances": ["Holofoil"],
             "grades": [None],
@@ -52,6 +54,8 @@ def test_collection_board_values_and_moves():
             "set_name": "Base",
             "series": "Base",
             "rarity": "Common",
+            "image_small": None,
+            "image_alt": None,
             "quantity": 1,
             "variances": [None],
             "grades": ["PSA 10"],
@@ -66,7 +70,20 @@ def test_collection_board_values_and_moves():
         for d, p in ((7, 10), (0, 12))
     ]
     sigs = [{"card_id": "a", "side": "sell", "score": 60, "signals": ["chute"], "reason": "r"}]
-    out = board.get_collection_board(FakeConn(cards, prices, sigs))
+    prefs = [
+        {
+            "card_id": "a",
+            "unsellable": True,
+            "unfollowed": False,
+            "min_sell_price": None,
+            "in_masterset": True,
+            "wishlisted": False,
+            "target_price": None,
+            "buy_blocked": True,
+            "sell_blocked": True,
+        }
+    ]
+    out = board.get_collection_board(FakeConn(cards, prices, sigs, prefs))
     assert out["as_of"] == D and out["total_value"] == 2 * 90 + 12
     assert out["windows"][7]["delta"] == (2 * 90 + 12) - (2 * 100 + 10)
     # Pas de point à J-1 pour b : la valeur de ce jour-là ne compte que a.
@@ -74,8 +91,11 @@ def test_collection_board_values_and_moves():
     a = next(c for c in out["cards"] if c["card_id"] == "a")
     assert a["price"] == 90 and a["past"][7] == 100 and a["past"][1] == 95
     assert a["signals"][0]["side"] == "sell" and a["variances"] == ["Holofoil"]
+    # Réglages de la carte (prefs.v_card_rules) ; valeurs par défaut sans ligne.
+    assert a["prefs"]["unsellable"] and a["prefs"]["in_masterset"]
     b = next(c for c in out["cards"] if c["card_id"] == "b")
     assert b["grades"] == ["PSA 10"] and b["past"][7] == 10 and b["past"][1] is None
+    assert b["prefs"] == board.DEFAULT_PREFS
     # Mini-courbes seulement pour les raretés recherchées (pas la Common).
     assert set(out["sparks"]) == {"a"} and len(out["sparks"]["a"]) == len(out["dates"])
 
@@ -120,6 +140,8 @@ def test_master_sets_value_whole_set_and_owned_copies():
             "card_id": "sv2-1",
             "name": "Sprigatito",
             "rarity": "Common",
+            "image_small": None,
+            "image_alt": None,
             "quantity": 3,
             "variances": ["Normal", "Reverse Holofoil"],
         },
@@ -127,6 +149,8 @@ def test_master_sets_value_whole_set_and_owned_copies():
             "card_id": "sv2-2",
             "name": "Magikarp",
             "rarity": "Illustration Rare",
+            "image_small": None,
+            "image_alt": None,
             "quantity": 1,
             "variances": ["Holofoil"],
         },

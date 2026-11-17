@@ -1,7 +1,9 @@
 # Données du tableau de bord « board » (board/index.html) : deux blocs face à
 # face, Collection (valeur et mouvements de prix des cartes possédées) et
 # Signaux (achats / ventes portés par les news et la méta compétitive).
-# Lecture seule, rôle dashboard_reader, prix TCGplayer (USD) uniquement.
+# Rôle dashboard_reader, prix TCGplayer (USD) uniquement. Lecture seule, sauf
+# les réglages de l'utilisateur (schéma prefs, voir src/api/prefs.py), dont les
+# règles filtrent aussi les signaux affichés ici (prefs.v_card_rules).
 from __future__ import annotations
 
 import json
@@ -14,7 +16,7 @@ from psycopg import errors
 
 from src.api import mentions
 from src.api.db import get_api_connection
-from src.api.queries import NEWS_WINDOW_DAYS
+from src.api.queries import NEWS_WINDOW_DAYS, RULES_FILTER
 
 router = APIRouter(prefix="/api/board")
 
@@ -78,6 +80,34 @@ def _past(history: list[tuple[date, float]], target: date, slack: int) -> tuple[
     return best
 
 
+# Réglages d'une carte sans ligne dans prefs (valeurs par défaut).
+DEFAULT_PREFS = {
+    "unsellable": False,
+    "unfollowed": False,
+    "min_sell_price": None,
+    "in_masterset": False,
+    "wishlisted": False,
+    "target_price": None,
+    "buy_blocked": False,
+    "sell_blocked": False,
+}
+
+
+def card_prefs(conn, card_ids: list[str]) -> dict[str, dict]:
+    """Réglages et règles qui s'appliquent à ces cartes (prefs.v_card_rules)."""
+    if not card_ids:
+        return {}
+    rows = conn.execute(
+        """
+        SELECT card_id, unsellable, unfollowed, min_sell_price, in_masterset, wishlisted,
+               target_price, buy_blocked, sell_blocked
+        FROM prefs.v_card_rules WHERE card_id = ANY(%(ids)s)
+        """,
+        {"ids": card_ids},
+    ).fetchall()
+    return {r["card_id"]: {k: _num(v) for k, v in r.items() if k != "card_id"} for r in rows}
+
+
 def get_collection_board(conn) -> dict:
     params = {"platform": _PLATFORM}
 
@@ -118,16 +148,23 @@ def get_collection_board(conn) -> dict:
         return {"as_of": None, "history": [], "windows": {}, "cards": [], "sparks": {}}
 
     # Signaux du dernier jour sur les cartes possédées (prix, news, méta).
-    sig_rows = conn.execute("""
+    sig_rows = conn.execute(
+        """
         SELECT o.card_id, o.side, o.score, o.signals, o.reason
         FROM prod.fact_opportunity o
+        LEFT JOIN prefs.v_card_rules r ON r.card_id = o.card_id
         WHERE o.date_id = (SELECT max(date_id) FROM prod.fact_opportunity)
           AND o.card_id IN (SELECT card_id FROM prod.dim_owned_card)
+          AND """
+        + RULES_FILTER
+        + """
         ORDER BY o.score DESC
-        """).fetchall()
+        """
+    ).fetchall()
     sigs: dict[str, list[dict]] = {}
     for r in sig_rows:
         sigs.setdefault(r["card_id"], []).append(_clean(r))
+    prefs = card_prefs(conn, [c["card_id"] for c in cards])
 
     # Valeur de la collection actuelle, jour par jour (quantité x prix market).
     qty = {c["card_id"]: c["quantity"] for c in cards}
@@ -156,6 +193,7 @@ def get_collection_board(conn) -> dict:
             "price": cur[1] if cur else None,
             "past": {},
             "signals": sigs.get(c["card_id"], []),
+            "prefs": prefs.get(c["card_id"], DEFAULT_PREFS),
         }
         if cur:
             for w in WINDOWS:
@@ -215,13 +253,16 @@ def get_master_sets(conn) -> dict:
               FROM prod.dim_owned_card o JOIN prod.dim_card c ON c.card_id = o.card_id
               GROUP BY c.set_id)
         SELECT s.set_id, s.set_name, s.n::int AS n_cards, o.owned_cards::int,
-               s.n_chase::int AS n_chase, o.owned_chase::int, o.entries::int, o.copies
+               s.n_chase::int AS n_chase, o.owned_chase::int, o.entries::int, o.copies,
+               coalesce(ss.masterset, false) AS masterset
         FROM s JOIN o USING (set_id)
         -- Suivi dès MASTER_SET_MIN_SHARE du set entier OU de ses cartes
         -- recherchées : on collectionne souvent les AR / SAR d'un set sans ses
         -- communes (151 : 32 cartes recherchées sur 42, 33 cartes sur 207).
+        LEFT JOIN prefs.set_setting ss ON ss.set_id = s.set_id
         WHERE o.owned_cards >= %(share)s * s.n
            OR (s.n_chase > 0 AND o.owned_chase >= %(share)s * s.n_chase)
+           OR coalesce(ss.masterset, false)
         ORDER BY (o.owned_cards = s.n) DESC,
                  greatest(o.owned_cards::float / s.n,
                           o.owned_chase::float / nullif(s.n_chase, 0)) DESC,
@@ -358,8 +399,12 @@ def get_signals_board(conn, *, days: int) -> dict:
     trends = conn.execute(
         """
         WITH o AS (
-            SELECT * FROM prod.fact_opportunity
-            WHERE date_id > %(as_of)s::date - %(days)s
+            SELECT o.* FROM prod.fact_opportunity o
+            LEFT JOIN prefs.v_card_rules r ON r.card_id = o.card_id
+            WHERE o.date_id > %(as_of)s::date - %(days)s
+              AND """
+        + RULES_FILTER
+        + """
         ), agg AS (
             SELECT card_id, side, count(*)::int AS n_days,
                    array_agg(date_id ORDER BY date_id) AS dates,
@@ -377,7 +422,8 @@ def get_signals_board(conn, *, days: int) -> dict:
         )
         SELECT a.card_id, a.side, a.n_days, a.dates, a.scores, c.codes, l.last_date, l.score,
                l.signals, l.reason, l.market_price, l.change_7d, l.change_30d,
-               dc.name, dc.set_name, dc.series, dc.image_small, dc.image_alt, coalesce(own.q, 0) AS owned_quantity
+               dc.name, dc.set_name, dc.series, dc.rarity, dc.image_small, dc.image_alt,
+               coalesce(own.q, 0) AS owned_quantity
         FROM agg a
         JOIN codes c USING (card_id, side)
         JOIN last l USING (card_id, side)
@@ -390,6 +436,9 @@ def get_signals_board(conn, *, days: int) -> dict:
         params,
     ).fetchall()
     trends = [_clean(r) for r in trends]
+    prefs = card_prefs(conn, list({t["card_id"] for t in trends}))
+    for t in trends:
+        t["prefs"] = prefs.get(t["card_id"], DEFAULT_PREFS)
 
     # News rattachées à ces cartes sur la période, pour ou contre le signal.
     ids = list({t["card_id"] for t in trends})

@@ -19,6 +19,17 @@
 #     src/signals/news_llm.py) ;
 #   - meta_* : usage dans le top 8 des tournois Limitless (raw.meta_card_usage,
 #     voir src/extract/limitless_meta.py), cartes Standard seulement.
+#
+# Partie 3 (2026-11-17) : réglages de l'utilisateur (schéma prefs, migration
+# 017, vue prefs.v_card_rules) :
+#   - pas d'achat sur une carte possédée (tout exemplaire), sauf si elle est
+#     dans une liste de cartes recherchées ;
+#   - pas de vente sur une carte invendable, ni sur une carte d'un masterset
+#     hors doublons de rareté au-dessus de Rare, ni sous le prix minimum de
+#     vente fixé pour la carte ;
+#   - « ne plus suivre » : aucun signal ;
+#   - cartes recherchées : évaluées même hors du périmètre d'achat, avec deux
+#     signaux propres, cible_atteinte et baisse_suivie.
 from __future__ import annotations
 
 import logging
@@ -72,6 +83,8 @@ META_MIN_DECKLISTS = 16
 META_RISE_MIN_SHARE = 0.10
 META_RISE_MIN_DIFF = 0.10
 META_FALL_MIN_PREV = 0.20
+# Cartes recherchées : baisse sur 7 j qui déclenche un signal sans prix cible.
+WISH_DROP_7D = -0.10
 
 
 @dataclass(frozen=True)
@@ -102,6 +115,12 @@ class CardFeatures:
     news_down_title: str | None = None
     meta_share: float | None = None
     meta_share_prev: float | None = None
+    # Réglages de l'utilisateur (prefs.v_card_rules), rattachés après coup.
+    buy_blocked: bool = False
+    sell_blocked: bool = False
+    min_sell_price: float | None = None
+    wishlisted: bool = False
+    target_price: float | None = None
 
     @property
     def change_7d(self) -> float | None:
@@ -299,22 +318,74 @@ def _sell_signals(f: CardFeatures) -> list[Signal]:
     return signals
 
 
+def _wishlist_signals(f: CardFeatures) -> list[Signal]:
+    """Signaux propres aux cartes recherchées, à tout prix (une carte
+    recherchée à 3 $ compte autant qu'une autre)."""
+    signals = []
+    if f.target_price:
+        if f.market <= f.target_price:
+            signals.append(
+                Signal(
+                    "cible_atteinte",
+                    min(1.0, 0.6 + (1 - f.market / f.target_price)),
+                    f"prix market {f.market:.2f} $, sous ta cible de {f.target_price:.2f} $",
+                )
+            )
+        elif f.low and f.low <= f.target_price:
+            # low : annonce la moins chère, tous états confondus (souvent une
+            # carte abîmée) : signal plus faible que le prix market.
+            signals.append(
+                Signal(
+                    "cible_atteinte",
+                    0.4,
+                    f"annonce la moins chère à {f.low:.2f} $ (tous états), sous ta cible "
+                    f"de {f.target_price:.2f} $ ; market {f.market:.2f} $",
+                )
+            )
+    change_7d = f.change_7d
+    if (
+        change_7d is not None
+        and change_7d <= WISH_DROP_7D
+        and (f.max_jump_7d is None or f.max_jump_7d <= MAX_DAILY_JUMP)
+    ):
+        signals.append(
+            Signal(
+                "baisse_suivie",
+                min(1.0, -change_7d / 0.3),
+                f"carte recherchée en baisse de {_pct(change_7d)} sur 7 j",
+            )
+        )
+    return signals
+
+
 def evaluate(f: CardFeatures) -> list[Opportunity]:
     """Règles d'achat / de vente pour une carte. Fonction pure (pas de base),
     testée directement dans tests/test_opportunities.py."""
-    if f.market is None or f.market < MIN_PRICE:
+    if f.market is None:
         return []
+    # En dessous de MIN_PRICE, seuls les signaux des cartes recherchées
+    # restent (choix explicite de l'utilisateur, pas du bruit de marché).
+    cheap = f.market < MIN_PRICE
     # Les signaux de prix ont besoin d'un historique propre ; les signaux de
     # contexte (news, méta) non.
     prices_usable = f.n30 >= MIN_DAYS_30 and (
         f.max_jump_7d is None or f.max_jump_7d <= MAX_DAILY_JUMP
     )
     opportunities = []
-    if f.in_universe:
-        signals = (_buy_signals(f) if prices_usable else []) + _context_buy_signals(f)
+    if (f.in_universe or f.wishlisted) and not f.buy_blocked:
+        signals = []
+        if not cheap:
+            signals += (_buy_signals(f) if prices_usable else []) + _context_buy_signals(f)
+        if f.wishlisted:
+            signals += _wishlist_signals(f)
         if signals:
             opportunities.append(Opportunity(f, "buy", tuple(signals)))
-    if f.owned_quantity > 0:
+    if (
+        f.owned_quantity > 0
+        and not cheap
+        and not f.sell_blocked
+        and (f.min_sell_price is None or f.market >= f.min_sell_price)
+    ):
         signals = (_sell_signals(f) if prices_usable else []) + _context_sell_signals(f)
         if signals:
             opportunities.append(Opportunity(f, "sell", tuple(signals)))
@@ -339,18 +410,25 @@ WITH owned AS (
     FROM prod.dim_owned_card
     WHERE grade = ANY(%(ungraded)s)
     GROUP BY card_id
+), ids AS (
+    -- Périmètre d'achat + cartes possédées + cartes recherchées (prefs,
+    -- migration 017), évaluées même hors du périmètre.
+    SELECT card_id FROM prod.v_opportunity_universe
+    UNION SELECT card_id FROM owned
+    UNION SELECT card_id FROM prefs.wishlist_card
 ), scope AS (
-    -- Périmètre d'achat + cartes possédées, avec leurs infos de possession :
-    -- une seule jointure ensuite (joindre owned après l'agrégation faisait
-    -- recalculer owned pour chaque ligne de prix, plusieurs minutes en prod).
-    SELECT coalesce(u.card_id, o.card_id) AS card_id,
+    -- Avec leurs infos de possession : une seule jointure ensuite (joindre
+    -- owned après l'agrégation faisait recalculer owned pour chaque ligne de
+    -- prix, plusieurs minutes en prod).
+    SELECT ids.card_id,
            u.card_id IS NOT NULL AS in_universe,
            coalesce(o.quantity, 0)::int AS owned_quantity,
            o.avg_cost_paid::float8 AS avg_cost_paid,
            c.name, c.series
-    FROM prod.v_opportunity_universe u
-    FULL JOIN owned o ON o.card_id = u.card_id
-    JOIN prod.dim_card c ON c.card_id = coalesce(u.card_id, o.card_id)
+    FROM ids
+    LEFT JOIN prod.v_opportunity_universe u ON u.card_id = ids.card_id
+    LEFT JOIN owned o ON o.card_id = ids.card_id
+    JOIN prod.dim_card c ON c.card_id = ids.card_id
 ), h AS (
     SELECT f.card_id, f.date_id, s.in_universe, s.owned_quantity, s.avg_cost_paid,
            s.name, s.series,
@@ -467,7 +545,33 @@ def fetch_features(conn: Connection, date_id: date) -> list[CardFeatures]:
         }
         cur.execute(_META_SQL, {"d": date_id, "min_decklists": META_MIN_DECKLISTS})
         meta = {name: (share, share_prev) for name, share, share_prev in cur}
-    return [_with_context(f, news, meta) for f in features]
+        cur.execute(_RULES_SQL)
+        rules = {row[0]: row[1:] for row in cur}
+    return [_with_rules(_with_context(f, news, meta), rules) for f in features]
+
+
+# Réglages de l'utilisateur (migration 017) : une ligne par carte possédée,
+# réglée ou recherchée.
+_RULES_SQL = """
+SELECT card_id, buy_blocked, sell_blocked, min_sell_price::float8, wishlisted,
+       target_price::float8
+FROM prefs.v_card_rules
+"""
+
+
+def _with_rules(f: CardFeatures, rules: dict[str, tuple]) -> CardFeatures:
+    r = rules.get(f.card_id)
+    if r is None:
+        return f
+    buy_blocked, sell_blocked, min_sell_price, wishlisted, target_price = r
+    return replace(
+        f,
+        buy_blocked=buy_blocked,
+        sell_blocked=sell_blocked,
+        min_sell_price=min_sell_price,
+        wishlisted=wishlisted,
+        target_price=target_price,
+    )
 
 
 def _with_context(

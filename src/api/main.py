@@ -1,14 +1,17 @@
 # Application FastAPI du dashboard sur mesure. Chaque endpoint : (1) valide
 # ses paramètres, (2) délègue la requête SQL à src/api/queries.py, (3)
 # calcule les champs dérivés simples (market_value, gain_loss) et sérialise
-# via les modèles de src/api/schemas.py. Aucune écriture n'est possible ici :
-# la connexion (get_api_connection) utilise le rôle dashboard_reader,
-# lecture seule au niveau Postgres lui-même (migration 007).
+# via les modèles de src/api/schemas.py. La connexion (get_api_connection)
+# utilise le rôle dashboard_reader, en lecture seule au niveau Postgres
+# (migration 007), sauf sur le schéma prefs (réglages saisis dans le board,
+# src/api/prefs.py) et via la seule fonction collection.apply_import (import
+# de la collection depuis le board, src/api/collection_import.py), voir la
+# migration 017.
 from __future__ import annotations
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 
-from src.api import board, queries
+from src.api import board, collection_import, prefs, queries
 from src.api.db import get_api_connection
 from src.api.schemas import (
     CardHistoryResponse,
@@ -27,6 +30,8 @@ from src.api.schemas import (
 
 app = FastAPI(title="Card Price Tracker — Dashboard API")
 app.include_router(board.router)
+app.include_router(prefs.router)
+app.include_router(collection_import.router)
 
 
 @app.get("/api/health")
