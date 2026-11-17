@@ -52,8 +52,11 @@ class OwnedKey(BaseModel):
 class ImportIn(BaseModel):
     csv: str = Field(min_length=1, max_length=MAX_CSV_CHARS)
     # Mêmes options que le script ; par défaut celles de l'import en place
-    # (tous les portefeuilles, communes comprises : les mastersets complets).
-    all_portfolios: bool = True
+    # (vérifié le 2026-11-17 sur l'export réel : portefeuille « Main » seul,
+    # communes comprises = 0 ajout, 0 modification). Les portefeuilles
+    # « MS - <set> » reprennent des cartes déjà dans Main : les additionner
+    # compterait 781 cartes en double.
+    all_portfolios: bool = False
     include_commons: bool = True
 
 

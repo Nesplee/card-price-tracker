@@ -90,6 +90,7 @@ def search_cards(
     sql = f"""
         SELECT
             c.card_id, c.name, c.series, c.set_name, c.rarity,
+            c.set_id, c.image_small, c.image_alt,
             latest.average_sell_price AS current_price
         FROM prod.dim_card c
         LEFT JOIN LATERAL (

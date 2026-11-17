@@ -173,7 +173,8 @@ def test_wishlist_add_target_and_remove(client):
     # Note seule : la cible reste.
     client.put("/api/prefs/wishlists/1/cards/sv3pt5-205", json={"note": "  pour le binder "})
     mew = next(
-        c for c in client.get("/api/prefs/wishlists").json()["cards"]
+        c
+        for c in client.get("/api/prefs/wishlists").json()["cards"]
         if c["card_id"] == "sv3pt5-205"
     )
     assert mew["target_price"] == 90 and mew["note"] == "pour le binder"
@@ -276,6 +277,20 @@ def test_import_never_removes_a_card_present_in_the_export(client):
     remove = [{"card_id": "sv2-1", "variance": "Normal", "grade": "Ungraded"}]
     r = client.post("/api/collection-import/apply", json={"csv": EXPORT, "remove": remove})
     assert r.json()["removed"] == 0 and any(x[0] == "sv2-1" for x in _owned())
+
+
+def test_import_reads_main_portfolio_only_by_default(client):
+    # Les portefeuilles « MS - <set> » reprennent des cartes de Main : par
+    # défaut ils sont ignorés, sinon chaque carte compterait double.
+    doubled = EXPORT + "MS - Paldea Evolved,Pokemon,Paldea Evolved,Magikarp,200/193,"
+    doubled += "Illustration Rare,Holofoil,Ungraded,,40.00,2,80.00,,,,\n"
+    p = client.post("/api/collection-import/preview", json={"csv": doubled}).json()
+    magikarp = next(c for c in p["changed"] if c["card_id"] == "sv2-200")
+    assert magikarp["quantity"] == 2
+    p = client.post(
+        "/api/collection-import/preview", json={"csv": doubled, "all_portfolios": True}
+    ).json()
+    assert next(c for c in p["changed"] if c["card_id"] == "sv2-200")["quantity"] == 4
 
 
 def test_import_rejects_bad_files(client):

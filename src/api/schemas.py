@@ -17,6 +17,10 @@ class CardSummary(BaseModel):
     set_name: str
     rarity: str | None
     current_price: float | None
+    # Ajoutés le 2026-11-17 pour la recherche des cartes recherchées du board.
+    set_id: str | None = None
+    image_small: str | None = None
+    image_alt: str | None = None
 
 
 class CardListResponse(BaseModel):

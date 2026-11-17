@@ -164,20 +164,75 @@
   .div i { position: absolute; top: 2px; height: 6px; background: var(--ink); }
   .div i.neg { background: var(--dim); }
   .more { padding: 10px var(--pad) 14px; border-top: 1px solid var(--rule); }
-  .detail { padding: 6px var(--pad) 16px; display: grid; grid-template-columns: minmax(0, 1fr) 210px; gap: 14px 24px; }
-  .detail .chart { position: relative; height: 120px; }
-  .detail .chart svg { position: absolute; inset: 0 52px 0 0; width: calc(100% - 52px); height: 100%; overflow: visible; border-bottom: 1px solid var(--rule2); }
-  .detail .chart path { fill: none; vector-effect: non-scaling-stroke; }
-  .detail .chart .ln { stroke: var(--ink); stroke-width: 1.4; }
-  .detail .chart .ln2 { stroke: var(--faint); stroke-width: 1; stroke-dasharray: 2 2; }
-  .detail .chart .band { fill: #141414; }
-  .detail .chart .tl { position: absolute; right: 0; width: 46px; white-space: nowrap; font-size: 10px; line-height: 1; color: var(--faint); }
-  .detail .lgd { display: flex; gap: 14px; font-size: 11px; color: var(--faint); margin-top: 6px; }
-  .detail .lgd i { display: inline-block; width: 14px; height: 0; border-top: 1.4px solid var(--ink); vertical-align: middle; margin-right: 5px; }
-  .detail .lgd i.d { border-top: 1px dashed var(--faint); }
+  /* Carte dépliée : la carte en grand, sa courbe de prix, ses chiffres et ses réglages */
+  .detail { padding: 12px var(--pad) 18px; display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 18px 24px; align-items: start; }
+  .art { margin: 0; grid-row: span 2; }
+  .art .frame { display: block; width: 168px; aspect-ratio: 63 / 88; background: var(--raise); border: 1px solid var(--rule); cursor: zoom-in; padding: 0; overflow: hidden; }
+  .art .frame:hover { border-color: var(--mark); }
+  .art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .art figcaption { margin-top: 7px; font-size: 11.5px; color: var(--faint); line-height: 1.4; }
+  .art figcaption b { color: var(--dim); font-weight: 400; }
+  .pc { min-width: 0; }
+  .pc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin-bottom: 10px; }
+  .pc-key { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 12px; color: var(--dim); }
+  .pc-key span { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .pc-key b { color: var(--ink); font-weight: 400; }
+  .pc-key i { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--ink); }
+  .pc-key i.lo { border-top: 1.5px dashed var(--dim); }
+  .pc-key i.gp { width: 12px; height: 10px; border: 1px solid var(--rule2); background: repeating-linear-gradient(135deg, var(--rule2) 0 1px, transparent 1px 4px); }
+  .pc-head .seg { margin-left: auto; }
+  .pc-head .seg button { min-height: 24px; padding: 1px 9px; font-size: 11.5px; }
+  .plot { position: relative; height: 176px; margin-right: 54px; cursor: crosshair; touch-action: pan-y; }
+  .plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .plot path, .plot line { fill: none; vector-effect: non-scaling-stroke; }
+  .plot .gl { stroke: var(--rule); stroke-width: 1; }
+  .plot .base { stroke: var(--rule2); stroke-width: 1; }
+  .plot .spread { fill: #121212; stroke: none; }
+  .plot .wband { fill: #0d0d0d; }
+  .plot .gap { fill: url(#hatch); stroke: none; }
+  .plot .mk { stroke: var(--ink); stroke-width: 1.8; stroke-linejoin: round; }
+  .plot .lo { stroke: var(--dim); stroke-width: 1.2; stroke-dasharray: 4 3; }
+  .plot .yl { position: absolute; right: -54px; width: 48px; transform: translateY(-50%); font-size: 10.5px; line-height: 1; color: var(--faint); white-space: nowrap; }
+  .plot .gapl { position: absolute; top: 6px; transform: translateX(-50%); font-size: 10.5px; color: var(--faint); white-space: nowrap; background: var(--bg); padding: 1px 4px; pointer-events: none; }
+  .plot .xh { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--mark); pointer-events: none; }
+  .plot .dot { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; background: var(--ink); box-shadow: 0 0 0 2px var(--bg); pointer-events: none; }
+  .plot .dot.lo { background: var(--dim); }
+  .plot .tip { position: absolute; top: 4px; transform: translateX(-50%); background: #000; border: 1px solid var(--rule2); padding: 5px 9px; font-size: 11.5px; line-height: 1.5; white-space: nowrap; pointer-events: none; z-index: 2; }
+  .plot .tip span { display: block; color: var(--dim); }
+  .plot .tip b { font-weight: 700; color: var(--ink); }
+  .xa { position: relative; height: 14px; margin: 7px 54px 0 0; font-size: 10.5px; color: var(--faint); }
+  .xa span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+  .xa span.first { transform: none; } .xa span.last { transform: translateX(-100%); }
+  .pc .msg { height: 176px; display: grid; place-items: center; color: var(--faint); border-bottom: 1px solid var(--rule2); margin-right: 54px; }
+  .side2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px 28px; align-content: start; min-width: 0; }
+  .side2 .cp { border-top: 0; padding-top: 0; }
   .detail .why { grid-column: 1 / -1; display: grid; gap: 4px; }
   .detail .why p { display: flex; gap: 9px; align-items: baseline; }
   .detail .why .lamp { transform: translateY(-1px); }
+
+  /* Réglages d'une carte (invendable, ne plus suivre, prix minimum, recherchée) */
+  .cp { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--rule); font-size: 12.5px; }
+  .cp h4 { margin: 0; font-size: 11px; font-weight: 400; color: var(--faint); }
+  .tg { display: flex; align-items: center; gap: 9px; cursor: pointer; color: var(--ink); min-height: 24px; }
+  .tg input, .cp input[type="checkbox"] { appearance: none; -webkit-appearance: none; flex: none; width: 15px; height: 15px; margin: 0; border: 1px solid var(--mark); background: var(--bg); cursor: pointer; display: grid; place-items: center; }
+  .tg input:checked { background: var(--ink); border-color: var(--ink); }
+  .tg input:checked::after { content: ""; width: 7px; height: 4px; border: solid #000; border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
+  .tg input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .tg input:disabled, .tg input:disabled + span { opacity: .45; cursor: default; }
+  .numf { display: flex; align-items: center; gap: 8px; color: var(--dim); flex-wrap: wrap; }
+  .numf input { font: inherit; font-size: 12.5px; width: 78px; color: var(--ink); background: var(--bg); border: 1px solid var(--rule2); min-height: 28px; padding: 2px 7px; text-align: right; }
+  .numf input:focus-visible { outline: 2px solid var(--ink); outline-offset: -1px; border-color: var(--ink); }
+  .numf input::placeholder { color: var(--faint); }
+  .cp .rule { color: var(--faint); font-size: 11.5px; line-height: 1.45; }
+  .cp .rule b { color: var(--dim); font-weight: 400; }
+  .cp .saved { color: var(--faint); font-size: 11px; min-height: 14px; }
+  .cp .saved.err { color: var(--bad); }
+  .star { justify-content: flex-start; min-height: 30px; padding: 3px 10px; font-weight: 400; font-size: 12.5px; color: var(--dim); }
+  .star svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+  .star[aria-pressed="true"] { color: var(--ink); border-color: var(--ink); }
+  .star[aria-pressed="true"] svg { fill: currentColor; }
+  .mute { flex: none; display: inline-flex; align-items: center; gap: 4px; color: var(--dim); }
+  .mute svg { width: 11px; height: 11px; fill: currentColor; stroke: none; }
 
   /* Master sets : un bloc par set complet */
   .blk .ch { border-top: 0; }
@@ -306,6 +361,85 @@
   .meta .r { text-align: right; white-space: nowrap; }
   .meta .g { height: 4px; } .meta .g u { top: -4px; bottom: -4px; width: 2px; background: var(--dim); box-shadow: 0 0 0 1px var(--bg); }
 
+  /* Recherchées : cartes à acheter, en tête de la colonne Signaux */
+  .wadd { position: relative; padding: 0 var(--pad) 12px; }
+  .wadd input { width: 100%; font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--rule2); min-height: 34px; padding: 4px 10px 4px 32px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237c7c7c' stroke-width='1.6'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='m15 15 5 5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: 9px 50%; background-size: 15px; }
+  .wadd input::placeholder { color: var(--faint); }
+  .wadd input:focus-visible { outline: 2px solid var(--ink); outline-offset: -1px; border-color: var(--ink); }
+  .wres { position: absolute; left: var(--pad); right: var(--pad); top: 36px; z-index: 6; background: #000; border: 1px solid var(--rule2); box-shadow: 0 12px 28px rgba(0,0,0,.7); max-height: 360px; overflow-y: auto; }
+  .wres button { width: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto 18px; gap: 0 10px; align-items: center; justify-content: stretch; text-align: left; border: 0; border-top: 1px solid var(--rule); padding: 6px 10px; min-height: 44px; font-weight: 400; }
+  .wres button:first-child { border-top: 0; }
+  .wres button:hover, .wres button:focus-visible { background: var(--raise); outline-offset: -2px; }
+  .wres .th { width: 24px; height: 34px; }
+  .wres b { display: block; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wres small { display: block; color: var(--faint); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wres .r { text-align: right; white-space: nowrap; }
+  .wres .add { color: var(--dim); font-size: 16px; line-height: 1; }
+  .wres p { padding: 10px; color: var(--dim); }
+  .wl { border-top: 1px solid var(--rule); }
+  .wl > summary { display: grid; grid-template-columns: minmax(0, 1fr) 76px 84px 112px 12px; gap: 0 14px; align-items: center; padding: 7px var(--pad); min-height: 52px; }
+  .wl > summary:hover, .wl[open] { background: var(--raise); }
+  .wl .who { min-width: 0; }
+  .wl .who b { display: block; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wl .who small { display: flex; gap: 8px; color: var(--faint); font-size: 11.5px; white-space: nowrap; overflow: hidden; }
+  .wl .who small span { overflow: hidden; text-overflow: ellipsis; }
+  .wl .who .tag { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--c); }
+  .wl .who .tag .lamp { width: 6px; height: 6px; }
+  .wl .px { text-align: right; white-space: nowrap; line-height: 1.3; }
+  .wl .px small { display: block; font-size: 11.5px; color: var(--faint); }
+  .wl svg.sp { display: block; width: 100%; height: 24px; overflow: visible; }
+  .wl .tgt { display: grid; gap: 2px; justify-items: end; }
+  .wl .tgt input { font: inherit; font-size: 12.5px; width: 100%; max-width: 112px; color: var(--ink); background: var(--bg); border: 1px solid var(--rule2); min-height: 28px; padding: 2px 7px; text-align: right; }
+  .wl .tgt input::placeholder { color: var(--faint); }
+  .wl .tgt input:focus-visible { outline: 2px solid var(--ink); outline-offset: -1px; border-color: var(--ink); }
+  .wl .tgt small { font-size: 11px; color: var(--faint); white-space: nowrap; }
+  .wl .tgt small.hit { color: var(--ok); }
+  .wl .detail { padding-top: 6px; }
+  .wl .rm { color: var(--dim); font-weight: 400; min-height: 28px; padding: 2px 10px; font-size: 12px; }
+
+  /* Masterset : réglage par set */
+  .mst { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 4px var(--pad) 12px; }
+  .mst .rule { color: var(--faint); font-size: 11.5px; flex: 1 1 260px; }
+  .ms .badge.ms-on { color: var(--ink); border-color: var(--mark); }
+
+  /* Import de la collection */
+  .imp-open { min-height: 28px; padding: 2px 10px; font-size: 12px; font-weight: 400; color: var(--dim); }
+  .imp-open svg { width: 14px; height: 14px; }
+  dialog#imp { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; color: var(--ink); background: #000; border: 1px solid var(--rule2); box-shadow: 0 24px 60px rgba(0,0,0,.8); }
+  dialog#imp::backdrop { background: rgba(0,0,0,.72); }
+  .imp-h { display: flex; align-items: center; gap: 12px; padding: 16px 20px 12px; border-bottom: 1px solid var(--rule2); }
+  .imp-h h2 { font-size: 18px; font-weight: 700; letter-spacing: -.02em; }
+  .imp-h button { margin-left: auto; min-height: 30px; padding: 2px 10px; font-weight: 400; }
+  .imp-b { padding: 16px 20px; display: grid; gap: 14px; overflow-y: auto; max-height: calc(100vh - 190px); }
+  .imp-b p { color: var(--dim); }
+  .imp-b p b { color: var(--ink); font-weight: 400; }
+  .imp-file { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+  .imp-file input[type="file"] { font: inherit; font-size: 12.5px; color: var(--dim); }
+  .imp-file input[type="file"]::file-selector-button { font: inherit; font-weight: 700; color: var(--ink); background: var(--bg); border: 1px solid var(--rule2); padding: 5px 12px; margin-right: 10px; cursor: pointer; }
+  .imp-file input[type="file"]::file-selector-button:hover { border-color: var(--ink); }
+  #imp-out { display: grid; gap: 12px; }
+  #imp-out:empty { display: none; }
+  .imp-sum { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--rule2); }
+  .imp-sum div { padding: 10px 12px; border-left: 1px solid var(--rule); }
+  .imp-sum div:first-child { border-left: 0; }
+  .imp-sum b { display: block; font-size: 22px; font-weight: 300; letter-spacing: -.03em; }
+  .imp-sum span { font-size: 11.5px; color: var(--dim); }
+  .imp-b h3 { font-size: 13px; font-weight: 700; margin: 4px 0 0; }
+  .imp-list { display: grid; }
+  .imp-list li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 0 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--rule); font-size: 12.5px; }
+  .imp-list li .th { width: 24px; height: 34px; }
+  .imp-list li b { font-weight: 700; } .imp-list li small { display: block; color: var(--faint); font-size: 11.5px; }
+  .imp-list li .r { text-align: right; white-space: nowrap; color: var(--dim); }
+  .imp-list select { font: inherit; font-size: 12.5px; color: var(--ink); background: var(--bg); border: 1px solid var(--rule2); min-height: 30px; padding: 2px 8px; }
+  .imp-list select.rm { border-color: var(--warn); color: var(--warn); }
+  .imp-f { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 20px 16px; border-top: 1px solid var(--rule2); }
+  .imp-f .st { color: var(--dim); font-size: 12px; margin-right: auto; }
+  .imp-f .st.err { color: var(--bad); }
+  .imp-f button.primary { background: var(--ink); color: #000; border-color: var(--ink); }
+  .imp-f button.primary:hover { background: #fff; }
+  button:disabled { opacity: .45; cursor: default; border-color: var(--rule2); }
+
   details > summary { cursor: pointer; list-style: none; }
   details > summary::-webkit-details-marker { display: none; }
   .chev { color: var(--faint); transition: transform .12s; width: 12px !important; height: 12px !important; }
@@ -326,7 +460,12 @@
     .strip .kv .sep { margin-top: 0; padding-top: 0; border: 0; }
     .thead, .mv > summary { grid-template-columns: minmax(0, 1fr) 62px 72px 56px 12px; }
     .thead .hide, .mv .hide { display: none; }
-    .detail { grid-template-columns: 1fr; }
+    .detail { grid-template-columns: 112px minmax(0, 1fr); }
+    .detail .pc { grid-column: 1 / -1; grid-row: 1; }
+    .art { grid-row: auto; }
+    .art .frame { width: 112px; }
+    .side2 { grid-template-columns: minmax(0, 1fr); }
+    .side2 .cp { border-top: 1px solid var(--rule); padding-top: 10px; }
     .sets { grid-template-columns: minmax(0, 1fr) 36px 66px 52px 64px; } .sets .bar, .sets .hide { display: none; }
     .breadth .hide { display: none; }
     .mvs { grid-template-columns: 1fr; gap: 10px; }
@@ -345,6 +484,14 @@
     [data-sort^="price"] .thead .dd, [data-sort^="price"] .mv .dd { display: none; }
   }
   @container sig (max-width: 480px) {
+    .wl > summary { grid-template-columns: minmax(0, 1fr) 70px 92px 12px; gap: 0 10px; }
+    .wl .spk { display: none; }
+    .wl .detail { grid-template-columns: 112px minmax(0, 1fr); }
+    .wl .detail .pc { grid-column: 1 / -1; grid-row: 1; }
+    .wl .art { grid-row: auto; }
+    .wl .art .frame { width: 112px; }
+    .wl .side2 { grid-template-columns: minmax(0, 1fr); }
+    .wl .side2 .cp { border-top: 1px solid var(--rule); padding-top: 10px; }
     .sg > summary { grid-template-columns: 62px minmax(0, 1fr) 76px 12px; }
     .sg .px { display: none; }
     .bz > summary { grid-template-columns: minmax(0, 1fr) 84px 30px 50px 12px; gap: 0 10px; }
@@ -368,6 +515,13 @@
     .tools .price input { flex: 1 1 0; width: 0; }
   }
   @media (max-width: 620px) {
+    .imp-sum { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .imp-sum div:nth-child(4) { border-left: 0; }
+    .imp-sum div:nth-child(n+4) { border-top: 1px solid var(--rule); }
+    .plot, .pc .msg { margin-right: 46px; } .xa { margin-right: 46px; } .plot .yl { right: -46px; width: 42px; }
+    .numf input, .wl .tgt input { min-height: 40px; }
+  }
+  @media (max-width: 620px) {
     :root { --pad: 16px; }
     body { font-size: 14px; }
     .top { gap: 14px; } .brand span { display: none; } .jump { gap: 14px; } .live { font-size: 11px; }
@@ -381,7 +535,7 @@
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
   #zoom { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.72); cursor: zoom-out; }
   #zoom[hidden] { display: none; }
-  #zoom img { max-width: min(92vw, 520px); max-height: 92vh; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.6); background: var(--raise); }
+  #zoom img { max-width: min(92vw, 560px); max-height: 92vh; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.6); background: var(--raise); }
 </style>
 </head>
 <body>
@@ -394,6 +548,9 @@
   <symbol id="i-news" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16"/><path d="M7 9h10M7 13h10M7 17h6"/></symbol>
   <symbol id="i-meta" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 17l-5.2 2.7 1-5.9-4.3-4.1 5.9-.8z" stroke-linejoin="round"/></symbol>
+  <symbol id="i-imp" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M4 19h16"/></symbol>
+  <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#030303"/><line x1="0" y1="0" x2="0" y2="6" stroke="#222" stroke-width="1.5"/></pattern>
 </defs></svg>
 
 <header class="top">
@@ -411,7 +568,7 @@
     <div class="ch">
       <h2>Collection</h2>
       <div class="verdict l-off" id="c-verdict"><i class="lamp"></i><span>…</span></div>
-      <div class="side"><div class="seg" id="win" role="group" aria-label="Fenêtre des mouvements"></div></div>
+      <div class="side"><button type="button" class="imp-open" id="imp-open"><svg class="i"><use href="#i-imp"/></svg>Importer un export</button> <div class="seg" id="win" role="group" aria-label="Fenêtre des mouvements"></div></div>
       <p class="sub" id="c-sub"></p>
     </div>
     <section class="sec" aria-label="Valeur de la collection">
@@ -469,6 +626,14 @@
       <div class="side"><div class="seg" id="days" role="group" aria-label="Période des signaux"></div></div>
       <p class="sub" id="s-sub"></p>
     </div>
+    <section class="sec" aria-label="Cartes recherchées" id="wish-sec">
+      <div class="sh"><svg class="i"><use href="#i-star"/></svg><h3 id="w-title">Recherchées</h3><span class="r" id="w-sum"></span></div>
+      <div class="wadd">
+        <input id="w-q" type="search" placeholder="Ajouter une carte : nom (ex. Umbreon ex)" autocomplete="off" aria-label="Chercher une carte dans le catalogue" aria-controls="w-res">
+        <div class="wres" id="w-res" hidden></div>
+      </div>
+      <div id="wish"></div>
+    </section>
     <section class="sec" aria-label="Signaux sur la collection">
       <div class="sh"><svg class="i"><use href="#i-own"/></svg><h3>Sur la collection</h3><span class="r" id="o-sum"></span></div>
       <p class="hot" id="o-hot" hidden></p>
@@ -496,6 +661,20 @@
 <div id="toast" role="status" aria-live="polite"></div>
 
 <div id="zoom" hidden role="dialog" aria-label="Carte en grand"><img alt=""></div>
+
+<dialog id="imp" aria-labelledby="imp-title">
+  <div class="imp-h"><h2 id="imp-title">Importer un export de la collection</h2><button type="button" data-imp="close">Fermer</button></div>
+  <div class="imp-b" id="imp-b">
+    <p>L'export CSV complet de ton outil de portfolio, à chaque fois. Les cartes déjà là sont mises à jour (quantité, prix payé), les nouvelles ajoutées ; rien n'est écrit avant que tu valides l'aperçu.</p>
+    <div class="imp-file">
+      <input type="file" id="imp-file" accept=".csv,text/csv">
+      <label class="tg" title="Les portefeuilles « MS - … » reprennent des cartes déjà dans Main : les ajouter les compterait en double."><input type="checkbox" id="imp-all"><span>Aussi les portefeuilles hors « Main »</span></label>
+      <label class="tg"><input type="checkbox" id="imp-commons" checked><span>Communes et peu communes</span></label>
+    </div>
+    <div id="imp-out"></div>
+  </div>
+  <div class="imp-f"><span class="st" id="imp-st" role="status" aria-live="polite">Choisis un fichier pour voir l'aperçu.</span><button type="button" data-imp="close">Annuler</button><button type="button" class="primary" id="imp-go" disabled>Importer</button></div>
+</dialog>
 <script>
 'use strict';
 const API = '/api/board';
@@ -512,6 +691,7 @@ const SIGNAL_TEXT = {
   actu_hausse: 'actu en hausse', actu_baisse: 'actu en baisse', meta_hausse: 'méta en hausse',
   meta_baisse: 'méta en baisse', annonce_sous_cote: 'annonce sous la cote', rebond: 'rebond',
   momentum: 'momentum', pic: 'pic', plus_value: 'plus-value', chute: 'chute',
+  cible_atteinte: 'cible atteinte', baisse_suivie: 'en baisse',
 };
 const EVENT_TEXT = {
   reimpression: 'réimpression', mouvement_prix: 'mouvement de prix', revelation_cartes: 'révélation de cartes',
@@ -528,8 +708,9 @@ const state = {
   f: { sort: 'impact', rarity: '', set: '', pmin: '', pmax: '', ...store.get('filters', {}) },
   days: [7, 14, 30].includes(store.get('days', 14)) ? store.get('days', 14) : 14,
   all: false, allNews: false, allOwn: false, allBuzz: false, allMarket: false,
-  coll: null, sig: null,
-  open: new Set(), history: new Map(),
+  coll: null, sig: null, wish: null,
+  open: new Set(), history: new Map(), wishOpen: new Set(),
+  range: [30, 90, 'all'].includes(store.get('range', 'all')) ? store.get('range', 'all') : 'all',
 };
 
 // ---------- format
@@ -772,14 +953,9 @@ function renderMovers() {
   document.getElementById('m-note').innerHTML = (filtered ? `<b>${all.length}</b> cartes sur ${chaseCards.length} avec ces filtres` : `<b>${all.length}</b> cartes AR, SAR, full art, gold`) + ` · ${excluded} communes, rares et ex simples exclues` + (missing ? ` · ${missing} sans variation sur ${WLABEL[w]} (prix trop récent), listées en fin` : '');
   document.getElementById('movers').innerHTML = !shown.length ? '<p class="empty">Aucune carte avec ces filtres.</p>' : shown.map((m) => {
     const wd = m.d == null ? 0 : Math.abs(m.d) / maxAbs * 50;
-    const tg = m.signals[0];
-    const tag = tg ? `<span class="tag ${tg.side === 'sell' ? 'l-warn' : 'l-ok'}"><i class="lamp"></i>${tg.side === 'sell' ? 'vente' : 'achat'} · ${esc(SIGNAL_TEXT[tg.signals[0]] || tg.signals[0])}</span>` : '';
-    const ver = [...m.variances.filter((v) => v !== 'Holofoil'), ...m.grades].map(esc).join(', ');
-    const cited = mentionsByName().get(m.name);
-    const buzz = cited ? `<span class="tag" style="--c:var(--dim)">cité ${cited}× en 7 j</span>` : '';
     return `<details class="mv" data-id="${esc(m.card_id)}"${state.open.has(m.card_id) ? ' open' : ''}>
       <summary>
-        <span class="who">${thumb(m)}<b>${esc(m.name)}</b><small>${tag}${buzz}<span>${esc(m.set_name)}${ver ? ' · ' + ver : ''}</span></small></span>
+        <span class="who">${thumb(m)}<b>${esc(m.name)}</b><small>${moverTags(m)}</small></span>
         <span class="q hide">×${m.quantity}</span>
         <span class="num px">${usd(m.price)}</span>
         <span class="hide">${spark(m.card_id, w)}</span>
@@ -794,10 +970,29 @@ function renderMovers() {
   document.getElementById('more')?.addEventListener('click', () => { state.all = !state.all; renderMovers(); });
   document.querySelectorAll('#movers details.mv').forEach((d) => {
     d.addEventListener('toggle', () => {
-      if (d.open) { state.open.add(d.dataset.id); detail(d); } else state.open.delete(d.dataset.id);
+      if (d.open) { state.open.add(d.dataset.id); openMover(d); } else state.open.delete(d.dataset.id);
     });
-    if (d.open) detail(d);
+    if (d.open) openMover(d);
   });
+}
+
+function openMover(d) {
+  const m = moves(state.win).find((x) => x.card_id === d.dataset.id);
+  if (m) detail(d, m, moverFacts(m));
+}
+
+// Étiquettes sous le nom d'une carte possédée : signal du jour, buzz, réglages.
+function moverTags(m) {
+  const tg = m.signals[0];
+  const tag = tg ? `<span class="tag ${tg.side === 'sell' ? 'l-warn' : 'l-ok'}"><i class="lamp"></i>${tg.side === 'sell' ? 'vente' : 'achat'} · ${esc(SIGNAL_TEXT[tg.signals[0]] || tg.signals[0])}</span>` : '';
+  const ver = [...m.variances.filter((v) => v !== 'Holofoil'), ...m.grades].map(esc).join(', ');
+  const cited = mentionsByName().get(m.name);
+  const buzz = cited ? `<span class="tag" style="--c:var(--dim)">cité ${cited}× en 7 j</span>` : '';
+  const p = m.prefs || DEFAULT_PREFS;
+  const pref = p.unfollowed ? '<span class="mute">non suivie</span>'
+    : (p.wishlisted ? '<span class="mute" title="dans les recherchées"><svg aria-hidden="true"><use href="#i-star"/></svg>recherchée</span>' : '')
+      + (p.unsellable ? '<span class="mute">invendable</span>' : p.min_sell_price ? `<span class="mute">vente ≥ ${usd(p.min_sell_price)}</span>` : '');
+  return `${tag}${pref}${buzz}<span>${esc(m.set_name)}${ver ? ' · ' + ver : ''}</span>`;
 }
 
 function mentionsByName() {
@@ -855,6 +1050,170 @@ document.getElementById('f-reset').addEventListener('click', () => {
   renderMovers();
 });
 
+// ---------- carte dépliée : la carte en grand, sa courbe, ses réglages
+const RANGES = [[30, '30 j'], [90, '90 j'], ['all', 'tout']];
+const DEFAULT_PREFS = { unsellable: false, unfollowed: false, min_sell_price: null, in_masterset: false, wishlisted: false, target_price: null, buy_blocked: false, sell_blocked: false };
+const charts = new Map();  // card_id -> carte affichée, pour redessiner au changement de période
+
+function niceScale(lo, hi, n = 4) {
+  if (!(hi - lo > 1e-9)) { lo = Math.max(0, lo - 1); hi += 1; }
+  const raw = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(raw)), f = raw / mag;
+  const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag;
+  const a = Math.max(0, Math.floor(lo / step) * step), b = Math.ceil(hi / step) * step;
+  const ticks = [];
+  for (let v = a; v <= b + step / 2; v += step) ticks.push(+v.toFixed(6));
+  return { lo: a, hi: b, ticks, step };
+}
+
+function artHTML(c) {
+  const a = httpsUrl(c.image_small), b = httpsUrl(c.image_alt);
+  const src = a ? bigUrl(a) : b ? bigUrl(b) : '';
+  const num = String(c.card_id || '').split('-').slice(1).join('-');
+  const cap = `<figcaption><b>${esc(c.rarity || '')}</b>${c.set_name ? `<br>${esc(c.set_name)}` : ''}${num ? ` · n° ${esc(num)}` : ''}</figcaption>`;
+  if (!src) return `<figure class="art"><div class="frame" aria-hidden="true"></div>${cap}</figure>`;
+  return `<figure class="art"><button type="button" class="frame" data-zoom aria-label="Voir ${esc(c.name)} en grand"><img class="art-img" src="${src}" data-f1="${a}" data-f2="${b}" alt="${esc(c.name)}" width="168" height="235" loading="lazy" decoding="async" referrerpolicy="no-referrer"></button>${cap}</figure>`;
+}
+// Image grand format : repli sur la miniature, puis sur l'image TCGplayer.
+document.addEventListener('error', (e) => {
+  const im = e.target;
+  if (!(im instanceof HTMLImageElement) || !im.classList.contains('art-img')) return;
+  const next = [im.dataset.f1, im.dataset.f2].find((u) => u && u !== im.getAttribute('src'));
+  if (next) { if (next === im.dataset.f1) im.dataset.f1 = ''; else im.dataset.f2 = ''; im.src = next; } else im.closest('.frame').style.visibility = 'hidden';
+}, true);
+document.addEventListener('click', (e) => {
+  const fr = e.target.closest('[data-zoom]');
+  if (!fr) return;
+  e.preventDefault();
+  const im = fr.querySelector('img');
+  const box = document.getElementById('zoom'), big = box.querySelector('img');
+  big.onerror = null; big.src = im.currentSrc || im.src; big.alt = im.alt;
+  box.hidden = false;
+});
+
+function drawChart(pc, c) {
+  charts.set(c.card_id, c);
+  pc.dataset.card = c.card_id;
+  const all = (state.history.get(c.card_id) || []).filter((p) => p.average_sell_price != null);
+  const seg = `<div class="seg" role="group" aria-label="Période de la courbe">${RANGES.map(([k, l]) => `<button type="button" data-range="${k}" aria-pressed="${String(k) === String(state.range)}">${l}</button>`).join('')}</div>`;
+  if (all.length < 2) { pc.innerHTML = `<div class="pc-head"><div class="pc-key"></div>${seg}</div><div class="msg">Historique insuffisant.</div>`; return; }
+  const end = pdate(all[all.length - 1].date_id);
+  let h = state.range === 'all' ? all : all.filter((p) => end - pdate(p.date_id) <= state.range * DAY);
+  if (h.length < 2) h = all.slice(-2);
+  const xs = h.map((p) => pdate(p.date_id));
+  const x0 = xs[0], x1 = xs[xs.length - 1];
+  const vals = h.flatMap((p) => [p.average_sell_price, p.low_price].filter((v) => v != null && v > 0));
+  const sc = niceScale(Math.min(...vals), Math.max(...vals));
+  const X = (t) => ((t - x0) / (x1 - x0 || 1)) * 1000;
+  const Y = (v) => 100 - ((v - sc.lo) / (sc.hi - sc.lo)) * 100;
+  const isGap = (i) => i > 0 && xs[i] - xs[i - 1] > 1.5 * DAY;
+  const path = (k) => {
+    let d = '', on = false;
+    h.forEach((p, i) => {
+      const v = p[k];
+      if (v == null || v <= 0) { on = false; return; }
+      d += (on && !isGap(i) ? 'L' : 'M') + X(xs[i]).toFixed(1) + ',' + Y(v).toFixed(2);
+      on = true;
+    });
+    return d;
+  };
+  // Écart market / annonce la moins chère : une surface, par tronçon sans trou.
+  let spread = '', run = [];
+  const flush = () => {
+    if (run.length > 1) spread += 'M' + run.map((i) => X(xs[i]).toFixed(1) + ',' + Y(h[i].average_sell_price).toFixed(2)).join('L') + 'L' + run.slice().reverse().map((i) => X(xs[i]).toFixed(1) + ',' + Y(h[i].low_price).toFixed(2)).join('L') + 'Z';
+    run = [];
+  };
+  h.forEach((p, i) => { if (isGap(i) || !(p.low_price > 0)) flush(); if (p.low_price > 0) run.push(i); });
+  flush();
+  let gaps = '', gapLabels = '', hasGap = false;
+  h.forEach((p, i) => {
+    if (!isGap(i)) return;
+    hasGap = true;
+    const a = X(xs[i - 1]), b = X(xs[i]);
+    const from = fdate(new Date(xs[i - 1] + DAY).toISOString().slice(0, 10)), to = fdate(new Date(xs[i] - DAY).toISOString().slice(0, 10));
+    gaps += `<rect class="gap" x="${a.toFixed(1)}" y="0" width="${(b - a).toFixed(1)}" height="100"><title>Pas de relevé de prix du ${from} au ${to}</title></rect>`;
+    if (b - a > 70) gapLabels += `<span class="gapl" style="left:${((a + b) / 20).toFixed(2)}%">pas de relevé</span>`;
+  });
+  const wn = end - state.win * DAY;
+  const band = wn > x0 ? `<rect class="wband" x="${X(wn).toFixed(1)}" y="0" width="${(1000 - X(wn)).toFixed(1)}" height="100"/>` : '';
+  const grid = sc.ticks.map((v) => `<line class="${v === sc.lo ? 'base' : 'gl'}" x1="0" x2="1000" y1="${Y(v).toFixed(2)}" y2="${Y(v).toFixed(2)}"/>`).join('');
+  const tick = (v) => (sc.step >= 1 ? nf0 : nf2).format(v) + ' $';
+  const ylab = sc.ticks.map((v) => `<span class="yl" style="top:${Y(v).toFixed(2)}%">${tick(v)}</span>`).join('');
+  let xt = `<span class="first" style="left:0">${fdate(h[0].date_id)}</span>`;
+  const span = x1 - x0, d0 = new Date(x0);
+  const stepM = span > 200 * DAY ? 2 : 1;
+  for (let m = new Date(Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() + 1, 1)); m.getTime() < x1; m = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + stepM, 1))) {
+    const l = (m.getTime() - x0) / span * 100;
+    if (l > 12 && l < 80) xt += `<span style="left:${l.toFixed(2)}%">1 ${MONTHS[m.getUTCMonth()]}</span>`;
+  }
+  if (span <= 45 * DAY) {
+    // Courte période : un repère par semaine plutôt que par mois.
+    xt = `<span class="first" style="left:0">${fdate(h[0].date_id)}</span>`;
+    for (let t = x0 + 7 * DAY; t < x1 - 7 * DAY; t += 7 * DAY) xt += `<span style="left:${((t - x0) / span * 100).toFixed(2)}%">${fdate(new Date(t).toISOString().slice(0, 10))}</span>`;
+  }
+  xt += `<span class="last" style="left:100%">${fdate(h[h.length - 1].date_id)}</span>`;
+  const last = h[h.length - 1];
+  const lastLow = [...h].reverse().find((p) => p.low_price > 0)?.low_price;
+  const gapPct = last.average_sell_price && lastLow ? (lastLow / last.average_sell_price - 1) * 100 : null;
+  pc.innerHTML = `<div class="pc-head"><div class="pc-key">
+      <span><i></i>market <b>${usd(last.average_sell_price)}</b></span>
+      <span><i class="lo"></i>annonce la moins chère <b>${usd(lastLow)}</b>${gapPct != null ? ` (${pct(gapPct)})` : ''}</span>
+      ${hasGap ? '<span><i class="gp"></i>pas de relevé</span>' : ''}
+    </div>${seg}</div>
+    <div class="plot" role="img" aria-label="Prix de ${esc(c.name)} du ${fdate(h[0].date_id)} au ${fdate(last.date_id)} : market ${usd(last.average_sell_price)}">
+      <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">${band}${grid}${gaps}<path class="spread" d="${spread}"/><path class="lo" d="${path('low_price')}"/><path class="mk" d="${path('average_sell_price')}"/></svg>
+      ${ylab}${gapLabels}
+    </div>
+    <div class="xa" aria-hidden="true">${xt}</div>`;
+  const plot = pc.querySelector('.plot');
+  let xh, dm, dl, tip;
+  plot.onpointermove = (ev) => {
+    const r = plot.getBoundingClientRect();
+    const t = x0 + Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)) * (x1 - x0);
+    let i = 0, best = Infinity;
+    xs.forEach((x, j) => { const d = Math.abs(x - t); if (d < best) { best = d; i = j; } });
+    const p = h[i], left = X(xs[i]) / 10;
+    if (!xh) { xh = document.createElement('div'); xh.className = 'xh'; dm = document.createElement('i'); dm.className = 'dot'; dl = document.createElement('i'); dl.className = 'dot lo'; tip = document.createElement('div'); tip.className = 'tip'; plot.append(xh, dl, dm, tip); }
+    xh.style.left = left + '%';
+    dm.style.left = left + '%'; dm.style.top = Y(p.average_sell_price) + '%';
+    dl.hidden = !(p.low_price > 0);
+    if (p.low_price > 0) { dl.style.left = left + '%'; dl.style.top = Y(p.low_price) + '%'; }
+    tip.style.left = Math.min(Math.max(left * r.width / 100, 80), r.width - 80) + 'px';
+    tip.innerHTML = `<span>${fdate(p.date_id)}</span><b>${usd(p.average_sell_price)}</b> market<span>annonce ${usd(p.low_price)}</span>`;
+  };
+  plot.onpointerleave = () => { [xh, dm, dl, tip].forEach((n) => n?.remove()); xh = dm = dl = tip = null; };
+}
+
+function ruleText(c) {
+  const p = c.prefs || DEFAULT_PREFS;
+  const owned = ownedQty(c) > 0;
+  if (p.unfollowed) return 'Carte plus suivie : <b>aucun signal</b>, ni achat ni vente.';
+  const out = [];
+  if (p.wishlisted) out.push(`Achat : <b>recherchée</b>, suivie même hors périmètre${p.target_price ? `, cible ${usd(p.target_price)}` : ''}.`);
+  else if (owned) out.push('Achat : <b>non</b>, tu l\'as déjà.');
+  if (owned) {
+    if (p.unsellable) out.push('Vente : <b>jamais</b>, carte invendable.');
+    else if (p.in_masterset && p.sell_blocked) out.push('Vente : <b>jamais</b>, carte de masterset. Seuls ses doublons au-dessus de Rare se vendent.');
+    else if (p.min_sell_price) out.push(`Vente : ${p.in_masterset ? 'doublon de masterset, ' : ''}seulement à partir de <b>${usd(p.min_sell_price)}</b>.`);
+    else if (p.in_masterset) out.push('Vente : doublon de masterset, <b>suivi</b>.');
+  }
+  return out.join(' ') || 'Aucune restriction sur les signaux.';
+}
+const ownedQty = (c) => c.quantity ?? c.owned ?? c.owned_quantity ?? 0;
+
+function cardControls(c) {
+  const p = c.prefs || DEFAULT_PREFS;
+  const owned = ownedQty(c) > 0;
+  return `<div class="cp" data-card="${esc(c.card_id)}" data-owned="${owned ? 1 : 0}">
+      <h4>Réglages de la carte</h4>
+      <button type="button" class="star" data-wish aria-pressed="${!!p.wishlisted}"><svg aria-hidden="true"><use href="#i-star"/></svg><span>${p.wishlisted ? 'Dans les recherchées' : 'Ajouter aux recherchées'}</span></button>
+      ${owned ? `<label class="tg"><input type="checkbox" data-pref="unsellable"${p.unsellable ? ' checked' : ''}><span>Invendable</span></label>
+      <label class="numf">Vendre à partir de <input type="number" inputmode="decimal" min="0" step="1" data-pref="min_sell_price" value="${p.min_sell_price ?? ''}" placeholder="—" aria-label="Prix minimum de vente, en dollars"> $</label>` : ''}
+      <label class="tg"><input type="checkbox" data-pref="unfollowed"${p.unfollowed ? ' checked' : ''}><span>Ne plus suivre</span></label>
+      <p class="rule">${ruleText(c)}</p>
+      <p class="saved" aria-live="polite"></p>
+    </div>`;
+}
+
 async function cardHistory(id) {
   if (!state.history.has(id)) {
     const r = await fetch('/api/cards/' + encodeURIComponent(id) + '/history');
@@ -864,36 +1223,333 @@ async function cardHistory(id) {
   return state.history.get(id);
 }
 
-async function detail(el) {
+async function detail(el, c, facts) {
   const box = el.querySelector('[data-detail]');
-  const id = el.dataset.id;
-  const m = moves(state.win).find((x) => x.card_id === id);
-  const sigs = m.signals.map((s) => `<p><i class="lamp ${s.side === 'sell' ? 'l-warn' : 'l-ok'}" style="background:var(--c)"></i><span><b>${s.side === 'sell' ? 'Vente' : 'Achat'}</b> · score ${s.score} · ${esc(s.signals.map((x) => SIGNAL_TEXT[x] || x).join(', '))} : <span style="color:var(--dim)">${esc(s.reason)}</span></span></p>`).join('');
-  const facts = `<dl class="kv">
+  const sigs = (c.signals || []).map((s) => `<p><i class="lamp ${s.side === 'sell' ? 'l-warn' : 'l-ok'}" style="background:var(--c)"></i><span><b>${s.side === 'sell' ? 'Vente' : 'Achat'}</b> · score ${s.score} · ${esc(s.signals.map((x) => SIGNAL_TEXT[x] || x).join(', '))} : <span style="color:var(--dim)">${esc(s.reason)}</span></span></p>`).join('');
+  box.innerHTML = `${artHTML(c)}<div class="pc" data-chart><div class="msg">Chargement de l'historique…</div></div><div class="side2">${facts}${cardControls(c)}</div>${sigs ? `<div class="why">${sigs}</div>` : ''}`;
+  try {
+    await cardHistory(c.card_id);
+    drawChart(box.querySelector('[data-chart]'), c);
+  } catch (e) {
+    box.querySelector('[data-chart]').innerHTML = '<div class="msg">Historique indisponible.</div>';
+  }
+}
+
+function moverFacts(m) {
+  return `<dl class="kv">
       <div><dt>Prix market</dt><dd>${usd(m.price)}</dd></div>
       <div><dt>il y a ${WLABEL[state.win]}</dt><dd>${usd(m.pastPrice)}</dd></div>
       <div><dt>Quantité</dt><dd>${m.quantity}</dd></div>
       <div><dt>Valeur</dt><dd>${usd(m.value)}</dd></div>
-      <div class="sep"><dt>Rareté</dt><dd>${esc(m.rarity || '—')}</dd></div>
-      <div><dt>Série</dt><dd>${esc(m.series || '—')}</dd></div>
+      <div class="sep"><dt>Série</dt><dd>${esc(m.series || '—')}</dd></div>
     </dl>`;
-  box.innerHTML = `<div><div class="chart" data-chart></div></div>${facts}${sigs ? `<div class="why">${sigs}</div>` : ''}`;
+}
+
+// ---------- réglages : envoi à l'API et mise à jour sur place
+async function send(method, url, body) {
+  let r;
   try {
-    const h = (await cardHistory(id)).filter((p) => p.average_sell_price != null);
-    if (h.length < 2) { box.querySelector('[data-chart]').textContent = 'Historique insuffisant.'; return; }
-    const xs = h.map((p) => pdate(p.date_id));
-    const x0 = xs[0], x1 = xs[xs.length - 1];
-    const all = h.flatMap((p) => [p.average_sell_price, p.low_price].filter((v) => v != null));
-    let lo = Math.min(...all), hi = Math.max(...all); const pd = (hi - lo) * 0.08 || 1; lo -= pd; hi += pd;
-    const X = (t) => ((t - x0) / (x1 - x0)) * 1000, Y = (v) => 100 - ((v - lo) / (hi - lo)) * 100;
-    const path = (k) => { let d = '', prev = null; h.forEach((p, i) => { if (p[k] == null) { prev = null; return; } const cmd = prev == null || xs[i] - prev > 1.5 * DAY ? 'M' : 'L'; d += cmd + X(xs[i]).toFixed(1) + ',' + Y(p[k]).toFixed(2); prev = xs[i]; }); return d; };
-    const wn = state.coll.windows[state.win];
-    const bx = wn ? X(pdate(wn.date)) : 1000;
-    box.querySelector('[data-chart]').outerHTML = `<div class="chart"><svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true"><rect class="band" x="${Math.max(0, bx)}" width="${1000 - Math.max(0, bx)}" y="0" height="100"/><path class="ln2" d="${path('low_price')}"/><path class="ln" d="${path('average_sell_price')}"/></svg><span class="tl" style="top:0">${usd(hi)}</span><span class="tl" style="bottom:2px">${usd(lo)}</span></div><div class="lgd"><span><i></i>market</span><span><i class="d"></i>annonce la moins chère</span><span>${fdate(h[0].date_id)} → ${fdate(h[h.length - 1].date_id)}</span></div>`;
-  } catch (e) {
-    box.querySelector('[data-chart]').textContent = 'Historique indisponible.';
+    r = await fetch(url, { method, headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch { throw new Error('API injoignable'); }
+  if (!r.ok) {
+    let d = '';
+    try { const j = await r.json(); d = typeof j.detail === 'string' ? j.detail : 'valeur refusée'; } catch {}
+    throw new Error(d || (r.status === 413 ? 'fichier trop gros pour le serveur' : 'erreur ' + r.status));
+  }
+  return r.status === 204 ? null : r.json();
+}
+
+function cardsById(id) {
+  return [...(state.coll?.cards || []), ...(state.sig?.trends || []), ...(state.wish?.cards || [])].filter((c) => c.card_id === id);
+}
+function setPrefs(id, prefs) {
+  cardsById(id).forEach((c) => {
+    c.prefs = { ...(c.prefs || DEFAULT_PREFS), ...prefs };
+    if (c.signals && c.price !== undefined) c.signals = c.signals.filter((s) => !(s.side === 'buy' && c.prefs.buy_blocked) && !(s.side === 'sell' && (c.prefs.sell_blocked || (c.prefs.min_sell_price && c.price < c.prefs.min_sell_price))));
+  });
+  // Le texte des règles et les cases de toutes les vues ouvertes de cette carte.
+  document.querySelectorAll(`.cp[data-card="${CSS.escape(id)}"]`).forEach((box) => {
+    const c = cardsById(id)[0] || { card_id: id, prefs };
+    box.querySelector('.rule').innerHTML = ruleText({ ...c, prefs: c.prefs || prefs, quantity: box.dataset.owned === '1' ? 1 : 0 });
+    box.querySelectorAll('input[type="checkbox"][data-pref]').forEach((i) => { i.checked = !!c.prefs?.[i.dataset.pref]; });
+    const star = box.querySelector('[data-wish]');
+    star.setAttribute('aria-pressed', String(!!c.prefs?.wishlisted));
+    star.querySelector('span').textContent = c.prefs?.wishlisted ? 'Dans les recherchées' : 'Ajouter aux recherchées';
+  });
+  const row = document.querySelector(`#movers details[data-id="${CSS.escape(id)}"] .who small`);
+  const m = state.coll?.cards.find((c) => c.card_id === id);
+  if (row && m) row.innerHTML = moverTags({ ...m, ...moves(state.win).find((x) => x.card_id === id) });
+}
+function saved(box, msg, err) {
+  const s = box?.querySelector('.saved');
+  if (!s) return;
+  s.textContent = msg; s.classList.toggle('err', !!err);
+  clearTimeout(s.t); if (!err) s.t = setTimeout(() => { s.textContent = ''; }, 4000);
+}
+
+async function savePref(inp) {
+  const box = inp.closest('.cp'), id = box.dataset.card, k = inp.dataset.pref;
+  let v;
+  if (inp.type === 'checkbox') v = inp.checked;
+  else {
+    const t = inp.value.trim().replace(',', '.');
+    v = t === '' ? null : Number(t);
+    if (v !== null && !(v > 0 && v < 100000)) { saved(box, 'Prix invalide : un montant en dollars, ou vide pour retirer le seuil.', true); return; }
+  }
+  saved(box, 'Enregistrement…');
+  try {
+    const r = await send('PUT', '/api/prefs/cards/' + encodeURIComponent(id), { [k]: v });
+    setPrefs(id, r.prefs);
+    saved(box, 'Enregistré : les signaux en tiennent compte.');
+    refreshSignals();
+  } catch (err) {
+    if (inp.type === 'checkbox') inp.checked = !inp.checked;
+    saved(box, 'Non enregistré : ' + err.message, true);
   }
 }
+
+const wishListId = () => state.wish?.lists?.[0]?.list_id ?? 1;
+async function toggleWish(id, on, box) {
+  saved(box, 'Enregistrement…');
+  try {
+    if (on) await send('PUT', `/api/prefs/wishlists/${wishListId()}/cards/${encodeURIComponent(id)}`, {});
+    else await send('DELETE', `/api/prefs/wishlists/${wishListId()}/cards/${encodeURIComponent(id)}`);
+    await loadWish();
+    const w = state.wish.cards.find((c) => c.card_id === id);
+    const owned = cardsById(id).some((c) => ownedQty(c) > 0);
+    setPrefs(id, w ? w.prefs : { wishlisted: false, target_price: null, buy_blocked: owned });
+    saved(box, on ? 'Ajoutée aux recherchées.' : 'Retirée des recherchées.');
+    refreshSignals();
+  } catch (err) {
+    saved(box, 'Non enregistré : ' + err.message, true);
+    toast(err.message);
+  }
+}
+
+document.addEventListener('change', (e) => {
+  const inp = e.target;
+  if (inp.matches?.('[data-pref]')) savePref(inp);
+  else if (inp.matches?.('[data-set-master]')) saveMasterset(inp);
+  else if (inp.matches?.('[data-target]')) saveTarget(inp);
+});
+document.addEventListener('keydown', (e) => {
+  // Entrée valide le champ sans replier la ligne qui le contient.
+  if (e.key === 'Enter' && e.target.matches?.('[data-target], [data-pref="min_sell_price"]')) { e.preventDefault(); e.target.blur(); }
+});
+document.addEventListener('click', (e) => {
+  if (e.target.closest('summary') && e.target.matches?.('input')) { e.preventDefault(); return; }
+  const w = e.target.closest('[data-wish]');
+  if (w) { const box = w.closest('.cp'); toggleWish(box.dataset.card, w.getAttribute('aria-pressed') !== 'true', box); return; }
+  const r = e.target.closest('[data-range]');
+  if (r) {
+    state.range = r.dataset.range === 'all' ? 'all' : +r.dataset.range; store.set('range', state.range);
+    document.querySelectorAll('.pc[data-card]').forEach((pc) => { const c = charts.get(pc.dataset.card); if (c) drawChart(pc, c); });
+  }
+});
+
+async function saveMasterset(inp) {
+  const id = inp.dataset.setMaster;
+  try {
+    await send('PUT', '/api/prefs/sets/' + encodeURIComponent(id), { masterset: inp.checked });
+    toast(inp.checked ? 'Masterset : les cartes uniques ne seront plus à vendre.' : 'Ce set n\'est plus un masterset.');
+    // Les règles de vente changent pour tout le set : on relit tout.
+    await Promise.allSettled([loadCollection(), loadMasterSets(), refreshSignals()]);
+  } catch (err) {
+    inp.checked = !inp.checked;
+    toast('Non enregistré : ' + err.message);
+  }
+}
+
+// ---------- cartes recherchées
+function wspark(pts) {
+  if (!pts || pts.length < 2) return '';
+  const t0 = pdate(pts[0][0]), t1 = pdate(pts[pts.length - 1][0]);
+  const v = pts.map((p) => p[1]), lo = Math.min(...v), hi = Math.max(...v), r = hi - lo || 1;
+  const X = (t) => ((t - t0) / (t1 - t0 || 1)) * 100, Y = (y) => 22 - ((y - lo) / r) * 20;
+  return `<svg class="sp" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="100" y1="${Y(v[0])}" y2="${Y(v[0])}"/><polyline points="${pts.map(([d, y]) => X(pdate(d)).toFixed(1) + ',' + Y(y).toFixed(1)).join(' ')}"/></svg>`;
+}
+
+function wishRow(c) {
+  const p7 = c.past?.['7'] ?? c.past?.[7];
+  const ch = c.price != null && p7 ? (c.price / p7 - 1) * 100 : null;
+  const sg = c.signal;
+  const tag = sg?.today ? `<span class="tag l-ok"><i class="lamp"></i>achat · ${esc(SIGNAL_TEXT[sg.signals[0]] || sg.signals[0])}</span>`
+    : sg ? `<span class="tag" style="--c:var(--dim)">achat ${sg.days_14} j / 14</span>` : '';
+  const own = c.owned_quantity ? `<span class="tag" style="--c:var(--dim)">×${c.owned_quantity} à toi</span>` : '';
+  const hit = c.to_target != null && c.to_target <= 0;
+  const gap = c.to_target == null ? (c.target_price ? 'pas de prix' : 'sans cible') : hit ? 'cible atteinte' : `${pct(c.to_target * 100)} au-dessus`;
+  return `<details class="wl" data-id="${esc(c.card_id)}"${state.wishOpen.has(c.card_id) ? ' open' : ''}>
+      <summary>
+        <span class="who">${thumb(c)}<b>${esc(c.name)}</b><small>${tag}${own}<span>${esc(c.set_name)} · ${esc(c.rarity || '')}</span></small></span>
+        <span class="px">${usd(c.price)}<small class="${tone(ch, CARD_TH[7])}">${ch == null ? '—' : pct(ch) + ' 7 j'}</small></span>
+        <span class="spk">${wspark(c.spark)}</span>
+        <span class="tgt"><input type="number" inputmode="decimal" min="0" step="1" data-target="${esc(c.card_id)}" value="${c.target_price ?? ''}" placeholder="cible $" aria-label="Prix cible de ${esc(c.name)}, en dollars"><small class="${hit ? 'hit' : ''}">${gap}</small></span>
+        <svg class="i chev"><use href="#i-chev"/></svg>
+      </summary>
+      <div class="detail" data-detail></div>
+    </details>`;
+}
+
+function wishFacts(c) {
+  return `<dl class="kv">
+      <div><dt>Prix market</dt><dd>${usd(c.price)}</dd></div>
+      <div><dt>Annonce la moins chère</dt><dd>${usd(c.low)}</dd></div>
+      <div><dt>Cible</dt><dd>${usd(c.target_price)}</dd></div>
+      <div><dt>il y a 30 j</dt><dd>${usd(c.past?.['30'] ?? c.past?.[30])}</dd></div>
+      <div class="sep"><dt>Ajoutée le</dt><dd>${c.added_on ? fdate(c.added_on) : '—'}</dd></div>
+      ${c.note ? `<div><dt>Note</dt><dd style="white-space:normal">${esc(c.note)}</dd></div>` : ''}
+    </dl>`;
+}
+
+function renderWish() {
+  const w = state.wish;
+  const cards = w.cards.filter((c) => c.list_id === wishListId());
+  document.getElementById('w-title').textContent = w.lists[0]?.name || 'Recherchées';
+  const hits = cards.filter((c) => c.to_target != null && c.to_target <= 0).length;
+  const live = cards.filter((c) => c.signal?.today).length;
+  document.getElementById('w-sum').innerHTML = cards.length ? `<b>${cards.length}</b> carte${cards.length > 1 ? 's' : ''}${hits ? ` · <b>${hits}</b> sous la cible` : ''}${live ? ` · ${live} signal${live > 1 ? 's' : ''} d'achat` : ''}` : '';
+  const el = document.getElementById('wish');
+  el.innerHTML = cards.length ? cards.map(wishRow).join('')
+    : '<p class="empty">Aucune carte recherchée. Cherche une carte ci-dessus ou touche « Ajouter aux recherchées » dans une carte dépliée : son prix sera suivi ici, avec un signal quand elle passe sous ta cible ou baisse de 10 % en 7 jours.</p>';
+  el.querySelectorAll('details.wl').forEach((d) => {
+    const c = cards.find((x) => x.card_id === d.dataset.id);
+    d.addEventListener('toggle', () => {
+      if (d.open) { state.wishOpen.add(c.card_id); openWish(d, c); } else state.wishOpen.delete(c.card_id);
+    });
+    if (d.open) openWish(d, c);
+  });
+}
+
+function openWish(d, c) {
+  const sg = c.signal?.today ? [{ side: 'buy', score: c.signal.score, signals: c.signal.signals, reason: c.signal.reason }] : [];
+  detail(d, { ...c, signals: sg }, wishFacts(c));
+}
+
+async function loadWish() {
+  state.wish = await getJSON('/api/prefs/wishlists');
+  renderWish();
+}
+
+async function saveTarget(inp) {
+  const id = inp.dataset.target;
+  const t = inp.value.trim().replace(',', '.');
+  const v = t === '' ? null : Number(t);
+  if (v !== null && !(v > 0 && v < 100000)) { toast('Cible invalide : un montant en dollars, ou vide.'); return; }
+  try {
+    await send('PUT', `/api/prefs/wishlists/${wishListId()}/cards/${encodeURIComponent(id)}`, { target_price: v });
+    await loadWish();
+    refreshSignals();
+  } catch (err) { toast('Cible non enregistrée : ' + err.message); }
+}
+
+let searchTimer, searchSeq = 0;
+const wq = document.getElementById('w-q'), wres = document.getElementById('w-res');
+wq.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = wq.value.trim();
+  if (q.length < 2) { wres.hidden = true; return; }
+  searchTimer = setTimeout(async () => {
+    const seq = ++searchSeq;
+    try {
+      const r = await getJSON('/api/cards?search=' + encodeURIComponent(q));
+      if (seq !== searchSeq) return;
+      const have = new Set((state.wish?.cards || []).map((c) => c.card_id));
+      const items = r.items.slice().sort((a, b) => (b.current_price ?? -1) - (a.current_price ?? -1)).slice(0, 12);
+      wres.innerHTML = items.length ? items.map((c) => `<button type="button" data-add="${esc(c.card_id)}"${have.has(c.card_id) ? ' disabled' : ''}>${thumb(c)}<span><b>${esc(c.name)}</b><small>${esc(c.set_name)} · ${esc(c.rarity || '')}</small></span><span class="r">${usd(c.current_price)}</span><span class="add" aria-hidden="true">${have.has(c.card_id) ? '★' : '+'}</span></button>`).join('')
+        + (r.total > 25 ? `<p>${r.total} cartes : précise le nom pour réduire la liste.</p>` : '')
+        : '<p>Aucune carte de ce nom dans le catalogue.</p>';
+      wres.hidden = false;
+    } catch (err) { wres.innerHTML = `<p>Recherche impossible : ${esc(err.message)}</p>`; wres.hidden = false; }
+  }, 250);
+});
+wq.addEventListener('keydown', (e) => { if (e.key === 'Escape') { wres.hidden = true; wq.value = ''; } });
+document.addEventListener('click', (e) => {
+  const add = e.target.closest('[data-add]');
+  if (add) {
+    e.preventDefault();
+    wres.hidden = true; wq.value = '';
+    toggleWish(add.dataset.add, true, null).then(() => {
+      const d = document.querySelector(`#wish details[data-id="${CSS.escape(add.dataset.add)}"]`);
+      d?.scrollIntoView({ block: 'nearest' });
+      d?.querySelector('[data-target]')?.focus();
+    });
+    return;
+  }
+  if (!e.target.closest('.wadd')) wres.hidden = true;
+});
+
+// ---------- import de la collection
+const imp = { text: null, preview: null };
+const impDlg = document.getElementById('imp');
+const impSt = (msg, err) => { const s = document.getElementById('imp-st'); s.textContent = msg; s.classList.toggle('err', !!err); };
+document.getElementById('imp-open').addEventListener('click', () => { impDlg.showModal(); });
+impDlg.addEventListener('click', (e) => { if (e.target.closest('[data-imp="close"]') || e.target === impDlg) impDlg.close(); });
+document.getElementById('imp-file').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  imp.text = null; imp.preview = null;
+  document.getElementById('imp-out').innerHTML = '';
+  document.getElementById('imp-go').disabled = true;
+  if (!f) return;
+  if (f.size > 950_000) { impSt('Fichier trop gros (' + nf0.format(f.size / 1000) + ' Ko) : le serveur accepte 1 Mo au plus.', true); return; }
+  imp.text = await f.text();
+  impPreview();
+});
+['imp-all', 'imp-commons'].forEach((id) => document.getElementById(id).addEventListener('change', () => { if (imp.text) impPreview(); }));
+const impOpts = () => ({ csv: imp.text, all_portfolios: document.getElementById('imp-all').checked, include_commons: document.getElementById('imp-commons').checked });
+
+function impItem(c, right) {
+  return `<li>${thumb(c)}<span><b>${esc(c.name)}</b><small>${esc(c.set_name)} · ${esc([c.variance, c.grade].filter((x) => x && x !== 'Ungraded').join(', ') || 'normale')}</small></span><span class="r">${right}</span></li>`;
+}
+async function impPreview() {
+  impSt('Lecture du fichier et rapprochement avec le catalogue…');
+  document.getElementById('imp-go').disabled = true;
+  try {
+    const p = imp.preview = await send('POST', '/api/collection-import/preview', impOpts());
+    const N = 25;
+    const list = (rows, f) => rows.slice(0, N).map(f).join('') + (rows.length > N ? `<li><span></span><span style="color:var(--faint)">et ${rows.length - N} autres</span><span></span></li>` : '');
+    document.getElementById('imp-out').innerHTML = `
+      <div class="imp-sum">
+        <div><b>${p.added.length}</b><span>ajoutées</span></div>
+        <div><b>${p.changed.length}</b><span>modifiées</span></div>
+        <div><b>${nf0.format(p.unchanged)}</b><span>inchangées</span></div>
+        <div><b>${p.missing.length}</b><span>absentes de l'export</span></div>
+        <div><b>${p.unmatched}</b><span>non reliées</span></div>
+      </div>
+      <p><b>${nf0.format(p.rows)}</b> lignes Pokémon lues, <b>${nf0.format(p.copies)}</b> exemplaires reliés au catalogue.${p.unmatched ? ` Non reliées (mises de côté) : ${p.unmatched_by_set.map(([s, n]) => `${esc(s)} ${n}`).join(', ')}.` : ''}</p>
+      ${p.missing.length ? `<h3>Absentes de l'export</h3><p>Ces cartes sont dans ta collection mais pas dans ce fichier. Vendue, échangée, ou simple oubli de l'export ? Choisis pour chacune ; une carte retirée reste archivée.</p>
+        <ul class="imp-list" id="imp-miss">${p.missing.map((c, i) => impItem(c, `×${c.quantity} <select data-miss="${i}" aria-label="Que faire de ${esc(c.name)}"><option value="keep">garder</option><option value="rm">retirer</option></select>`)).join('')}</ul>` : ''}
+      ${p.added.length ? `<h3>Ajoutées</h3><ul class="imp-list">${list(p.added, (c) => impItem(c, `×${c.quantity}`))}</ul>` : ''}
+      ${p.changed.length ? `<h3>Modifiées</h3><ul class="imp-list">${list(p.changed, (c) => impItem(c, c.old_quantity !== c.quantity ? `×${c.old_quantity} → ×${c.quantity}` : `payé ${usd(c.old_average_cost_paid)} → ${usd(c.average_cost_paid)}`))}</ul>` : ''}`;
+    impCount();
+  } catch (err) { impSt('Aperçu impossible : ' + err.message, true); }
+}
+function impRemovals() {
+  return [...document.querySelectorAll('#imp-miss select')].filter((s) => s.value === 'rm').map((s) => imp.preview.missing[+s.dataset.miss]);
+}
+function impCount() {
+  const p = imp.preview, rm = impRemovals().length;
+  const n = p.added.length + p.changed.length + rm;
+  document.getElementById('imp-go').disabled = n === 0;
+  impSt(n ? `${p.added.length} ajout${p.added.length > 1 ? 's' : ''}, ${p.changed.length} modification${p.changed.length > 1 ? 's' : ''}, ${rm} retrait${rm > 1 ? 's' : ''} à appliquer.` : 'Rien à importer : ta collection est déjà à jour.');
+}
+document.getElementById('imp-out').addEventListener('change', (e) => {
+  if (e.target.matches('select[data-miss]')) { e.target.classList.toggle('rm', e.target.value === 'rm'); impCount(); }
+});
+document.getElementById('imp-go').addEventListener('click', async () => {
+  const go = document.getElementById('imp-go');
+  go.disabled = true;
+  impSt('Import en cours…');
+  try {
+    const rm = impRemovals().map((c) => ({ card_id: c.card_id, variance: c.variance, grade: c.grade }));
+    const r = await send('POST', '/api/collection-import/apply', { ...impOpts(), remove: rm });
+    impSt(`Import fait : ${r.owned} cartes à jour, ${r.removed} retirée${r.removed > 1 ? 's' : ''}, ${r.quarantine} ligne${r.quarantine > 1 ? 's' : ''} non reliée${r.quarantine > 1 ? 's' : ''}. Les signaux suivront au prochain calcul.`);
+    imp.preview = null;
+    document.getElementById('imp-out').innerHTML = '';
+    document.getElementById('imp-file').value = '';
+    state.history.clear();
+    load();
+  } catch (err) { impSt('Import refusé : ' + err.message, true); go.disabled = false; }
+});
 
 // ---------- répartition
 function renderSets() {
@@ -972,6 +1628,7 @@ function setDetail(st, i, w) {
   const miss = allMissing.length ? `<p class="lbl">Cartes recherchées manquantes · ${missing.length} · ${usd(cost)} pour les avoir toutes${others ? ` · plus ${others} autres cartes du set (${usd(otherCost)})` : ''}</p>
       <ul class="miss">${missing.slice(0, 12).map((c) => `<li><span>${thumb(c)}<b>${esc(c.name)}</b><small>${esc(c.rarity || '')}</small></span><span class="r">${usd(c.price)}</span></li>`).join('')}${missing.length > 12 ? `<li><span style="color:var(--faint)">et ${missing.length - 12} autres</span><span></span></li>` : ''}${missing.length ? '' : '<li><span style="color:var(--dim)">Toutes les cartes recherchées sont là.</span><span></span></li>'}</ul>` : '';
   return `<div class="msb">
+      <div class="mst"><label class="tg"><input type="checkbox" data-set-master="${esc(st.set_id)}"${st.masterset ? ' checked' : ''}><span>Masterset</span></label><span class="rule">Tu gardes un exemplaire de chaque carte : aucun signal de vente sur ce set, sauf pour les doublons d'une rareté au-dessus de Rare.</span></div>
       <div class="strip">
         <div>
           <div class="nm">Set complet</div>
@@ -1028,7 +1685,7 @@ function renderMasterSets() {
     return `<details class="ms" data-set="${esc(st.set_id)}"${open.has(st.set_id) ? ' open' : ''}>
       <summary>
         <svg class="i chev"><use href="#i-chev"/></svg>
-        <span class="nm2"><b>${esc(st.set_name)}${st.owned_cards === st.n_cards ? '<span class="badge l-ok"><i class="lamp"></i>complet</span>' : ''}</b><span class="done"><span class="g" title="${full ? 'set complet' : 'part des cartes recherchées possédées'}"><i style="width:${gauge.toFixed(1)}%"></i></span><span>${full ? `<b>${st.owned_cards}/${st.n_cards}</b> cartes · ${st.entries} variantes` : `<b>${st.owned_chase}/${st.n_chase}</b> recherchées · ${st.owned_cards}/${st.n_cards} cartes du set`} · ${st.copies} exemplaires</span></span></span>
+        <span class="nm2"><b>${esc(st.set_name)}${st.owned_cards === st.n_cards ? '<span class="badge l-ok"><i class="lamp"></i>complet</span>' : ''}${st.masterset ? '<span class="badge ms-on">masterset</span>' : ''}</b><span class="done"><span class="g" title="${full ? 'set complet' : 'part des cartes recherchées possédées'}"><i style="width:${gauge.toFixed(1)}%"></i></span><span>${full ? `<b>${st.owned_cards}/${st.n_cards}</b> cartes · ${st.entries} variantes` : `<b>${st.owned_chase}/${st.n_chase}</b> recherchées · ${st.owned_cards}/${st.n_cards} cartes du set`} · ${st.copies} exemplaires</span></span></span>
         <span class="spc">${setSpark(h)}</span>
         <span class="val">${nf0.format(now)}<em>$</em></span>
         <span class="vd ${tq === 'up' ? 'l-ok' : tq === 'dn' ? 'l-bad' : 'l-off'}"><span style="color:${tq ? 'var(--c)' : 'var(--ink)'}">${win ? dusd(win.delta) : '—'}<small>${pct(q)} · ${WLABEL[w]}</small></span></span>
@@ -1120,6 +1777,7 @@ function trendRow(t, computed) {
       <p class="reason">${esc(t.reason)} · ${scores}</p>
       ${vers}
       ${news ? `<div class="nlist">${news}</div>` : ''}
+      ${cardControls(t)}
     </div>
   </details>`;
 }
@@ -1240,10 +1898,18 @@ function freshness() {
   live.querySelector('span').textContent = `prix du ${fdate(asOf)}${age > 1 ? ` (${age} j)` : ''} · lu à ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 }
 
+// Erreur réseau ou HTTP (l'API) ou erreur d'affichage (le code de la page) :
+// le bandeau ne dit « API injoignable » que dans le premier cas.
 async function getJSON(url) {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(url + ' → ' + r.status);
+  let r;
+  try { r = await fetch(url); } catch {
+    const e = new Error('API injoignable (' + url + ')'); e.api = 'down'; throw e;
+  }
+  if (!r.ok) { const e = new Error(url + ' → ' + r.status); e.api = r.status; throw e; }
   return r.json();
+}
+async function refreshSignals() {
+  try { state.sig = await getJSON(API + '/signals?days=' + state.days); renderSignals(); } catch (e) { toast(e.message); }
 }
 
 async function loadCollection() {
@@ -1261,12 +1927,15 @@ async function loadSignals() {
   if (state.coll?.as_of) renderMovers();
 }
 async function load() {
-  const res = await Promise.allSettled([loadCollection(), loadSignals(), loadMasterSets()]);
-  const bad = res.filter((r) => r.status === 'rejected');
+  const res = await Promise.allSettled([loadCollection(), loadSignals(), loadMasterSets(), loadWish()]);
+  const bad = res.filter((r) => r.status === 'rejected').map((r) => r.reason);
   if (bad.length) {
-    toast('Lecture impossible : ' + bad[0].reason.message);
+    const api = bad.find((e) => e?.api);
+    bad.filter((e) => !e?.api).forEach((e) => console.error(e));
+    toast((api ? 'Lecture impossible : ' : 'Erreur d\'affichage : ') + (api || bad[0]).message);
     const live = document.getElementById('live');
-    live.className = 'live l-bad'; live.querySelector('span').textContent = 'API injoignable';
+    live.className = 'live ' + (api ? 'l-bad' : 'l-warn');
+    live.querySelector('span').textContent = !api ? 'erreur d\'affichage' : api.api === 'down' ? 'API injoignable' : `API en erreur (${api.api})`;
   }
 }
 
