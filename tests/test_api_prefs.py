@@ -299,3 +299,92 @@ def test_import_rejects_bad_files(client):
     empty = client.post("/api/collection-import/apply", json={"csv": _csv()})
     assert empty.status_code == 422
     assert len(_owned()) == 3
+
+
+# ---------- corrections de revue (2026-11-17)
+
+
+def _quarantine() -> list[str]:
+    with psycopg.connect(_admin_dsn()) as admin:
+        return [
+            r[0]
+            for r in admin.execute(
+                "SELECT r.product_name FROM collection.match_quarantine q "
+                "JOIN collection.raw_import r ON r.id = q.raw_import_id ORDER BY 1"
+            ).fetchall()
+        ]
+
+
+def _add_unknown_set_card() -> None:
+    with psycopg.connect(_admin_dsn()) as admin:
+        admin.execute(
+            "INSERT INTO prod.dim_card (card_id, name, set_id, set_name, rarity, series) "
+            "VALUES ('unk-1', 'Nobody', 'unk', 'Unknown Set', 'Rare', 'Scarlet & Violet')"
+        )
+
+
+def test_quarantined_row_leaves_quarantine_once_matched(client):
+    client.post("/api/collection-import/apply", json={"csv": EXPORT})
+    assert _quarantine() == ["Nobody"]
+    # Le catalogue connaît maintenant la carte : le même export la relie.
+    _add_unknown_set_card()
+    r = client.post("/api/collection-import/apply", json={"csv": EXPORT}).json()
+    assert r["quarantine"] == 0 and _quarantine() == []
+    assert any(x[0] == "unk-1" for x in _owned())
+
+
+def test_script_and_board_give_the_same_result(client, tmp_path, monkeypatch):
+    # Script (rôle pipeline_app), mêmes défauts que le board : Main seul,
+    # communes comprises, écriture par collection.apply_import.
+    from scripts import import_collection
+
+    path = tmp_path / "export.csv"
+    path.write_text(
+        EXPORT + "MS - Paldea Evolved,Pokemon,Paldea Evolved,Magikarp,200/193,Illustration Rare,"
+        "Holofoil,Ungraded,,40.00,2,80.00,,,,\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("sys.argv", ["import_collection", str(path)])
+    import_collection.main()
+    by_script = _owned()
+    assert ("sv2-1", "Normal", "Ungraded", 1) in [r[:4] for r in by_script]  # commune gardée
+    assert ("sv2-200", "Holofoil", "Ungraded", 2) in [r[:4] for r in by_script]  # Main seul
+    assert _quarantine() == ["Nobody"]
+    client.post("/api/collection-import/apply", json={"csv": path.read_text(encoding="utf-8")})
+    assert _owned() == by_script
+    # Le script sort aussi de la quarantaine une ligne reliée cette fois.
+    _add_unknown_set_card()
+    import_collection.main()
+    assert _quarantine() == []
+
+
+def test_import_too_big_is_refused_with_a_clear_message(client):
+    big = EXPORT + "x" * 1_000_001
+    for url in ("/api/collection-import/preview", "/api/collection-import/apply"):
+        r = client.post(url, json={"csv": big})
+        assert r.status_code == 413
+        assert r.json()["detail"] == "Fichier trop gros : 1 Mo au plus (le serveur refuse au-delà)."
+    assert len(_owned()) == 3
+
+
+def test_min_sell_price_filters_past_sell_signals_at_read_time(client):
+    # Vente passée à 70 $ (J-3) et vente du jour à 80 $ : un seuil à 75 $
+    # cache seulement la première.
+    with psycopg.connect(_admin_dsn()) as admin:
+        admin.execute(
+            "INSERT INTO prod.fact_opportunity (date_id, card_id, side, score, signals, "
+            "reason, market_price) VALUES (%s, 'sv3pt5-199', 'sell', 60, ARRAY['pic'], 'r', 70)",
+            (D - timedelta(days=3),),
+        )
+
+    def sell_dates():
+        body = client.get("/api/board/signals?days=7").json()
+        t = next(t for t in body["trends"] if (t["card_id"], t["side"]) == ("sv3pt5-199", "sell"))
+        return t["dates"]
+
+    assert sell_dates() == [str(D - timedelta(days=3)), str(D)]
+    client.put("/api/prefs/cards/sv3pt5-199", json={"min_sell_price": 75})
+    assert sell_dates() == [str(D)]
+    # Sans seuil (NULL), rien n'est filtré.
+    client.put("/api/prefs/cards/sv3pt5-199", json={"min_sell_price": None})
+    assert sell_dates() == [str(D - timedelta(days=3)), str(D)]

@@ -1480,6 +1480,11 @@ document.addEventListener('click', (e) => {
 
 // ---------- import de la collection
 const imp = { text: null, preview: null };
+// Même seuil et même message que l'API (MAX_IMPORT_BYTES, src/api/collection_import.py) :
+// nginx coupe toute requête au-delà d'1 Mio, on refuse donc avant l'envoi.
+const MAX_IMPORT_BYTES = 1_000_000;
+const TOO_BIG = 'Fichier trop gros : 1 Mo au plus (le serveur refuse au-delà).';
+const tooBig = (body) => new Blob([body.csv]).size > MAX_IMPORT_BYTES || new Blob([JSON.stringify(body)]).size > 1_048_576;
 const impDlg = document.getElementById('imp');
 const impSt = (msg, err) => { const s = document.getElementById('imp-st'); s.textContent = msg; s.classList.toggle('err', !!err); };
 document.getElementById('imp-open').addEventListener('click', () => { impDlg.showModal(); });
@@ -1490,7 +1495,7 @@ document.getElementById('imp-file').addEventListener('change', async (e) => {
   document.getElementById('imp-out').innerHTML = '';
   document.getElementById('imp-go').disabled = true;
   if (!f) return;
-  if (f.size > 950_000) { impSt('Fichier trop gros (' + nf0.format(f.size / 1000) + ' Ko) : le serveur accepte 1 Mo au plus.', true); return; }
+  if (f.size > MAX_IMPORT_BYTES) { impSt(TOO_BIG, true); return; }
   imp.text = await f.text();
   impPreview();
 });
@@ -1504,7 +1509,9 @@ async function impPreview() {
   impSt('Lecture du fichier et rapprochement avec le catalogue…');
   document.getElementById('imp-go').disabled = true;
   try {
-    const p = imp.preview = await send('POST', '/api/collection-import/preview', impOpts());
+    const body = impOpts();
+    if (tooBig(body)) { impSt(TOO_BIG, true); return; }
+    const p = imp.preview = await send('POST', '/api/collection-import/preview', body);
     const N = 25;
     const list = (rows, f) => rows.slice(0, N).map(f).join('') + (rows.length > N ? `<li><span></span><span style="color:var(--faint)">et ${rows.length - N} autres</span><span></span></li>` : '');
     document.getElementById('imp-out').innerHTML = `
@@ -1541,7 +1548,9 @@ document.getElementById('imp-go').addEventListener('click', async () => {
   impSt('Import en cours…');
   try {
     const rm = impRemovals().map((c) => ({ card_id: c.card_id, variance: c.variance, grade: c.grade }));
-    const r = await send('POST', '/api/collection-import/apply', { ...impOpts(), remove: rm });
+    const body = { ...impOpts(), remove: rm };
+    if (tooBig(body)) { impSt(TOO_BIG, true); go.disabled = false; return; }
+    const r = await send('POST', '/api/collection-import/apply', body);
     impSt(`Import fait : ${r.owned} cartes à jour, ${r.removed} retirée${r.removed > 1 ? 's' : ''}, ${r.quarantine} ligne${r.quarantine > 1 ? 's' : ''} non reliée${r.quarantine > 1 ? 's' : ''}. Les signaux suivront au prochain calcul.`);
     imp.preview = null;
     document.getElementById('imp-out').innerHTML = '';

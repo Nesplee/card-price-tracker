@@ -9,11 +9,10 @@
 #      écriture possible du dashboard dans la collection.
 # Idempotent : l'export complet est renvoyé à chaque fois, les lignes connues
 # sont mises à jour, les nouvelles ajoutées ; rejouer le même fichier ne change
-# rien (tests/test_collection_import.py).
+# rien (tests/test_api_prefs.py).
 from __future__ import annotations
 
 import io
-import json
 from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -23,12 +22,16 @@ from pydantic import BaseModel, Field
 from src.api.board import _json
 from src.api.db import get_api_connection
 from src.load.collection_loader import aggregate_owned
+from src.load.collection_loader import apply_import as apply_matches
 from src.transform.collection_match import build_catalog, match_row, read_collection_lines
 
 router = APIRouter(prefix="/api/collection-import")
 
-# Un export complet fait ~300 Ko pour ~1 200 lignes : 5 Mo laisse de la marge.
-MAX_CSV_CHARS = 5_000_000
+# Un export complet fait ~250 Ko pour ~2 000 lignes. Même seuil que le board,
+# qui refuse le fichier avant l'envoi : nginx (dashboard-frontend) coupe toute
+# requête au-delà d'1 Mio (client_max_body_size par défaut).
+MAX_IMPORT_BYTES = 1_000_000
+TOO_BIG = "Fichier trop gros : 1 Mo au plus (le serveur refuse au-delà)."
 REQUIRED_COLUMNS = (
     "Category",
     "Portfolio Name",
@@ -50,7 +53,7 @@ class OwnedKey(BaseModel):
 
 
 class ImportIn(BaseModel):
-    csv: str = Field(min_length=1, max_length=MAX_CSV_CHARS)
+    csv: str = Field(min_length=1)
     # Mêmes options que le script ; par défaut celles de l'import en place
     # (vérifié le 2026-11-17 sur l'export réel : portefeuille « Main » seul,
     # communes comprises = 0 ajout, 0 modification). Les portefeuilles
@@ -65,7 +68,9 @@ class ApplyIn(ImportIn):
 
 
 def _matches(conn, body: ImportIn):
-    text = body.csv.lstrip("﻿")
+    if len(body.csv.encode()) > MAX_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail=TOO_BIG)
+    text = body.csv.lstrip("\ufeff")
     header = text.split("\n", 1)[0]
     missing = [c for c in REQUIRED_COLUMNS if c not in header]
     if missing:
@@ -162,32 +167,9 @@ def preview(body: ImportIn, conn=Depends(get_api_connection)) -> Response:
 
 def apply_import(conn, body: ApplyIn) -> dict:
     matches = _matches(conn, body)
-    owned = aggregate_owned([(0, m) for m in matches if m.card_id is not None])
-    if not owned:
+    if not any(m.card_id is not None for m in matches):
         raise HTTPException(status_code=422, detail="aucune carte reliée au catalogue")
-    payload = {
-        "rows": [
-            {
-                "set_name": m.row.set_name,
-                "card_number": m.row.card_number,
-                "product_name": m.row.product_name,
-                "variance": m.row.variance,
-                "grade": m.row.grade,
-                "rarity": m.row.rarity,
-                "quantity": m.row.quantity,
-                "average_cost_paid": m.row.average_cost_paid,
-                "market_price_at_export": m.row.market_price_at_export,
-                "card_id": m.card_id,
-                "rejection_reason": m.rejection_reason,
-            }
-            for m in matches
-        ],
-        "owned": owned,
-        "remove": [r.model_dump() for r in body.remove],
-    }
-    result = conn.execute(
-        "SELECT collection.apply_import(%(p)s::jsonb) AS r", {"p": json.dumps(payload)}
-    ).fetchone()["r"]
+    result = apply_matches(conn, matches, [r.model_dump() for r in body.remove])
     conn.commit()
     return result
 

@@ -142,6 +142,8 @@ CREATE TABLE collection.owned_card_removed (
 -- upsert des cartes reliées dans prod.dim_owned_card, quarantaine des lignes
 -- non reliées, puis retrait (archivé) des seules cartes que l'utilisateur a
 -- choisi de retirer. Idempotent : rejouer le même import ne change rien.
+-- Utilisée aussi par scripts/import_collection.py (rôle pipeline_app) : les
+-- deux chemins d'import font exactement la même chose.
 -- p_import : {"rows": [{set_name, card_number, product_name, variance, grade,
 --             rarity, quantity, average_cost_paid, market_price_at_export,
 --             card_id | null, rejection_reason | null}],
@@ -224,6 +226,16 @@ BEGIN
         imported_at = now();
     GET DIAGNOSTICS v_quarantine = ROW_COUNT;
 
+    -- Une ligne mise en quarantaine par un import précédent et reliée cette
+    -- fois (catalogue complété, alias de set ajouté) en sort.
+    DELETE FROM collection.match_quarantine q
+    USING collection.raw_import r, _imp i
+    WHERE q.raw_import_id = r.id
+      AND i.card_id IS NOT NULL
+      AND (r.set_name, r.card_number, r.product_name, r.variance, r.grade)
+        = (i.set_name, i.card_number, i.product_name, coalesce(i.variance, ''),
+           coalesce(i.grade, ''));
+
     -- Retraits : seulement des cartes absentes de l'export (jamais une carte
     -- que l'export vient de charger), archivées avant d'être retirées.
     WITH rm AS (
@@ -253,7 +265,7 @@ $$;
 
 REVOKE ALL ON FUNCTION collection.apply_import(jsonb) FROM PUBLIC;
 GRANT USAGE ON SCHEMA collection TO dashboard_reader;
-GRANT EXECUTE ON FUNCTION collection.apply_import(jsonb) TO dashboard_reader;
+GRANT EXECUTE ON FUNCTION collection.apply_import(jsonb) TO dashboard_reader, pipeline_app;
 
 -- Droits : dashboard_reader lit et écrit les réglages (et seulement eux) ;
 -- pipeline_app (calcul des signaux) les lit.

@@ -261,7 +261,8 @@ NEWS_WINDOW_DAYS = 14
 RULES_FILTER = """
 NOT (o.side = 'buy' AND coalesce(r.buy_blocked, false))
 AND NOT (o.side = 'sell' AND (coalesce(r.sell_blocked, false)
-                              OR o.market_price < coalesce(r.min_sell_price, 0)))
+                              OR (r.min_sell_price IS NOT NULL
+                                  AND o.market_price < r.min_sell_price)))
 """
 
 _OPPORTUNITY_CTES = """

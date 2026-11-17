@@ -4,9 +4,12 @@
 # src/load/staging_loader.py vis-à-vis de src/transform/validate.py.
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import Iterable
 
 from psycopg import Connection
+from psycopg.rows import tuple_row
 
 from src.transform.collection_match import CollectionRow, MatchResult
 
@@ -148,3 +151,42 @@ def load_match_quarantine(conn: Connection, unmatched: list[tuple[int, MatchResu
         cur.executemany(_UPSERT_MATCH_QUARANTINE_SQL, rows)
     logger.warning("collection.match_quarantine : %d cartes non reliées", len(rows))
     return len(rows)
+
+
+def import_payload(matches: list[MatchResult], remove: Iterable[dict] = ()) -> dict:
+    """Argument de collection.apply_import (migration 017) : toutes les lignes
+    de l'export avec leur rapprochement, les cartes possédées agrégées, et les
+    cartes à retirer (absentes de l'export, choisies par l'utilisateur)."""
+    return {
+        "rows": [
+            {
+                "set_name": m.row.set_name,
+                "card_number": m.row.card_number,
+                "product_name": m.row.product_name,
+                "variance": m.row.variance,
+                "grade": m.row.grade,
+                "rarity": m.row.rarity,
+                "quantity": m.row.quantity,
+                "average_cost_paid": m.row.average_cost_paid,
+                "market_price_at_export": m.row.market_price_at_export,
+                "card_id": m.card_id,
+                "rejection_reason": m.rejection_reason,
+            }
+            for m in matches
+        ],
+        "owned": aggregate_owned([(0, m) for m in matches if m.card_id is not None]),
+        "remove": list(remove),
+    }
+
+
+def apply_import(conn: Connection, matches: list[MatchResult], remove: Iterable[dict] = ()) -> dict:
+    """Applique un import en une transaction via collection.apply_import :
+    upsert de l'export, quarantaine des lignes non reliées (et sortie de
+    celles reliées cette fois), retraits archivés. Chemin commun au script
+    et au board ; ne commite pas (à l'appelant de le faire)."""
+    payload = import_payload(matches, remove)
+    with conn.cursor(row_factory=tuple_row) as cur:
+        cur.execute("SELECT collection.apply_import(%s::jsonb)", (json.dumps(payload),))
+        (result,) = cur.fetchone()
+    logger.info("collection.apply_import : %s", result)
+    return result

@@ -8,7 +8,14 @@
 #
 # Usage :
 #   python -m scripts.import_collection export.csv --dry-run      # rapport seul
-#   python -m scripts.import_collection export.csv --all-portfolios --include-commons
+#   python -m scripts.import_collection export.csv                # Main, communes comprises
+#
+# Défauts (2026-11-17) identiques à l'import depuis le board
+# (src/api/collection_import.py) : portefeuille « Main » seul, communes
+# comprises. C'est ce que contient la collection en place (0 différence
+# mesurée sur l'export réel) ; les portefeuilles « MS - <set> » reprennent des
+# cartes déjà dans Main et les compteraient en double (--all-portfolios).
+# L'écriture passe par collection.apply_import (migration 017), comme le board.
 #
 # Les sets et les noms de cartes viennent de prod.dim_card (le catalogue déjà
 # chargé), plus de l'API pokemontcg.io : le rapprochement porte ainsi sur
@@ -22,7 +29,7 @@ from collections import Counter
 import psycopg
 
 from src.common.config import load_db_config
-from src.load.collection_loader import load_match_quarantine, load_owned_cards, load_raw_import
+from src.load.collection_loader import apply_import
 from src.transform.collection_match import build_catalog, match_row, read_collection_csv
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -44,7 +51,10 @@ def main() -> None:
         help="tous les portefeuilles (master sets compris), pas seulement « Main »",
     )
     parser.add_argument(
-        "--include-commons", action="store_true", help="garder les Common / Uncommon"
+        "--include-commons",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="garder les Common / Uncommon (par défaut ; --no-include-commons pour les exclure)",
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="rapport seulement, aucune écriture en base"
@@ -63,15 +73,12 @@ def main() -> None:
         set_name_to_id, known_card_ids, names_by_set = _catalog(conn)
         logger.info("%d cartes connues dans prod.dim_card", len(known_card_ids))
         matches = [match_row(r, set_name_to_id, known_card_ids, names_by_set) for r in rows]
-        if args.dry_run:
-            raw_ids = [0] * len(rows)
-        else:
-            raw_ids = load_raw_import(conn, rows)
-        matched = [(rid, m) for rid, m in zip(raw_ids, matches) if m.card_id is not None]
-        unmatched = [(rid, m) for rid, m in zip(raw_ids, matches) if m.card_id is None]
+        matched = [(0, m) for m in matches if m.card_id is not None]
+        unmatched = [(0, m) for m in matches if m.card_id is None]
         if not args.dry_run:
-            load_owned_cards(conn, matched)
-            load_match_quarantine(conn, unmatched)
+            # Même chemin que le board : une transaction, quarantaine tenue à
+            # jour (une ligne reliée cette fois en sort), aucun retrait.
+            apply_import(conn, matches)
             conn.commit()
     except Exception:
         conn.rollback()
