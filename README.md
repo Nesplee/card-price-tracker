@@ -49,7 +49,7 @@ This isn't a script that fetches an API once and calls it done. A handful of dec
 - **Idempotent end-to-end, proven rather than assumed.** Every layer, from the raw copy to the staging quarantine to the star schema itself, upserts through a `UNIQUE` constraint instead of a delete-and-reload. [`tests/test_idempotence.py`](tests/test_idempotence.py) replays the entire pipeline twice in a row against a real database and asserts zero duplication and zero drift in the historical record.
 - **A page-level checkpoint turns a ~37% failure rate into a non-issue.** Each successfully fetched page commits immediately in [`src/extract/pipeline.py`](src/extract/pipeline.py), so a crash mid-extraction never loses work already done; a retry resumes from the last confirmed page instead of restarting an 80-page extraction from scratch.
 - **A real incident reshaped the DAG's failure handling, not a hypothetical one.** The automated run of 2026-08-07 exhausted its then-20-retry budget during a prolonged `pokemontcg.io` outage. The fix raised the retry ceiling to 60, added a 4-hour `dagrun_timeout` that bounds the cumulative run rather than any single attempt, and closed a UTC date-rollover bug, then was verified by replaying that exact failed run to `success` in production.
-- **Least privilege is enforced at the database role level, not just documented.** `pipeline_app` (read/write, scoped to the schemas the pipeline needs) and `dashboard_reader` (read-only, scoped to `prod` alone) are two separate Postgres roles: the dashboard that reads the data cannot also write to it.
+- **Least privilege is enforced at the database role level, not just documented.** `pipeline_app` (read/write, scoped to the schemas the pipeline needs) and `dashboard_reader` (read-only on `prod`) are two separate Postgres roles: the dashboard that reads the data cannot write to it, except for the user's own settings (`prefs` schema) and a board import through one `SECURITY DEFINER` function (migration 017).
 
 <img src=".assets/divider.png" width="100%" alt="" />
 
@@ -87,7 +87,8 @@ prod.dim_card / dim_date / dim_platform   (currency: EUR for CardMarket, USD for
 | Raw | 1 | Untouched API payload, full traceability |
 | Staging | 2 | Typed and validated, plus an explicit quarantine |
 | Production | 4 | Star schema: 1 fact table, 3 dimensions |
-| Personal Collection | 3 | Owned cards, matched against the catalog |
+| Personal Collection | 4 | Owned cards, matched against the catalog |
+| Settings | 4 | Per-card and per-set settings, wanted-card lists |
 
 </div>
 
@@ -110,6 +111,8 @@ prod.dim_card / dim_date / dim_platform   (currency: EUR for CardMarket, USD for
 <tr><td align="center"><code>collection.raw_import</code></td><td>Rows from the owner's external CSV export that passed the initial import filters, before matching against the catalog.</td></tr>
 <tr><td align="center"><code>collection.match_quarantine</code></td><td>Import rows whose set or card could not be matched to <code>prod.dim_card</code>, with the rejection reason kept alongside a reference to the original row.</td></tr>
 <tr><td align="center"><code>prod.dim_owned_card</code></td><td>Successfully matched, owned cards with quantity, the table every collection view and price-mover report is built on.</td></tr>
+<tr><td align="center"><code>collection.owned_card_removed</code></td><td>Owned rows removed by a board import (absent from the new export, removal chosen by the user), archived rather than lost.</td></tr>
+<tr><td align="center"><code>prefs.*</code></td><td><code>card_setting</code> (unsellable, unfollowed, minimum sell price), <code>set_setting</code> (masterset), <code>wishlist</code> and <code>wishlist_card</code> (wanted cards, target price), and the view <code>v_card_rules</code> the signals are filtered with. Written from the board.</td></tr>
 </table>
 
 > [!NOTE]
@@ -136,8 +139,17 @@ GET /api/opportunities/performance # hit rate and average return per signal (bac
 GET /api/opportunities/trends      # set trends, market news, competitive meta shifts
 GET /api/board/collection          # board: collection value history, per-card prices at 1/7/30/90 days, sparklines
 GET /api/board/signals?days=14     # board: signal trends (repeated signals, buzz), news, meta shifts
-GET /api/board/master-sets          # board: sets owned at 20 %+ (whole set or chase cards), whole-set value over time, by rarity, movers
+GET /api/board/master-sets          # board: sets owned at 20 %+ (whole set or chase cards) or flagged masterset, whole-set value over time, by rarity, movers
+GET /api/prefs/wishlists            # board: wanted cards (price, 1-90 day moves, 30-day sparkline, target, today's buy signal)
+PUT /api/prefs/cards/{card_id}      # card settings: unsellable, unfollowed, min_sell_price (USD)
+PUT /api/prefs/sets/{set_id}        # set settings: masterset
+PUT|DELETE /api/prefs/wishlists/{list_id}/cards/{card_id}   # add / remove a wanted card, target price, note
+POST /api/collection-import/preview # collection export (CSV text): what would be added, changed, kept, missing
+POST /api/collection-import/apply   # apply it, with the missing cards the user chose to remove
 ```
+
+> [!NOTE]
+> **The user's settings shape the signals (since 2026-11-17, [`migration 017`](migrations/017_collection_prefs.sql)).** The board writes them in a separate `prefs` schema, the only place where `dashboard_reader` may write; the view `prefs.v_card_rules` turns them into rules applied both when the signals are computed ([`src/signals/opportunities.py`](src/signals/opportunities.py)) and when they are read (board and `/api/opportunities`, so a setting counts at once and on past days): no buy signal on a card already owned (any copy) unless it is on a wanted list; no sell signal on a card marked unsellable, on a card of a set flagged *masterset* (Paldea Evolved and Paldean Fates to start with) unless it is a duplicate (2+ raw normal / holo copies) above Rare, or while the market price is under the card's minimum sell price; *unfollowed* cards get no signal at all. Wanted cards are evaluated even outside the buy scope and get two signals of their own, `cible_atteinte` (market or cheapest listing at or under the target) and `baisse_suivie` (-10 % over 7 days). The collection import from the board ([`src/api/collection_import.py`](src/api/collection_import.py)) runs the same parsing and matching as the script, shows a preview first, and writes only through `collection.apply_import()`, a `SECURITY DEFINER` function: cards missing from the new export are kept unless the user picks *remove*, and removed rows are archived in `collection.owned_card_removed`. By default it reads the *Main* portfolio only, commons included, which is how the collection in place was loaded (the `MS - <set>` portfolios repeat cards already in Main).
 
 **Board** ([`board/public/index.html`](board/public/index.html), served on port 5173; it replaced the former React front end on 2026-11-14) is a single static page in the same visual grammar as the VPS agent-manager: black, neutral greys, square corners, colour only for status lamps and out-of-threshold numbers. Two blocks face to face. *Collection*: market value over time, biggest movers ranked by dollar impact (quantity × price change) over 24 h / 7 d / 30 d / 90 d (chase cards only: Illustration Rare, Special Illustration Rare, full art, gold...; commons, plain rares and regular ex are left out, see `CHASE_RARITIES` in [`src/api/board.py`](src/api/board.py)); the list can be sorted by impact, rise, fall, %, price, owned value, rarity or set, and filtered by rarity, set and price range (choices kept in the browser), value split by set, and below it a *Sets* block: one collapsible row per set where at least 20 % of the cards, or 20 % of its chase cards, are owned (nine sets today: Paldea Evolved and Paldean Fates complete and flagged as such, then 151, Ascended Heroes, White Flare...) with its value and change; unfolded, the value of the whole set over time (one copy of each card, at the price of its main variant), the value of the owned copies, the missing chase cards first and the cost to get them all, value by rarity and the set's biggest movers. *Signaux* is about trends rather than single-day alerts: how many days out of the last 7 / 14 / 30 a buy or sell signal came back for a card (a ribbon of days, and the current streak), and the **buzz**, the number of Reddit posts and press articles that mention each Pokémon over the last 7 days against the 7 before ([`src/api/mentions.py`](src/api/mentions.py), counted per species: "Mega Charizard X ex" counts as Charizard; Trainer names such as "Will" or "Switch" are left out using the Pokémon list in `src/api/data/pokemon_names.txt`, taken from the pokemontcg.io catalogue). Then the directional news and the week-over-week competitive meta. A card turns green/red only past ±5 / 10 / 20 / 30 % (24 h / 7 d / 30 d / 90 d).
 
@@ -211,7 +223,7 @@ dags/           Airflow DAGs (catalog, daily prices, news, retention), productio
 board/          Dashboard: one static page (public/index.html), Nginx image proxying /api/
 migrations/     Numbered SQL, applied once, never modified after merge
 scripts/        Manual entry points (one-off extraction, migrations, collection import)
-tests/          171 tests, unit and integration (pytest + a real Postgres instance)
+tests/          199 tests, unit and integration (pytest + a real Postgres instance)
 infra/          VPS provisioning runbook (SSH hardening, firewall, Docker, deployment)
 ```
 
@@ -254,7 +266,7 @@ ruff check .
 black --check .
 ```
 
-171 tests covering retrying extraction ([`tests/test_extract.py`](tests/test_extract.py)), checkpoint resumption ([`tests/test_run_extract_load.py`](tests/test_run_extract_load.py)), validation and cleaning ([`tests/test_transform.py`](tests/test_transform.py)), idempotent loading at every stage ([`tests/test_raw_loader.py`](tests/test_raw_loader.py), [`test_staging_loader.py`](tests/test_staging_loader.py), [`test_warehouse_loader.py`](tests/test_warehouse_loader.py)), personal collection matching ([`tests/test_collection_match.py`](tests/test_collection_match.py), [`test_collection_loader.py`](tests/test_collection_loader.py)), the dashboard API ([`tests/test_api_main.py`](tests/test_api_main.py), [`test_api_queries.py`](tests/test_api_queries.py)), a full end-to-end idempotence run ([`tests/test_idempotence.py`](tests/test_idempotence.py)), including a replay inside the retention window after a purge, and the retention itself ([`tests/test_retention.py`](tests/test_retention.py)). A guard in [`tests/conftest.py`](tests/conftest.py) stops the session unless the database is named by the process environment (never by `.env`, which `load_dotenv()` would otherwise pick up) and holds fewer than 5,000 rows in its large tables: the suite can never run against production. CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) rebuilds a disposable Postgres and replays the entire suite on every push and pull request against `main`.
+199 tests covering retrying extraction ([`tests/test_extract.py`](tests/test_extract.py)), checkpoint resumption ([`tests/test_run_extract_load.py`](tests/test_run_extract_load.py)), validation and cleaning ([`tests/test_transform.py`](tests/test_transform.py)), idempotent loading at every stage ([`tests/test_raw_loader.py`](tests/test_raw_loader.py), [`test_staging_loader.py`](tests/test_staging_loader.py), [`test_warehouse_loader.py`](tests/test_warehouse_loader.py)), personal collection matching ([`tests/test_collection_match.py`](tests/test_collection_match.py), [`test_collection_loader.py`](tests/test_collection_loader.py)), the dashboard API ([`tests/test_api_main.py`](tests/test_api_main.py), [`test_api_queries.py`](tests/test_api_queries.py)), a full end-to-end idempotence run ([`tests/test_idempotence.py`](tests/test_idempotence.py)), including a replay inside the retention window after a purge, the retention itself ([`tests/test_retention.py`](tests/test_retention.py)), and the user's settings, wanted cards and board import, replayed twice without any change ([`tests/test_api_prefs.py`](tests/test_api_prefs.py)). A guard in [`tests/conftest.py`](tests/conftest.py) stops the session unless the database is named by the process environment (never by `.env`, which `load_dotenv()` would otherwise pick up) and holds fewer than 5,000 rows in its large tables: the suite can never run against production. CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) rebuilds a disposable Postgres and replays the entire suite on every push and pull request against `main`.
 
 <img src=".assets/divider.png" width="100%" alt="" />
 
