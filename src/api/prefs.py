@@ -301,7 +301,9 @@ def get_wishlists(conn) -> dict:
             sig[r["card_id"]] = _clean(r)
     prefs = card_prefs(conn, ids)
     as_of = max((h[-1][0] for h in by_card.values()), default=None)
-    eu, _ = eu_prices(conn, ids, as_of - timedelta(days=EU_MAX_AGE_DAYS) if as_of else None)
+    eu, eu_ignored = eu_prices(
+        conn, ids, as_of - timedelta(days=EU_MAX_AGE_DAYS) if as_of else None
+    )
     cards = []
     for r in rows:
         h = by_card.get(r["card_id"], [])
@@ -329,6 +331,8 @@ def get_wishlists(conn) -> dict:
                 "price": price,
                 "low": cur[2] if cur else None,
                 "eu": card_eu,
+                # Offre aberrante écartée (migration 023) : information seulement.
+                "eu_ignored": eu_ignored.get(r["card_id"]),
                 "ref_price": ref_price,
                 "past": past,
                 "spark": spark,

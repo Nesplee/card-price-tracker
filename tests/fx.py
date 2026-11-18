@@ -15,7 +15,11 @@ PARITY_TO = date(2027, 12, 31)
 
 def set_rates(conn, rates: dict[date, tuple[float, float]]) -> None:
     """Remplace tous les cours par `rates` : {jour BCE: (USD par EUR, CHF par
-    EUR)}, puis rafraîchit prod.mv_usd_chf. Connexion admin."""
+    EUR)}, puis rafraîchit prod.mv_usd_chf. Connexion admin.
+
+    lock_timeout : une connexion de test restée en transaction après avoir lu
+    les taux bloquerait le REFRESH pour toujours ; on échoue en 10 s."""
+    conn.execute("SET lock_timeout = '10s'")
     conn.execute("TRUNCATE TABLE prod.fact_fx_rate")
     with conn.cursor() as cur:
         cur.executemany(

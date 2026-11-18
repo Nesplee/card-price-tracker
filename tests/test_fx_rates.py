@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import os
 import re
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -220,6 +220,7 @@ def test_migration_022_converts_existing_signals_at_their_day_rate(rates):
             (day,),
         )
         # État d'avant 022 (sans ses colonnes), une ligne calculée en USD.
+        conn.execute("DROP VIEW prod.v_opportunity_signal_performance, prod.v_opportunity_outcome")
         conn.execute("ALTER TABLE prod.fact_opportunity DROP COLUMN eu_price, DROP COLUMN usd_chf")
         conn.execute(
             "INSERT INTO prod.fact_opportunity (date_id, card_id, side, score, signals, reason, "
@@ -263,6 +264,7 @@ def test_migration_022_refuses_a_signal_without_rate(rates):
             "VALUES (%s, 2026, 6, 1, 1) ON CONFLICT DO NOTHING",
             (day,),
         )
+        conn.execute("DROP VIEW prod.v_opportunity_signal_performance, prod.v_opportunity_outcome")
         conn.execute("ALTER TABLE prod.fact_opportunity DROP COLUMN eu_price, DROP COLUMN usd_chf")
         conn.execute(
             "INSERT INTO prod.fact_opportunity (date_id, card_id, side, score, signals, reason, "
@@ -272,3 +274,58 @@ def test_migration_022_refuses_a_signal_without_rate(rates):
         with pytest.raises(psycopg.errors.RaiseException, match="1 signaux sans taux"):
             conn.execute(_do_block("022_opportunity_chf.sql"))
         conn.rollback()
+
+
+def test_aberrant_offer_rule_bounds():
+    # Règle de la migration 023 (prod.v_cardtrader_eu), à parité USD = CHF :
+    # offre écartée si > 3 x la vente moyenne ET > vente moyenne + 10 CHF ;
+    # vente moyenne de référence : la plus récente des 7 jours jusqu'à l'offre.
+    d0 = date(2026, 6, 1)
+    market = {"b-20": 20.00, "b-4": 4.00}
+    # (carte, jours après d0, offre NM Europe, plausible attendu)
+    cases = [
+        ("b-20", 0, "60.00", True),  # exactement 3 x : gardée
+        ("b-20", 1, "60.01", False),  # au-delà de 3 x et de +10 CHF
+        ("b-20", 2, "30.01", True),  # +10,01 CHF mais 1,5 x seulement
+        ("b-4", 0, "13.99", True),  # 3,5 x mais +9,99 CHF seulement
+        ("b-4", 1, "14.00", True),  # +10 CHF tout juste : gardée
+        ("b-4", 2, "14.01", False),  # > 3 x et > +10 CHF
+        ("b-4", 7, "500.00", False),  # vente moyenne d'il y a 7 jours : référence
+        ("b-4", 8, "500.00", True),  # plus de 7 jours : rien pour juger, gardée
+    ]
+    with _admin() as conn:
+        conn.execute(
+            "INSERT INTO prod.dim_date (date_id, year, month, day, day_of_week) "
+            "SELECT d, 2026, 6, EXTRACT(DAY FROM d)::int, 1 "
+            "FROM generate_series(%s::date, %s::date + 8, interval '1 day') d "
+            "ON CONFLICT DO NOTHING",
+            (d0, d0),
+        )
+        for card, price in market.items():
+            conn.execute(
+                "INSERT INTO prod.dim_card (card_id, name, set_id, set_name) "
+                "VALUES (%s, 'B', 'b', 'B') ON CONFLICT DO NOTHING",
+                (card,),
+            )
+            conn.execute(
+                "INSERT INTO prod.fact_price_history (card_id, date_id, platform_id, "
+                "average_sell_price) SELECT %s, %s, platform_id, %s FROM prod.dim_platform "
+                "WHERE platform_name = 'tcgplayer'",
+                (card, d0, price),
+            )
+        for card, days, eu, _ in cases:
+            conn.execute(
+                "INSERT INTO prod.fact_cardtrader_price (card_id, date_id, platform_id, "
+                "blueprint_id, eu_price, en_offers, truncated) SELECT %s, %s, platform_id, 1, "
+                "%s, 1, false FROM prod.dim_platform WHERE platform_name = 'cardtrader_en'",
+                (card, d0 + timedelta(days=days), eu),
+            )
+        got = {
+            (card, (d - d0).days): ok
+            for card, d, ok in conn.execute(
+                "SELECT card_id, date_id, plausible FROM prod.v_cardtrader_eu "
+                "WHERE card_id LIKE 'b-%'"
+            ).fetchall()
+        }
+        conn.rollback()
+    assert got == {(card, days): ok for card, days, _, ok in cases}

@@ -124,14 +124,16 @@ def fx_info(conn, as_of: date | None, last_day: date | None) -> dict:
     }
 
 
-def eu_prices(conn, card_ids: list[str], since: date | None) -> tuple[dict[str, dict], int]:
+def eu_prices(
+    conn, card_ids: list[str], since: date | None
+) -> tuple[dict[str, dict], dict[str, dict]]:
     """Dernière offre NM Europe CardTrader de chaque carte, datée de `since`
     ou après (vue prod.v_cardtrader_eu, CHF). Si cette dernière offre est
     aberrante (règle de la migration 023), la carte n'a pas de prix Europe :
-    elle est comptée à part (second élément), pas remplacée par une offre plus
-    ancienne."""
+    l'offre est rendue à part (second dictionnaire), pour information
+    seulement, jamais remplacée par une offre plus ancienne."""
     if not card_ids or since is None:
-        return {}, 0
+        return {}, {}
     rows = conn.execute(
         """
         SELECT DISTINCT ON (card_id) card_id, date_id, eu_price, eu_condition,
@@ -142,7 +144,7 @@ def eu_prices(conn, card_ids: list[str], since: date | None) -> tuple[dict[str, 
         """,
         {"ids": card_ids, "since": since},
     ).fetchall()
-    eu = {
+    offers = {
         r["card_id"]: {
             "price": float(r["eu_price"]),
             "date": r["date_id"],
@@ -151,9 +153,12 @@ def eu_prices(conn, card_ids: list[str], since: date | None) -> tuple[dict[str, 
             "finish": r["eu_finish"],
         }
         for r in rows
-        if r["plausible"]
     }
-    return eu, sum(1 for r in rows if not r["plausible"])
+    plausible = {r["card_id"] for r in rows if r["plausible"]}
+    return (
+        {k: v for k, v in offers.items() if k in plausible},
+        {k: v for k, v in offers.items() if k not in plausible},
+    )
 
 
 def _past(history: list[tuple[date, float]], target: date, slack: int) -> tuple[date, float] | None:
@@ -290,6 +295,7 @@ def get_collection_board(conn) -> dict:
             "grades": [g for g in c["grades"] if g],
             "price": cur[1] if cur else None,
             "eu": eu.get(c["card_id"]),
+            "eu_ignored": eu_ignored.get(c["card_id"]),
             "past": {},
             "signals": sigs.get(c["card_id"], []),
             "prefs": prefs.get(c["card_id"], DEFAULT_PREFS),
@@ -330,7 +336,7 @@ def get_collection_board(conn) -> dict:
             "quantity": sum(c["quantity"] for c in with_eu),
             "date": max((c["eu"]["date"] for c in with_eu), default=None),
             # Offres aberrantes écartées (migration 023) : ces cartes sont « ≈ ».
-            "ignored": eu_ignored,
+            "ignored": len(eu_ignored),
         },
         "history": [{"date": d, "value": round(v, 2)} for d, v in hist],
         "windows": windows,

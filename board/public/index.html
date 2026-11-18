@@ -795,7 +795,7 @@ const dayCell = (c) => (c.eu ? money(c.eu.price) : c.price == null ? '—' : '�
 const dayText = (c) => (c.eu ? chf(c.eu.price) : approx(c.price));
 const COND = { Mint: 'Mint', 'Near Mint': 'NM' };
 const euWhere = (e) => `${COND[e.condition] || esc(e.condition || '')}${e.country ? ', vendeur ' + esc(e.country) : ''}`;
-const dayTitle = (c) => (c.eu ? `Offre la plus basse en Europe : ${chf(c.eu.price)} (CardTrader, ${euWhere(c.eu)}, ${fdate(c.eu.date)})` : 'Aucune offre NM en Europe')
+const dayTitle = (c) => (c.eu ? `Offre la plus basse en Europe : ${chf(c.eu.price)} (CardTrader, ${euWhere(c.eu)}, ${fdate(c.eu.date)})` : c.eu_ignored ? `Offre Europe ignorée (aberrante) : ${chf(c.eu_ignored.price)}` : 'Aucune offre NM en Europe')
   + (c.price != null ? ` · prix de vente moyen TCGplayer ${approx(c.price)}` : '');
 const pct = (v) => v == null ? '—' : sign(v) + nf1.format(Math.abs(v)) + ' %';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -931,7 +931,7 @@ function renderValue() {
       <div class="big">${nf0.format(tot)}<em>CHF</em></div>
       <div class="g" title="Valeur actuelle rapportée au plus haut (${chf(peak.value)} le ${fdate(peak.date)})"><i style="width:${(tot / peak.value * 100).toFixed(1)}%"></i></div>
       <p class="note">${nf0.format(tot / peak.value * 100)} % du plus haut (${fdate(peak.date)})</p>
-      ${c.eu_total?.cards ? `<p class="note" title="Somme des offres Near Mint les plus basses en Europe (CardTrader), pour les cartes qui en ont une. Pas la valeur ci-dessus : une offre la plus basse n'est pas un prix de vente moyen.">au prix Europe : <b>${chf(c.eu_total.value)}</b><br>${c.eu_total.cards} cartes sur ${c.eu_total.of} avec une offre NM</p>` : ''}
+      ${c.eu_total?.cards ? `<p class="note" title="Somme des offres Near Mint les plus basses en Europe (CardTrader), pour les cartes qui en ont une. Pas la valeur ci-dessus : une offre la plus basse n'est pas un prix de vente moyen.">au prix Europe : <b>${chf(c.eu_total.value)}</b><br>${c.eu_total.cards} cartes sur ${c.eu_total.of} avec une offre NM${c.eu_total.ignored ? ` · ${c.eu_total.ignored} offre${c.eu_total.ignored > 1 ? 's' : ''} aberrante${c.eu_total.ignored > 1 ? 's' : ''} ignorée${c.eu_total.ignored > 1 ? 's' : ''}` : ''}</p>` : ''}
     </div>
     <div class="tr" id="v-tr">${ch.svg}
       <span class="tl" style="top:0">${nf0.format(ch.hi / 1000)} k</span>
@@ -1322,8 +1322,11 @@ async function detail(el, c, facts) {
 }
 
 function euFacts(c) {
+  // Offre aberrante écartée (migration 023) : montrée pour information, jamais utilisée.
+  const ig = c.eu_ignored;
   return `<div><dt>Offre NM Europe</dt><dd>${c.eu ? chf(c.eu.price) : '—'}</dd></div>
-      <div><dt class="sub-dt">CardTrader</dt><dd class="sub-dd">${c.eu ? `${euWhere(c.eu)} · ${fdate(c.eu.date)}` : 'aucune offre NM'}</dd></div>
+      <div><dt class="sub-dt">CardTrader</dt><dd class="sub-dd">${c.eu ? `${euWhere(c.eu)} · ${fdate(c.eu.date)}` : ig ? 'aucune offre retenue' : 'aucune offre NM'}</dd></div>
+      ${ig ? `<div title="Plus de 3 fois la vente moyenne et plus de 10 CHF au-dessus : annonce qui n'est pas faite pour vendre. Ni prix du jour, ni seuil, ni courbe."><dt class="sub-dt">offre ignorée</dt><dd class="sub-dd">${chf(ig.price)}, ${euWhere(ig)}</dd></div>` : ''}
       <div><dt>Vente moyenne</dt><dd>${approx(c.price)}</dd></div>`;
 }
 

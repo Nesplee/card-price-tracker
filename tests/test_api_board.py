@@ -139,7 +139,8 @@ def test_collection_board_values_and_moves():
     assert a["prefs"]["unsellable"] and a["prefs"]["in_masterset"]
     b = next(c for c in out["cards"] if c["card_id"] == "b")
     assert b["grades"] == ["PSA 10"] and b["past"][7] == 5 and b["past"][1] is None
-    assert b["eu"] is None
+    # Offre aberrante : pas de prix Europe, mais visible pour information.
+    assert b["eu"] is None and b["eu_ignored"]["price"] == 9494.94
     assert b["prefs"] == board.DEFAULT_PREFS
     # Mini-courbes seulement pour les raretés recherchées (pas la Common).
     assert set(out["sparks"]) == {"a"} and len(out["sparks"]["a"]) == len(out["dates"])

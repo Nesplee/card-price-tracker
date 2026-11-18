@@ -278,35 +278,59 @@ def test_outcome_view_measures_return(db_connection) -> None:
     assert perf[:3] == ("buy", "rebond", 1) and perf[3] == 1
 
 
-def test_signals_and_backtest_are_in_chf_including_the_exchange_rate(db_connection, rates):
+def test_amounts_are_in_chf_but_the_exchange_rate_never_makes_a_signal(db_connection, rates):
     # 1 USD = 0,80 CHF jusqu'au 29/10, puis 0,88 (cours du vendredi 30/10, qui
-    # vaut pour le samedi J = 31/10). base1-4 reste à 100 $.
+    # vaut pour le samedi J = 31/10) : +10 % pour le franc en un jour.
+    # base1-4 reste à 100 $ ; sv1-50 passe de 100 à 150 $.
     with psycopg.connect(_admin_dsn()) as admin:
         fixings = {d: (1.0, 0.8) for d in weekdays(date(2026, 9, 1), date(2026, 10, 29))}
         rates(admin, {**fixings, date(2026, 10, 30): (1.0, 0.88)})
     compute_opportunities(db_connection, D)
-    row = db_connection.execute(
-        "SELECT signals, market_price, low_price, eu_price, usd_chf, reason "
-        "FROM prod.fact_opportunity WHERE card_id = 'base1-4'"
-    ).fetchone()
-    # Prix du jour en CHF ; aucune offre CardTrader ici ; ligne calculée en CHF.
-    assert row[:5] == (["annonce_sous_cote"], 88, Decimal("26.40"), None, None)
-    assert "≈ 26.40 CHF" in row[5]
-    # Achat fictif sept jours avant J, au prix CHF de ce jour-là (80) : le prix
-    # en dollars n'a pas bougé, mais en francs il a pris 10 %.
+    rows = db_connection.execute(
+        "SELECT card_id, side, signals, market_price, low_price, ma30, change_30d, eu_price, "
+        "usd_chf, reason FROM prod.fact_opportunity ORDER BY card_id"
+    ).fetchall()
+    # Mêmes signaux qu'à parité (test_compute_opportunities_writes_buy_and_sell) :
+    # le saut du change n'en crée aucun (pas de « momentum » sur base1-4).
+    assert [(r[0], r[1], r[2]) for r in rows] == [
+        ("base1-4", "buy", ["annonce_sous_cote"]),
+        ("sv1-50", "sell", ["pic"]),
+    ]
+    # Fin de transaction : sinon le verrou de lecture sur prod.mv_usd_chf
+    # bloque le REFRESH de la fixture `rates`.
+    db_connection.commit()
+    base, sv = rows
+    # Montants au taux du jour ; variations et rapports, ceux de l'USD.
+    assert base[3:9] == (88, Decimal("26.40"), 88, Decimal("0.0000"), None, None)
+    assert "≈ 26.40 CHF" in base[9]
+    assert sv[3] == 132 and sv[6] == Decimal("0.5000")  # +50 % en USD, pas +65 % en CHF
+
+
+def test_backtest_is_judged_in_usd_not_in_chf(db_connection, rates):
+    # Même change que ci-dessus. Achat fictif de base1-4 sept jours avant J :
+    # 100 $ alors, 100 $ à J. En francs, 80 -> 88 (+10 %) : ce n'est PAS une
+    # réussite, ni un échec de plus qu'en USD. Le prix affiché, lui, est en CHF.
+    with psycopg.connect(_admin_dsn()) as admin:
+        fixings = {d: (1.0, 0.8) for d in weekdays(date(2026, 9, 1), date(2026, 10, 29))}
+        rates(admin, {**fixings, date(2026, 10, 30): (1.0, 0.88)})
     db_connection.execute(
         "INSERT INTO prod.fact_opportunity (date_id, card_id, side, score, signals, reason, "
-        "market_price) VALUES (%s, 'base1-4', 'buy', 50, ARRAY['rebond'], 'test', 80)",
-        (D - timedelta(days=7),),
+        "market_price) VALUES (%s, 'base1-4', 'buy', 50, ARRAY['rebond'], 'test', 80), "
+        "(%s, 'sv1-50', 'buy', 50, ARRAY['momentum'], 'test', 80)",
+        (D - timedelta(days=7), D - timedelta(days=7)),
     )
     db_connection.commit()
     with psycopg.connect(load_dashboard_reader_config().dsn) as reader:
-        outcome = reader.execute(
-            "SELECT price_7d, return_7d, hit_7d FROM prod.v_opportunity_outcome "
-            "WHERE date_id = %s",
-            (D - timedelta(days=7),),
-        ).fetchone()
-    assert outcome == (Decimal("88.00000000"), Decimal("0.1000"), True)
+        outcome = dict(
+            (r[0], r[1:])
+            for r in reader.execute(
+                "SELECT card_id, price_7d, return_7d, hit_7d FROM prod.v_opportunity_outcome"
+            ).fetchall()
+        )
+    # Prix USD plat : rendement nul, pas une réussite ; prix affiché 88 CHF.
+    assert outcome["base1-4"] == (Decimal("88.000000"), Decimal("0.0000"), False)
+    # Vraie hausse en USD (100 -> 150) : +50 %, pas +65 % avec le change.
+    assert outcome["sv1-50"][1:] == (Decimal("0.5000"), True)
 
 
 def test_recent_news_is_attached_to_the_card(db_connection) -> None:

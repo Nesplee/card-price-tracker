@@ -481,8 +481,9 @@ def test_aberrant_european_offer_is_ignored_everywhere(seeded):
         app.dependency_overrides.clear()
         reader.close()
     one = next(c for c in board["cards"] if c["card_id"] == "sv2-1")
-    # La dernière offre est aberrante : pas de repli sur une offre plus ancienne.
-    assert one["eu"] is None
+    # La dernière offre est aberrante : pas de repli sur une offre plus ancienne,
+    # mais elle reste visible, pour information.
+    assert one["eu"] is None and one["eu_ignored"]["price"] == 9494.94
     assert board["eu_total"]["cards"] == 2 and board["eu_total"]["ignored"] == 1
     assert LAST_CT.isoformat() not in {p["date_id"] for p in hist["history"] if p["eu_price"]}
     # Signaux : le seuil de vente se compare à la vente moyenne convertie.

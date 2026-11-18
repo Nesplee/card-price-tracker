@@ -31,11 +31,14 @@
 #   - cartes recherchées : évaluées même hors du périmètre d'achat, avec deux
 #     signaux propres, cible_atteinte et baisse_suivie.
 #
-# Partie 4 (2026-11-18) : tout en francs suisses (migrations 020 à 022).
-#   - Tendance (moyenne 30 j, variations, volatilité, sauts) : prix market
-#     TCGplayer converti en CHF au taux BCE de chaque jour (vue
-#     prod.v_tcgplayer_chf). Les variations incluent donc le change : c'est ce
-#     que l'utilisateur gagne ou perd en francs.
+# Partie 4 (2026-11-18) : montants en francs suisses (migrations 020 à 023).
+#   - Tendance (moyenne 30 j, variations, volatilité, sauts) : calculée dans
+#     la devise de la source (USD pour TCGplayer). Le change ne crée ni ne
+#     supprime aucun signal : une carte au prix inchangé en dollars ne
+#     « monte » pas parce que le franc a bougé (revue du 2026-11-18). Les
+#     montants (market, annonce, moyenne 30 j, prix passés) sont ensuite
+#     convertis au taux BCE du jour calculé : les rapports entre eux restent
+#     ceux de l'USD, seuls les montants affichés et les seuils sont en CHF.
 #   - Prix du jour pour les seuils de l'utilisateur (cible d'une carte
 #     recherchée, prix minimum de vente) : la première offre anglaise Near
 #     Mint d'un vendeur d'Europe ou de Suisse sur CardTrader (CHF, 3 jours au
@@ -465,20 +468,17 @@ WITH owned AS (
     LEFT JOIN owned o ON o.card_id = ids.card_id
     JOIN prod.dim_card c ON c.card_id = ids.card_id
 ), h AS (
-    -- Prix TCGplayer convertis en CHF au taux de chaque jour (migration 020,
-    -- même règle que prod.v_tcgplayer_chf). Jointure INNER sur le taux : un
-    -- jour sans taux BCE n'a pas de prix, plutôt qu'un prix faux.
+    -- Prix TCGplayer en USD, devise de la source : convertis après coup, au
+    -- seul taux du jour calculé (voir fetch_features).
     SELECT f.card_id, f.date_id, s.in_universe, s.owned_quantity, s.avg_cost_paid,
            s.name, s.series,
-           (f.average_sell_price * x.usd_chf)::float8 AS market,
-           (f.low_price * x.usd_chf)::float8 AS low,
-           ln((f.average_sell_price * x.usd_chf)
-              / lag(f.average_sell_price * x.usd_chf) OVER w)::float8 AS log_ret,
+           f.average_sell_price::float8 AS market,
+           f.low_price::float8 AS low,
+           ln(f.average_sell_price / lag(f.average_sell_price) OVER w)::float8 AS log_ret,
            f.date_id - lag(f.date_id) OVER w AS gap
     FROM prod.fact_price_history f
     JOIN scope s ON s.card_id = f.card_id
     JOIN prod.dim_platform p ON p.platform_id = f.platform_id AND p.platform_name = 'tcgplayer'
-    JOIN prod.mv_usd_chf x ON x.date_id = f.date_id
     WHERE f.date_id BETWEEN %(d)s::date - 35 AND %(d)s::date
       AND f.average_sell_price > 0
     WINDOW w AS (PARTITION BY f.card_id ORDER BY f.date_id)
@@ -576,13 +576,39 @@ ON CONFLICT (date_id, card_id, side) DO UPDATE SET
 """
 
 
+def _in_chf(f: CardFeatures, rate: float) -> CardFeatures:
+    """Montants USD -> CHF au taux du jour calculé. Tous au même taux : les
+    rapports (variations, écart à la moyenne, annonce / market) restent ceux
+    de l'USD. La volatilité et les sauts sont des rapports : inchangés."""
+
+    def conv(v: float | None) -> float | None:
+        return None if v is None else v * rate
+
+    return replace(
+        f,
+        market=conv(f.market),
+        low=conv(f.low),
+        ma30=conv(f.ma30),
+        price_7d=conv(f.price_7d),
+        price_30d=conv(f.price_30d),
+    )
+
+
 def fetch_features(conn: Connection, date_id: date) -> list[CardFeatures]:
     with conn.cursor() as cur:
+        cur.execute("SELECT usd_chf::float8 FROM prod.mv_usd_chf WHERE date_id = %s", (date_id,))
+        row = cur.fetchone()
+        if row is None:
+            # Pas de taux BCE pour ce jour (migration 020) : aucun signal
+            # plutôt que des montants et des seuils faux.
+            log.warning("Pas de taux USD -> CHF pour le %s : aucun signal calculé.", date_id)
+            return []
+        rate = row[0]
         cur.execute(
             _FEATURES_SQL,
             {"d": date_id, "ungraded": list(UNGRADED), "same_price": list(SAME_PRICE_VARIANCES)},
         )
-        features = [CardFeatures(*row) for row in cur.fetchall()]
+        features = [_in_chf(CardFeatures(*row), rate) for row in cur.fetchall()]
         cur.execute(_NEWS_SQL, {"d": date_id, "window": NEWS_WINDOW_DAYS, "reddit": REDDIT_FACTOR})
         news = {
             (card_id, direction): (strength, title) for card_id, direction, strength, title in cur
