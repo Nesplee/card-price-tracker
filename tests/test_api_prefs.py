@@ -207,7 +207,7 @@ def _line(client, list_id: int, card_id: str) -> dict:
 
 def test_wishlist_create_rename_delete(client):
     r = client.post("/api/prefs/wishlists", json={"name": "  Évolutions Rapides "})
-    assert r.status_code == 200 and r.json()["name"] == "Évolutions Rapides"
+    assert r.status_code == 201 and r.json()["name"] == "Évolutions Rapides"
     list_id = r.json()["list_id"]
     # Nom pris (casse exacte), vide ou trop long : refusé.
     assert client.post("/api/prefs/wishlists", json={"name": "Recherchées"}).status_code == 409

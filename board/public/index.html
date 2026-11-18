@@ -1393,6 +1393,8 @@ function syncCardPrefs(id) {
   setPrefs(id, w ? w.prefs : { wishlisted: false, target_price: null, buy_blocked: owned });
 }
 async function setMembership(id, listId, on, box) {
+  // Aucune liste (ou aucune liste cible) : on passe par la création d'une liste, la carte y entrera.
+  if (listId == null) { toast('Crée d\'abord une liste : la carte y sera ajoutée.'); openListDlg('new', { cardId: id }); return; }
   saved(box, 'Enregistrement…');
   try {
     if (on) await send('PUT', `/api/prefs/wishlists/${listId}/cards/${enc(id)}`, {});
@@ -1446,7 +1448,8 @@ document.getElementById('wl-form').addEventListener('submit', async (e) => {
   try {
     if (mode === 'new') {
       const l = await send('POST', '/api/prefs/wishlists', { name });
-      if (cardId) await send('PUT', `/api/prefs/wishlists/${l.list_id}/cards/${enc(cardId)}`, {});
+      // La liste existe déjà : si l'ajout de la carte échoue, on le dit sans bloquer.
+      if (cardId) await send('PUT', `/api/prefs/wishlists/${l.list_id}/cards/${enc(cardId)}`, {}).catch((ex) => toast('Liste créée, mais la carte n\'a pas été ajoutée : ' + ex.message));
       state.wishTab = l.list_id; store.set('wishTab', state.wishTab);
     } else if (mode === 'rename') {
       await send('PUT', `/api/prefs/wishlists/${listId}`, { name });

@@ -120,7 +120,9 @@ def create_wishlist(body: WishlistIn, conn=Depends(get_api_connection)) -> Respo
         conn.rollback()
         raise HTTPException(status_code=409, detail="nom déjà pris ou vide") from None
     conn.commit()
-    return _json(dict(row))
+    response = _json(dict(row))
+    response.status_code = 201
+    return response
 
 
 @router.put("/wishlists/{list_id}")
