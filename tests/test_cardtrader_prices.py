@@ -258,6 +258,25 @@ def test_match_expansion_code_overrides():
     assert gallery["id"] == 3171
 
 
+def test_map_blueprints_number_formats():
+    blueprints = [
+        {"id": 1, "name": "Victini", "fixed_properties": {"collector_number": "025/189"}},
+        {"id": 2, "name": "Charizard V", "fixed_properties": {"collector_number": "050"}},
+        {"id": 3, "name": "Pikachu", "fixed_properties": {"collector_number": "SWSH075"}},
+        {"id": 4, "name": "Alakazam", "fixed_properties": {"collector_number": "1"}},
+    ]
+    cards = [
+        ("swsh3-25", "25", "Victini"),  # « 025/189 »
+        ("swshp-SWSH050", "SWSH050", "Charizard V"),  # « 050 », même nom
+        ("swshp-SWSH075", "SWSH075", "Pikachu"),
+        ("swsh10tg-TG01", "TG01", "Sylveon"),  # « 1 » mais autre nom : refusé
+        ("swshp-SWSH001", "SWSH001", None),  # pas de nom : pas de repli
+    ]
+    mapped, unmatched = map_blueprints_to_cards(blueprints, cards)
+    assert mapped == {"swsh3-25": 1, "swshp-SWSH050": 2, "swshp-SWSH075": 3}
+    assert unmatched == ["swsh10tg-TG01", "swshp-SWSH001"]
+
+
 def test_map_blueprints_disambiguates_repeated_numbers_by_name():
     blueprints = [
         {"id": 1, "name": "Sprigatito", "fixed_properties": {"collector_number": "001"}},

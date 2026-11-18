@@ -4,8 +4,9 @@
 -- Décisions de l'utilisateur (2026-11-18) :
 --   - devise : CHF, la devise du compte CardTrader, stockée telle quelle, sans
 --     conversion ;
---   - prix retenu : la première offre anglaise, état Slightly Played ou mieux,
---     d'un vendeur d'Europe ou de Suisse (UE, EEE, CH, Royaume-Uni) ;
+--   - prix retenu : la première offre anglaise, état Near Mint ou mieux (Mint
+--     compris), sans repli, d'un vendeur d'Europe ou de Suisse (UE, EEE, CH,
+--     Royaume-Uni) ;
 --   - en information : la première offre anglaise toutes origines.
 --
 -- 1. Nouvelle plateforme `cardtrader_en` (devise CHF) dans prod.dim_platform.

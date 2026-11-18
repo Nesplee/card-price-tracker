@@ -246,6 +246,19 @@ docker compose -f docker-compose.prod.yml up -d
 
 Application code (`src/`, `dags/`) is bind-mounted into the already-running Airflow containers, so a routine update is a plain `git pull`, no rebuild or restart needed for the next DAG run to pick it up. A rebuild is only required when `docker-compose.prod.yml` itself changes.
 
+> **Trap: `.env` is mounted as a single file.** An editor or a script that *replaces* `.env` on the host (new file, new inode) leaves the containers on the old copy until they are restarted; only an in-place edit is seen live. Check from the host with `stat -c %i .env` against `docker compose -f docker-compose.prod.yml exec -T airflow-scheduler stat -c %i /opt/airflow/.env`.
+
+**Enabling the CardTrader prices (migration 018), with the owner's approval, outside any DAG run (not at 01:30, 03:00, 07:00, 12:00 or 20:00 UTC):**
+
+```bash
+./scripts/apply_migrations.sh docker-compose.prod.yml          # applies 018
+docker compose -f docker-compose.prod.yml restart airflow-scheduler airflow-webserver   # reloads .env
+# the token must be visible in the container (prints the variable name only, never its value)
+docker compose -f docker-compose.prod.yml exec -T airflow-scheduler \
+  sh -c 'grep -q "^CARDTRADER_API_TOKEN=." /opt/airflow/.env && echo "CARDTRADER_API_TOKEN present" || echo "CARDTRADER_API_TOKEN MISSING"'
+# then unpause card_cardtrader_prices in Airflow (created paused, runs daily at 07:30 UTC)
+```
+
 <img src=".assets/divider.png" width="100%" alt="" />
 
 <a name="tests"></a>

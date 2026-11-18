@@ -34,6 +34,7 @@
 # altered ; le filtre language=en avec expansion_id est respecté.
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -325,8 +326,16 @@ def match_expansion(
 
 
 def blueprint_number(blueprint: dict[str, Any]) -> str | None:
+    """Numéro de collection normalisé. Certaines extensions l'écrivent avec
+    le total du set (« 001/189 », Darkness Ablaze) : seule la partie avant
+    « / » compte."""
     number = (blueprint.get("fixed_properties") or {}).get("collector_number")
-    return normalize_number(str(number)) if number not in (None, "") else None
+    if number in (None, ""):
+        return None
+    return normalize_number(str(number).split("/", 1)[0].strip())
+
+
+_ALPHA_PREFIX = re.compile(r"^[A-Z]+(?=\d)")
 
 
 def map_blueprints_to_cards(
@@ -350,10 +359,19 @@ def map_blueprints_to_cards(
     mapped: dict[str, int] = {}
     unmatched: list[str] = []
     for card_id, number, *rest in cards:
-        candidates = by_number.get(normalize_number(number), [])
-        if len(candidates) > 1 and rest and rest[0]:
-            name = normalize_set_name(rest[0])
+        name = normalize_set_name(rest[0]) if rest and rest[0] else None
+        normalized = normalize_number(number)
+        candidates = by_number.get(normalized, [])
+        if len(candidates) > 1 and name:
             candidates = [b for b in candidates if normalize_set_name(b.get("name", "")) == name]
+        if not candidates and name and _ALPHA_PREFIX.match(normalized):
+            # Promos SWSH : CardTrader écrit « 050 » ou « SWSH075 » selon les
+            # cartes. Sans le préfixe, le numéro n'est accepté que si le nom
+            # de la carte correspond aussi.
+            bare = _ALPHA_PREFIX.sub("", normalized)
+            candidates = [
+                b for b in by_number.get(bare, []) if normalize_set_name(b.get("name", "")) == name
+            ]
         if len(candidates) == 1:
             mapped[card_id] = candidates[0]["id"]
         else:

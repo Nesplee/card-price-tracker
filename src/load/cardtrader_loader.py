@@ -86,15 +86,22 @@ _UPSERT_DETAIL_SQL = """
 """
 
 # average_sell_price et trend_price restent NULL : CardTrader donne des
-# offres, pas des ventes. Une offre européenne disparue (NULL) n'écrase pas
-# un prix déjà chargé le même jour par un premier passage : elle n'est pas
-# écrite du tout (voir write_rows).
+# offres, pas des ventes. Une carte sans offre européenne n'a pas de ligne
+# ce jour-là ; si un premier passage du même jour en avait écrit une, son
+# low_price est remis à NULL (_CLEAR_FACT_SQL) pour rester aligné sur le
+# détail (UPDATE : pipeline_app n'a pas DELETE).
 _UPSERT_FACT_SQL = """
     INSERT INTO prod.fact_price_history
         (card_id, date_id, platform_id, average_sell_price, trend_price, low_price)
     VALUES (%(card_id)s, %(date_id)s, %(platform_id)s, NULL, NULL, %(eu_price)s)
     ON CONFLICT (card_id, date_id, platform_id) DO UPDATE SET
         low_price = EXCLUDED.low_price
+"""
+
+_CLEAR_FACT_SQL = """
+    UPDATE prod.fact_price_history SET low_price = NULL
+    WHERE card_id = %(card_id)s AND date_id = %(date_id)s AND platform_id = %(platform_id)s
+      AND low_price IS NOT NULL
 """
 
 
@@ -271,7 +278,7 @@ def write_prices(
             "day_of_week": date_id.isoweekday(),
         },
     )
-    detail = facts = 0
+    detail = facts = cleared = 0
     with conn.cursor() as cur:
         for price in prices:
             params = {
@@ -289,7 +296,10 @@ def write_prices(
             if price.eu is not None:
                 cur.execute(_UPSERT_FACT_SQL, params)
                 facts += 1
-    return {"detail_rows": detail, "fact_rows": facts}
+            else:
+                cur.execute(_CLEAR_FACT_SQL, params)
+                cleared += cur.rowcount
+    return {"detail_rows": detail, "fact_rows": facts, "fact_rows_cleared": cleared}
 
 
 def run_cardtrader_prices(

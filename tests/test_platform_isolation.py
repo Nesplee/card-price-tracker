@@ -193,7 +193,7 @@ def _snapshot() -> dict:
 
 def _load_cardtrader() -> dict[str, int]:
     rng = random.Random(7)
-    totals = {"detail_rows": 0, "fact_rows": 0}
+    totals = {"detail_rows": 0, "fact_rows": 0, "fact_rows_cleared": 0}
     tcg = _tcg_prices()
     d = FIRST
     while d <= LAST_CT:
@@ -221,7 +221,7 @@ def test_cardtrader_rows_change_nothing_for_tcgplayer(seeded):
 
     totals = _load_cardtrader()
     n_days = (LAST_CT - FIRST).days + 1
-    assert totals == {"detail_rows": 8 * n_days, "fact_rows": 7 * n_days}
+    assert totals == {"detail_rows": 8 * n_days, "fact_rows": 7 * n_days, "fact_rows_cleared": 0}
     _compute_signals()
     after = _snapshot()
 
@@ -260,6 +260,33 @@ def test_write_prices_is_idempotent_and_keeps_currency(seeded):
         ).fetchall()
     assert [tuple(map(str, r)) for r in rows] == [("CHF", "None", "None", "12.50")]
     assert [tuple(map(str, r)) for r in detail] == [("12.50", "CH", "12.50", "2")]
+
+
+def test_replay_without_european_offer_clears_the_fact(seeded):
+    # 1er passage : offre européenne ; retry du même jour : plus d'offre
+    # européenne. Le fait et le détail doivent dire la même chose.
+    eu = Offer(1, 1, 12.5, "CHF", 1, "Near Mint", "en", "standard", "IT")
+    far = Offer(2, 1, 11.0, "CHF", 1, "Near Mint", "en", "standard", "US")
+    with _pipeline() as conn:
+        write_prices(conn, LAST_CT, [CardPrice("sv2-1", 1001, eu, far, 2, False)])
+    with _pipeline() as conn:
+        written = write_prices(conn, LAST_CT, [CardPrice("sv2-1", 1001, None, far, 1, False)])
+    assert written == {"detail_rows": 1, "fact_rows": 0, "fact_rows_cleared": 1}
+    with _admin() as conn:
+        fact = conn.execute(
+            "SELECT f.low_price FROM prod.fact_price_history f "
+            "JOIN prod.dim_platform p USING (platform_id) "
+            "WHERE p.platform_name = 'cardtrader_en' AND f.card_id = 'sv2-1'"
+        ).fetchall()
+        detail = conn.execute(
+            "SELECT eu_price, any_price::text FROM prod.fact_cardtrader_price"
+        ).fetchall()
+    assert fact == [(None,)]
+    assert detail == [(None, "11.00")]
+    # Une carte jamais vue avec une offre européenne ne crée pas de fait vide.
+    with _pipeline() as conn:
+        written = write_prices(conn, LAST_CT, [CardPrice("sv2-2", 1002, None, far, 1, False)])
+    assert written["fact_rows_cleared"] == 0
 
 
 def test_write_prices_refuses_another_currency(seeded):

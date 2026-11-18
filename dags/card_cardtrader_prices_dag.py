@@ -10,7 +10,9 @@
 # Créé EN PAUSE (is_paused_upon_creation) : il ne tourne qu'une fois activé à
 # la main dans Airflow, après accord de l'utilisateur et application de la
 # migration 018. Jeton : CARDTRADER_API_TOKEN, lu dans le .env monté dans le
-# conteneur (load_dotenv de src/common/config.py), jamais journalisé.
+# conteneur (load_dotenv de src/common/config.py), jamais journalisé. Le .env
+# de l'hôte ayant été remplacé après le démarrage des conteneurs, il faut les
+# redémarrer avant d'activer ce DAG (voir README, Deployment).
 # Aucune alerte ntfy : un échec est enregistré par record_failure
 # (logs/failures.jsonl), relevé par le veilleur.
 from __future__ import annotations
@@ -46,7 +48,16 @@ def card_cardtrader_prices():
     @task(retries=2, retry_delay=timedelta(minutes=10), execution_timeout=timedelta(minutes=30))
     def collect_cardtrader_prices(dag_run: DagRun) -> dict:
         date_id = (dag_run.start_date or datetime.now(UTC)).date()
-        client = CardTraderClient(os.environ.get("CARDTRADER_API_TOKEN", ""))
+        token = os.environ.get("CARDTRADER_API_TOKEN")
+        if not token:
+            # Piège vu le 2026-11-18 : un .env REMPLACÉ sur l'hôte (nouveau
+            # fichier) n'est pas vu par le conteneur, qui garde l'ancien
+            # montage jusqu'à son redémarrage.
+            raise RuntimeError(
+                "CARDTRADER_API_TOKEN absent du .env monté dans le conteneur : "
+                "montage périmé ? Redémarrer airflow-scheduler et airflow-webserver."
+            )
+        client = CardTraderClient(token)
         with get_connection(load_db_config()) as conn:
             return run_cardtrader_prices(conn, client, date_id)
 
