@@ -180,7 +180,8 @@
   .pc-key b { color: var(--ink); font-weight: 400; }
   .pc-key i { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--ink); }
   .pc-key i.lo { border-top: 1.5px dashed var(--dim); }
-  .pc-key i.eu { border-top: 2px dotted var(--ink); }
+  .pc-key i.eu { position: relative; border-top: 2px dotted var(--ink); }
+  .pc-key i.eu::after { content: ''; position: absolute; left: 6px; top: -5px; width: 6px; height: 6px; border: 1.5px solid var(--ink); background: var(--bg); box-sizing: border-box; }
   .pc-key i.gp { width: 12px; height: 10px; border: 1px solid var(--rule2); background: repeating-linear-gradient(135deg, var(--rule2) 0 1px, transparent 1px 4px); }
   .pc-head .seg { margin-left: auto; }
   .pc-head .seg button { min-height: 24px; padding: 1px 9px; font-size: 11.5px; }
@@ -202,6 +203,8 @@
   .plot .dot { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; background: var(--ink); box-shadow: 0 0 0 2px var(--bg); pointer-events: none; }
   .plot .dot.lo { background: var(--dim); }
   .plot .dot.eu { background: var(--bg); box-shadow: inset 0 0 0 2px var(--ink), 0 0 0 2px var(--bg); }
+  /* Un repère par relevé CardTrader : visible dès le premier jour, quand la ligne n'a qu'un point. */
+  .plot .eupt { position: absolute; width: 6px; height: 6px; margin: -3px 0 0 -3px; border: 1.5px solid var(--ink); background: var(--bg); pointer-events: none; }
   /* Taux BCE manquant : prix arrêtés au dernier jour converti. */
   .fxbar { display: flex; align-items: center; gap: 9px; margin: 0; padding: 9px var(--pad); border-bottom: 1px solid var(--rule2); color: var(--warn); font-size: 12.5px; }
   .fxbar[hidden] { display: none; }
@@ -1244,6 +1247,7 @@ function drawChart(pc, c) {
     </div>${seg}</div>
     <div class="plot" role="img" aria-label="Prix de ${esc(c.name)} en francs, du ${fdate(h[0].date_id)} au ${fdate(last.date_id)} : vente moyenne ${approx(mk)}${lastEu ? `, offre NM Europe ${chf(lastEu)}` : ''}">
       <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">${band}${grid}${gaps}<path class="spread" d="${spread}"/><path class="lo" d="${path('low_price')}"/><path class="mk" d="${path('average_sell_price')}"/><path class="eu" d="${path('eu_price')}"/></svg>
+      ${h.map((p, i) => (p.eu_price > 0 ? `<i class="eupt" style="left:${(X(xs[i]) / 10).toFixed(2)}%;top:${Y(p.eu_price).toFixed(2)}%"></i>` : '')).join('')}
       ${ylab}${gapLabels}
     </div>
     <div class="xa" aria-hidden="true">${xt}</div>`;
