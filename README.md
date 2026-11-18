@@ -104,7 +104,8 @@ prod.dim_card / dim_date / dim_platform   (currency: EUR for CardMarket, USD for
 <tr><td colspan="2" align="right"><img src=".assets/badges/production.png" height="22" alt="Production" /></td></tr>
 <tr><td align="center"><code>prod.dim_card</code></td><td>One row per unique card (name, set, rarity), updated in place as the source reveals new attributes, no history kept here by design.</td></tr>
 <tr><td align="center"><code>prod.dim_date</code></td><td>Pre-populated calendar dimension (year, month, day, day of week) so BI aggregations avoid computing date parts per row.</td></tr>
-<tr><td align="center"><code>prod.dim_platform</code></td><td>TCGPlayer and CardMarket, each with its own <code>currency</code> column (added in <a href="migrations/006_add_currency_to_dim_platform.sql"><code>migration 006</code></a>) so a query never silently sums EUR and USD together.</td></tr>
+<tr><td align="center"><code>prod.dim_platform</code></td><td>TCGPlayer, CardMarket and <code>cardtrader_en</code> (<a href="migrations/018_cardtrader_en_platform.sql"><code>migration 018</code></a>, CHF), each with its own <code>currency</code> column (added in <a href="migrations/006_add_currency_to_dim_platform.sql"><code>migration 006</code></a>) so a query never silently sums EUR, USD and CHF together. Every read of <code>fact_price_history</code> filters on <code>tcgplayer</code>; <a href="tests/test_platform_isolation.py"><code>tests/test_platform_isolation.py</code></a> proves that loading CardTrader prices changes nothing the API, the board, the signals or the freshness check return.</td></tr>
+<tr><td align="center"><code>prod.fact_cardtrader_price</code></td><td>English cards on the European market, from the official CardTrader API (<a href="src/load/cardtrader_loader.py"><code>src/load/cardtrader_loader.py</code></a>, DAG <code>card_cardtrader_prices</code>, 07:30 UTC, created paused). One row per card and day: the cheapest English Near Mint (or Mint) listing from a seller in the EU, EEA, Switzerland or the UK, kept in <code>fact_price_history</code> as <code>low_price</code>; the cheapest English Near Mint listing from anywhere, for information; how many listings were seen. No lower condition is used as a fallback: a card with no Near Mint listing has no price that day. Prices stay in the account currency (CHF), never converted.</td></tr>
 <tr><td align="center"><code>prod.fact_price_history</code></td><td>One row per card, per day, per platform. The single grain the entire dashboard and reporting layer is built on.</td></tr>
 
 <tr><td colspan="2" align="right"><img src=".assets/badges/collection.png" height="22" alt="Personal Collection" /></td></tr>
@@ -247,6 +248,19 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 Application code (`src/`, `dags/`) is bind-mounted into the already-running Airflow containers, so a routine update is a plain `git pull`, no rebuild or restart needed for the next DAG run to pick it up. A rebuild is only required when `docker-compose.prod.yml` itself changes.
+
+> **Trap: `.env` is mounted as a single file.** An editor or a script that *replaces* `.env` on the host (new file, new inode) leaves the containers on the old copy until they are restarted; only an in-place edit is seen live. Check from the host with `stat -c %i .env` against `docker compose -f docker-compose.prod.yml exec -T airflow-scheduler stat -c %i /opt/airflow/.env`.
+
+**Enabling the CardTrader prices (migration 018), with the owner's approval, outside any DAG run (not at 01:30, 03:00, 07:00, 12:00 or 20:00 UTC):**
+
+```bash
+./scripts/apply_migrations.sh docker-compose.prod.yml          # applies 018
+docker compose -f docker-compose.prod.yml restart airflow-scheduler airflow-webserver   # reloads .env
+# the token must be visible in the container (prints the variable name only, never its value)
+docker compose -f docker-compose.prod.yml exec -T airflow-scheduler \
+  sh -c 'grep -q "^CARDTRADER_API_TOKEN=." /opt/airflow/.env && echo "CARDTRADER_API_TOKEN present" || echo "CARDTRADER_API_TOKEN MISSING"'
+# then unpause card_cardtrader_prices in Airflow (created paused, runs daily at 07:30 UTC)
+```
 
 <img src=".assets/divider.png" width="100%" alt="" />
 

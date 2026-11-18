@@ -398,7 +398,7 @@ def get_signal_performance(conn) -> list[dict]:
     return conn.execute("""
         SELECT side, signal, n, n_7d, hit_rate_7d, avg_edge_7d, n_30d, hit_rate_30d, avg_edge_30d
         FROM prod.v_opportunity_signal_performance
-        ORDER BY side, n_30d DESC
+        ORDER BY side, n_30d DESC, signal
         """).fetchall()
 
 

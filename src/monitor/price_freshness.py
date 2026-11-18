@@ -49,9 +49,14 @@ class FreshnessReport:
 def check_price_freshness(conn: Connection, date_id: date) -> FreshnessReport:
     # Compare date_id au DERNIER jour chargé avant lui (pas forcément la
     # veille : un run manqué laisse un trou dans fact_price_history).
+    # TCGplayer seulement (2026-11-18, migration 018) : les prix CardTrader,
+    # chargés à part et qui bougent chaque jour, masqueraient sinon une source
+    # TCGplayer figée (vérifié par tests/test_platform_isolation.py).
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT max(date_id) FROM prod.fact_price_history WHERE date_id < %s",
+            "SELECT max(date_id) FROM prod.fact_price_history "
+            "WHERE date_id < %s AND platform_id = "
+            "(SELECT platform_id FROM prod.dim_platform WHERE platform_name = 'tcgplayer')",
             (date_id,),
         )
         previous = cur.fetchone()[0]
@@ -70,6 +75,8 @@ def check_price_freshness(conn: Connection, date_id: date) -> FreshnessReport:
                  AND p.platform_id = f.platform_id
                  AND p.date_id = %s
                 WHERE f.date_id = %s
+                  AND f.platform_id = (SELECT platform_id FROM prod.dim_platform
+                                       WHERE platform_name = 'tcgplayer')
                 """,
                 (previous, date_id),
             )
