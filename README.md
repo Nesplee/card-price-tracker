@@ -267,11 +267,11 @@ docker compose -f docker-compose.prod.yml exec -T airflow-scheduler \
 # then unpause card_cardtrader_prices in Airflow (created paused, runs daily at 07:30 UTC)
 ```
 
-**Switching the dashboard to CHF (migrations 020 to 023), with the owner's approval, in one window outside any DAG run (not between 06:15 and 07:45 UTC, nor at 01:30, 03:00, 12:00 or 20:00):** `src/`, `dags/` and `board/public/` are bind-mounted, so the merge itself switches the code: the scheduler runs it at the next task, the board at the next page load. Migrations must therefore be applied in the same window, before the next DAG run.
+**Switching the dashboard to CHF (migrations 020 to 023), with the owner's approval, in one window outside any DAG run (not between 06:15 and 07:45 UTC, nor at 01:30, 03:00, 12:00 or 20:00):** `src/`, `dags/` and `board/public/` are bind-mounted, so the merge itself switches the code (the scheduler runs it at the next task, the board at the next page load), and `migrations/` is mounted into the `db` container, so `apply_migrations.sh` only sees files 020 to 023 once they are merged. Hence: merge first, then the migrations right away, before any DAG run.
 
 ```bash
-./scripts/apply_migrations.sh docker-compose.prod.yml   # 020-023 (021 stops if a USD threshold exists)
 git merge feat/dashboard-chf                            # in ~/card-price-tracker, the mounted checkout
+./scripts/apply_migrations.sh docker-compose.prod.yml   # immediately: 020-023 (021 stops if a USD threshold exists)
 docker restart card-price-tracker-dashboard-api-1       # uvicorn without reload: picks up src/api
 # unpause card_fx_rates in Airflow and trigger it once: it loads the ECB rates since 17/11 and
 # refreshes prod.mv_usd_chf (the rates in migration 020 cover prices up to 22/11 only)

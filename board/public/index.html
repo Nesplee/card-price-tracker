@@ -156,6 +156,8 @@
   .mv .who .tag .lamp { width: 6px; height: 6px; }
   .mv .q { color: var(--dim); text-align: right; white-space: nowrap; }
   .mv .num { text-align: right; white-space: nowrap; }
+  .mv .px small.eu2 { display: block; font-size: 10.5px; line-height: 1.2; color: var(--faint); }
+  small.eu2 { color: var(--faint); }
   .mv svg.sp { display: block; width: 100%; height: 24px; overflow: visible; }
   .sp polyline { fill: none; stroke: var(--ink); stroke-width: 1.2; vector-effect: non-scaling-stroke; stroke-linejoin: miter; }
   .sp line { stroke: var(--mark); stroke-width: 1; stroke-dasharray: 1 3; vector-effect: non-scaling-stroke; }
@@ -654,7 +656,7 @@
         <button type="button" id="f-reset" hidden>Réinitialiser</button>
       </div>
       <p class="mnote" id="m-note"></p>
-      <div class="thead"><span>Carte</span><span class="r hide">Qté</span><span class="r px" title="Offre Near Mint la plus basse en Europe (CardTrader) ; ≈ : prix de vente moyen TCGplayer converti, quand il n'y a pas d'offre">Prix CHF</span><span class="hide">Courbe</span><span class="hide">Impact</span><span class="r dd" title="Variation du prix de vente moyen TCGplayer converti (≈)">Δ CHF</span><span class="r">Δ %</span><span></span></div>
+      <div class="thead"><span>Carte</span><span class="r hide">Qté</span><span class="r px" title="Prix de vente moyen TCGplayer converti (même base que les Δ) ; en dessous, l'offre Near Mint la plus basse en Europe (CardTrader)">Prix CHF</span><span class="hide">Courbe</span><span class="hide">Impact</span><span class="r dd" title="Variation du prix de vente moyen TCGplayer converti (≈)">Δ CHF</span><span class="r">Δ %</span><span></span></div>
       <div id="movers"></div>
     </section>
     <section class="sec" aria-label="Répartition par set">
@@ -794,8 +796,12 @@ const dchf = (v) => v == null ? '—' : dnum(v) + ' CHF';
 const approx = (v) => v == null ? '—' : '≈ ' + chf(v);
 // Prix du jour d'une carte : offre NM Europe, sinon prix de vente moyen converti.
 const dayPrice = (c) => (c.eu ? c.eu.price : c.price);
-const dayCell = (c) => (c.eu ? money(c.eu.price) : c.price == null ? '—' : '≈ ' + money(c.price));
 const dayText = (c) => (c.eu ? chf(c.eu.price) : approx(c.price));
+// Dans une ligne où le prix voisine un Δ (calculé sur la vente moyenne
+// convertie), le prix est sur la même base : « ≈ 432 » ; l'offre Europe vient
+// en second, petite et libellée (revue du 2026-11-18).
+const trendCell = (c) => (c.price == null ? '—' : '≈ ' + money(c.price));
+const euSmall = (eu) => (eu != null ? `<small class="eu2">Europe ${money(eu)}</small>` : '');
 const COND = { Mint: 'Mint', 'Near Mint': 'NM' };
 const euWhere = (e) => `${COND[e.condition] || esc(e.condition || '')}${e.country ? ', vendeur ' + esc(e.country) : ''}`;
 const dayTitle = (c) => (c.eu ? `Offre la plus basse en Europe : ${chf(c.eu.price)} (CardTrader, ${euWhere(c.eu)}, ${fdate(c.eu.date)})` : c.eu_ignored ? `Offre Europe ignorée (aberrante) : ${chf(c.eu_ignored.price)}` : 'Aucune offre NM en Europe')
@@ -998,7 +1004,7 @@ function renderMovers() {
   document.getElementById('mv-sec').dataset.sort = f.sort;
   const pmin = f.pmin === '' ? null : +f.pmin, pmax = f.pmax === '' ? null : +f.pmax;
   const all = chaseCards.filter((m) => (!f.rarity || m.rarity === f.rarity) && (!f.set || m.set_name === f.set)
-    && (pmin == null || (dayPrice(m) ?? -1) >= pmin) && (pmax == null || (dayPrice(m) ?? Infinity) <= pmax));
+    && (pmin == null || (m.price ?? -1) >= pmin) && (pmax == null || (m.price ?? Infinity) <= pmax));
   const known = all.filter((m) => m.d != null);
   const up = known.filter((m) => m.d > 0.005), dn = known.filter((m) => m.d < -0.005);
   const upS = up.reduce((a, m) => a + m.d, 0), dnS = dn.reduce((a, m) => a + m.d, 0);
@@ -1017,10 +1023,10 @@ function renderMovers() {
     pct: (a, b) => Math.abs(b.p) - Math.abs(a.p),
     pctup: (a, b) => b.p - a.p,
     pctdown: (a, b) => a.p - b.p,
-    pricedesc: (a, b) => dayPrice(b) - dayPrice(a),
-    priceasc: (a, b) => dayPrice(a) - dayPrice(b),
+    pricedesc: (a, b) => b.price - a.price,
+    priceasc: (a, b) => a.price - b.price,
     value: (a, b) => b.value - a.value,
-    rarity: (a, b) => rarityRank(a.rarity) - rarityRank(b.rarity) || dayPrice(b) - dayPrice(a),
+    rarity: (a, b) => rarityRank(a.rarity) - rarityRank(b.rarity) || b.price - a.price,
     set: (a, b) => a.set_name.localeCompare(b.set_name) || byImpact(a, b),
   }[f.sort] || byImpact;
   const unknown = all.filter((m) => m.d == null).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
@@ -1031,14 +1037,14 @@ function renderMovers() {
   const excluded = everyCard.length - chaseCards.length;
   const filtered = chaseCards.length - all.length;
   document.getElementById('m-note').innerHTML = (filtered ? `<b>${all.length}</b> cartes sur ${chaseCards.length} avec ces filtres` : `<b>${all.length}</b> cartes AR, SAR, full art, gold`) + ` · ${excluded} communes, rares et ex simples exclues` + (missing ? ` · ${missing} sans variation sur ${WLABEL[w]} (prix trop récent), listées en fin` : '')
-    + ' · prix : offre NM la plus basse en Europe, ≈ prix de vente moyen converti sans offre · Δ : prix de vente moyen converti';
+    + ' · prix et Δ : vente moyenne TCGplayer convertie (≈) · « Europe » : offre NM la plus basse sur CardTrader';
   document.getElementById('movers').innerHTML = !shown.length ? '<p class="empty">Aucune carte avec ces filtres.</p>' : shown.map((m) => {
     const wd = m.d == null ? 0 : Math.abs(m.d) / maxAbs * 50;
     return `<details class="mv" data-id="${esc(m.card_id)}"${state.open.has(m.card_id) ? ' open' : ''}>
       <summary>
         <span class="who">${thumb(m)}<b>${esc(m.name)}</b><small>${moverTags(m)}</small></span>
         <span class="q hide">×${m.quantity}</span>
-        <span class="num px" title="${dayTitle(m)}">${dayCell(m)}</span>
+        <span class="num px" title="${dayTitle(m)}">${trendCell(m)}${euSmall(m.eu?.price)}</span>
         <span class="hide">${spark(m.card_id, w)}</span>
         <span class="hide"><span class="div" title="${dchf(m.d)}"><i class="${m.d < 0 ? 'neg' : ''}" style="${m.d < 0 ? 'right:50%' : 'left:50%'};width:${wd.toFixed(1)}%"></i></span></span>
         <span class="num dd">${dnum(m.d)}</span>
@@ -1590,9 +1596,9 @@ function wishRow(c, tab) {
   return `<details class="wl" data-id="${esc(c.card_id)}"${state.wishOpen.has(c.card_id) ? ' open' : ''}>
       <summary>
         <span class="who">${thumb(c)}<b>${esc(c.name)}</b><small>${tag}${own}${many}<span>${esc(c.set_name)} · ${esc(c.rarity || '')}</span></small></span>
-        <span class="px" title="${dayTitle(c)}">${dayText(c)}<small class="${tone(ch, CARD_TH[7])}">${ch == null ? '—' : pct(ch) + ' 7 j'}</small></span>
+        <span class="px" title="${dayTitle(c)}">${approx(c.price)}<small class="${tone(ch, CARD_TH[7])}">${ch == null ? '—' : pct(ch) + ' 7 j'}</small>${euSmall(c.eu?.price)}</span>
         <span class="spk">${wspark(c.spark)}</span>
-        <span class="tgt">${tgt}<small class="${hit ? 'hit' : ''}">${gap}</small></span>
+        <span class="tgt">${tgt}<small class="${hit ? 'hit' : ''}" title="Écart calculé sur l'offre NM la plus basse en Europe, à défaut sur la vente moyenne convertie (comme le signal « cible atteinte »)">${gap}</small></span>
         <svg class="i chev"><use href="#i-chev"/></svg>
       </summary>
       <div class="detail" data-detail></div>
@@ -2037,14 +2043,14 @@ function trendRow(t, computed) {
   const sub = (t.versions.length > 1 ? `${t.versions.length} impressions · ` : '') + sets.slice(0, 2).join(', ') + (sets.length > 2 ? '…' : '');
   const ch = t.change_7d == null ? '' : pct(t.change_7d * 100) + ' 7 j';
   const news = t.news.map((n) => `<div class="nitem"><a href="${safeUrl(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><small>${esc(n.source)} · ${fdate(n.published_on)} · ${esc(EVENT_TEXT[n.event_type] || n.event_type)} · confiance ${nf0.format(n.confidence * 100)} %</small>${n.resume ? `<p>${esc(n.resume)}</p>` : ''}</div>`).join('');
-  const vers = t.versions.length > 1 ? `<div class="vers">${t.versions.map((v) => `<span class="${v.owned_quantity ? 'own' : ''}">${esc(v.set_name)} <b>${v.eu_price != null ? chf(v.eu_price) : approx(v.market_price)}</b> · ${v.n_days} j${v.owned_quantity ? ` · ×${v.owned_quantity} à toi` : ''}</span>`).join('')}</div>` : '';
+  const vers = t.versions.length > 1 ? `<div class="vers">${t.versions.map((v) => `<span class="${v.owned_quantity ? 'own' : ''}">${esc(v.set_name)} <b>${approx(v.market_price)}</b>${v.eu_price != null ? ` (Europe ${money(v.eu_price)})` : ''} · ${v.n_days} j${v.owned_quantity ? ` · ×${v.owned_quantity} à toi` : ''}</span>`).join('')}</div>` : '';
   const scores = t.scores.length > 1 ? `score ${t.scores[0]} → ${t.scores[t.scores.length - 1]} sur la période` : `score ${t.score}`;
   return `<details class="sg">
     <summary>
       <span class="st ${sell ? 'l-warn' : 'l-ok'}"><b><i class="lamp${live ? '' : ' hollow'}"></i>${sell ? 'vendre' : 'acheter'}</b><small><b>${t.n_days}</b>/${computed.length} j</small></span>
       <span class="who">${thumb(t)}<b>${esc(t.name)}${t.owned ? `<span class="own">×${t.owned}</span>` : ''}</b><small>${esc(sub)}</small><span class="drv">${codes}${extra.join('')}</span></span>
       <span class="rib">${ribbon(t.dates, computed)}<small>${live ? (st > 1 ? `<b>${st} j</b> d'affilée` : 'encore aujourd\'hui') : `dernier le ${fdate(t.last_date)}`}</small></span>
-      <span class="px" title="${t.eu_price != null ? `Offre NM la plus basse en Europe le jour du signal · vente moyenne ${approx(t.market_price)}` : 'Vente moyenne TCGplayer convertie, le jour du signal'}">${t.eu_price != null ? chf(t.eu_price) : approx(t.market_price)}<small class="${tone((t.change_7d ?? 0) * 100, 10)}">${ch}</small></span>
+      <span class="px" title="Vente moyenne TCGplayer convertie, le jour du signal (même base que la variation)${t.eu_price != null ? ` · offre NM la plus basse en Europe : ${chf(t.eu_price)}` : ''}">${approx(t.market_price)}<small class="${tone((t.change_7d ?? 0) * 100, 10)}">${ch}</small>${euSmall(t.eu_price)}</span>
       <svg class="i chev"><use href="#i-chev"/></svg>
     </summary>
     <div class="body">
