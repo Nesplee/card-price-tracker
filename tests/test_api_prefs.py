@@ -1,7 +1,7 @@
 # Réglages saisis dans le board, cartes recherchées et import de la collection
-# (migration 017), contre une base de test réelle et via le rôle
-# dashboard_reader : on vérifie aussi ses droits (écriture dans prefs et via
-# collection.apply_import seulement).
+# (migration 017), plusieurs listes et cartes « obtenues » (migration 019),
+# contre une base de test réelle et via le rôle dashboard_reader : on vérifie
+# aussi ses droits (écriture dans prefs et via collection.apply_import seulement).
 from __future__ import annotations
 
 import os
@@ -42,6 +42,13 @@ CARDS = [
 ]
 
 
+def _reset_wishlists(admin) -> None:
+    """Une seule liste « Recherchées » (list_id 1), comme après la migration 017 :
+    les tests des listes en créent, renomment et suppriment."""
+    admin.execute("TRUNCATE TABLE prefs.wishlist RESTART IDENTITY CASCADE")
+    admin.execute("INSERT INTO prefs.wishlist (name) VALUES ('Recherchées')")
+
+
 @pytest.fixture
 def client():
     with psycopg.connect(_admin_dsn()) as admin:
@@ -51,6 +58,7 @@ def client():
             "collection.owned_card_removed, prefs.set_setting, prefs.card_setting, "
             "prefs.wishlist_card RESTART IDENTITY CASCADE"
         )
+        _reset_wishlists(admin)
         admin.execute("INSERT INTO prefs.set_setting (set_id, masterset) VALUES ('sv2', true)")
         admin.cursor().executemany(
             "INSERT INTO prod.dim_card (card_id, name, set_id, set_name, rarity, series) "
@@ -96,6 +104,8 @@ def client():
     yield TestClient(app)
     app.dependency_overrides.clear()
     conn.close()
+    with psycopg.connect(_admin_dsn()) as admin:
+        _reset_wishlists(admin)
 
 
 def _rules(card_id: str) -> dict:
@@ -162,11 +172,14 @@ def test_wishlist_add_target_and_remove(client):
     assert r.status_code == 200
     # Ajouter à la liste remet la carte en suivi.
     assert _rules("sv3pt5-205")["unfollowed"] is False
-    # Carte possédée mais recherchée : ses achats reviennent.
+    # Carte possédée dans une liste : « obtenue », pas d'achat ; « encore
+    # recherchée » (2e exemplaire) : ses achats reviennent.
     client.put("/api/prefs/wishlists/1/cards/sv3pt5-199", json={})
+    assert ("sv3pt5-199", "buy") not in _trend_keys(client)
+    client.put("/api/prefs/wishlists/1/cards/sv3pt5-199", json={"still_wanted": True})
     assert ("sv3pt5-199", "buy") in _trend_keys(client)
     body = client.get("/api/prefs/wishlists").json()
-    assert body["lists"] == [{"list_id": 1, "name": "Recherchées"}]
+    assert [(x["list_id"], x["name"]) for x in body["lists"]] == [(1, "Recherchées")]
     mew = next(c for c in body["cards"] if c["card_id"] == "sv3pt5-205")
     assert mew["price"] == 80 and mew["target_price"] == 90 and mew["past"]["7"] == 100
     assert mew["to_target"] == pytest.approx(80 / 90 - 1) and mew["signal"]["today"] is True
@@ -180,6 +193,137 @@ def test_wishlist_add_target_and_remove(client):
     assert mew["target_price"] == 90 and mew["note"] == "pour le binder"
     assert client.delete("/api/prefs/wishlists/1/cards/sv3pt5-205").status_code == 204
     assert client.put("/api/prefs/wishlists/9/cards/sv2-1", json={}).status_code == 404
+
+
+def _wl(client) -> dict:
+    return client.get("/api/prefs/wishlists").json()
+
+
+def _line(client, list_id: int, card_id: str) -> dict:
+    return next(
+        c for c in _wl(client)["cards"] if c["list_id"] == list_id and c["card_id"] == card_id
+    )
+
+
+def test_wishlist_create_rename_delete(client):
+    r = client.post("/api/prefs/wishlists", json={"name": "  Évolutions Rapides "})
+    assert r.status_code == 200 and r.json()["name"] == "Évolutions Rapides"
+    list_id = r.json()["list_id"]
+    # Nom pris (casse exacte), vide ou trop long : refusé.
+    assert client.post("/api/prefs/wishlists", json={"name": "Recherchées"}).status_code == 409
+    assert client.post("/api/prefs/wishlists", json={"name": "   "}).status_code == 409
+    assert client.post("/api/prefs/wishlists", json={"name": "x" * 61}).status_code == 422
+    # Renommer : refusé si le nom est pris par une autre liste, permis sinon.
+    url = f"/api/prefs/wishlists/{list_id}"
+    assert client.put(url, json={"name": "Recherchées"}).status_code == 409
+    assert client.put(url, json={"name": " 151 "}).json()["name"] == "151"
+    assert client.put("/api/prefs/wishlists/99", json={"name": "z"}).status_code == 404
+    assert [x["name"] for x in _wl(client)["lists"]] == ["Recherchées", "151"]
+    # Supprimer : la liste et ses cartes partent, l'autre liste garde les siennes.
+    client.put(f"{url}/cards/sv3pt5-205", json={"target_price": 70})
+    client.put("/api/prefs/wishlists/1/cards/sv3pt5-205", json={"target_price": 90})
+    assert client.delete(url).status_code == 204
+    body = _wl(client)
+    assert [x["list_id"] for x in body["lists"]] == [1]
+    assert [(c["list_id"], c["card_id"]) for c in body["cards"]] == [(1, "sv3pt5-205")]
+    assert client.delete(url).status_code == 404
+    # La carte elle-même (catalogue, réglages) n'est pas touchée.
+    assert _rules("sv3pt5-205")["wishlisted"] is True
+    # Même la liste de départ peut partir ; la carte n'est plus recherchée.
+    assert client.delete("/api/prefs/wishlists/1").status_code == 204
+    assert _wl(client)["lists"] == [] and _rules("sv3pt5-205") is None
+
+
+def test_same_card_in_two_lists_with_own_target_and_note(client):
+    other = client.post("/api/prefs/wishlists", json={"name": "151"}).json()["list_id"]
+    client.put("/api/prefs/wishlists/1/cards/sv3pt5-205", json={"target_price": 90, "note": "a"})
+    client.put(f"/api/prefs/wishlists/{other}/cards/sv3pt5-205", json={"target_price": 70})
+    assert _line(client, 1, "sv3pt5-205")["target_price"] == 90
+    assert _line(client, 1, "sv3pt5-205")["note"] == "a"
+    assert _line(client, other, "sv3pt5-205")["target_price"] == 70
+    assert _line(client, other, "sv3pt5-205")["note"] is None
+    # Le signal d'achat garde la cible la plus basse.
+    assert _rules("sv3pt5-205")["target_price"] == 70
+    # Retirée d'une liste : l'autre la garde, avec sa cible.
+    client.delete(f"/api/prefs/wishlists/{other}/cards/sv3pt5-205")
+    assert _rules("sv3pt5-205")["target_price"] == 90 and _rules("sv3pt5-205")["wishlisted"]
+    # Une liste inconnue ou une carte inconnue : 404.
+    assert client.put("/api/prefs/wishlists/99/cards/sv2-1", json={}).status_code == 404
+    assert client.put("/api/prefs/wishlists/1/cards/nope-1", json={}).status_code == 404
+
+
+def test_owned_card_is_obtained_until_still_wanted(client):
+    # sv3pt5-199 est possédée (1 exemplaire) ; sv3pt5-205 ne l'est pas.
+    client.put("/api/prefs/wishlists/1/cards/sv3pt5-199", json={"target_price": 50})
+    client.put("/api/prefs/wishlists/1/cards/sv3pt5-205", json={})
+    own, wanted = _line(client, 1, "sv3pt5-199"), _line(client, 1, "sv3pt5-205")
+    assert own["obtained"] is True and own["still_wanted"] is False and own["active"] is False
+    assert wanted["obtained"] is False and wanted["active"] is True
+    # Obtenue : plus recherchée, achat bloqué, pas de signal dans la liste,
+    # et sa cible ne compte plus.
+    rules = _rules("sv3pt5-199")
+    assert rules["wishlisted"] is False and rules["buy_blocked"] is True
+    assert rules["target_price"] is None
+    assert own["signal"] is None
+    assert ("sv3pt5-199", "buy") not in _trend_keys(client)
+    # Non possédée : recherchée, achat permis, signal du jour affiché.
+    assert _rules("sv3pt5-205")["buy_blocked"] is False and wanted["signal"]["today"] is True
+    # « Encore recherchée » : la carte redevient recherchée, avec sa cible.
+    client.put("/api/prefs/wishlists/1/cards/sv3pt5-199", json={"still_wanted": True})
+    rules = _rules("sv3pt5-199")
+    assert rules["wishlisted"] is True and rules["buy_blocked"] is False
+    assert rules["target_price"] == 50
+    own = _line(client, 1, "sv3pt5-199")
+    assert own["obtained"] is True and own["active"] is True and own["signal"]["today"] is True
+    assert ("sv3pt5-199", "buy") in _trend_keys(client)
+    # Décochée : retour à « obtenue ». Valeur nulle refusée.
+    client.put("/api/prefs/wishlists/1/cards/sv3pt5-199", json={"still_wanted": False})
+    assert _rules("sv3pt5-199")["buy_blocked"] is True
+    r = client.put("/api/prefs/wishlists/1/cards/sv3pt5-199", json={"still_wanted": None})
+    assert r.status_code == 422
+
+
+def test_still_wanted_is_per_list(client):
+    # Une carte possédée est recherchée si au moins une de ses lignes est cochée.
+    other = client.post("/api/prefs/wishlists", json={"name": "151"}).json()["list_id"]
+    client.put("/api/prefs/wishlists/1/cards/sv3pt5-199", json={"target_price": 40})
+    client.put(f"/api/prefs/wishlists/{other}/cards/sv3pt5-199", json={"target_price": 60})
+    assert _rules("sv3pt5-199")["wishlisted"] is False
+    client.put(f"/api/prefs/wishlists/{other}/cards/sv3pt5-199", json={"still_wanted": True})
+    rules = _rules("sv3pt5-199")
+    # Seule la ligne cochée compte : sa cible (60), pas la plus basse des deux.
+    assert rules["wishlisted"] is True and rules["target_price"] == 60
+    assert _line(client, 1, "sv3pt5-199")["signal"] is None
+    assert _line(client, other, "sv3pt5-199")["signal"]["today"] is True
+    # Changer la cible d'une ligne ne touche pas la case.
+    client.put(f"/api/prefs/wishlists/{other}/cards/sv3pt5-199", json={"target_price": 55})
+    assert _line(client, other, "sv3pt5-199")["still_wanted"] is True
+
+
+def test_wishlist_progress(client):
+    other = client.post("/api/prefs/wishlists", json={"name": "151"}).json()["list_id"]
+    # Liste 1 : une possédée (sv3pt5-199), une à 80 $ (sv3pt5-205), une à 80 $ (sv2-1 ? possédée).
+    for cid in ("sv3pt5-199", "sv3pt5-205", "sv2-1", "sv2-200"):
+        client.put(f"/api/prefs/wishlists/1/cards/{cid}", json={})
+    client.put(f"/api/prefs/wishlists/{other}/cards/sv3pt5-205", json={})
+    body = _wl(client)
+    lists = {x["list_id"]: x for x in body["lists"]}
+    # Possédées : sv3pt5-199, sv2-1, sv2-200 ; restante : sv3pt5-205 à 80 $.
+    assert (lists[1]["n_cards"], lists[1]["n_obtained"]) == (4, 3)
+    assert lists[1]["remaining_value"] == 80 and lists[1]["n_unpriced"] == 0
+    assert (lists[other]["n_cards"], lists[other]["n_obtained"]) == (1, 0)
+    assert lists[other]["remaining_value"] == 80
+    # « Toutes » : chaque carte une fois, la valeur restante n'est pas doublée.
+    assert body["total"]["n_cards"] == 4 and body["total"]["n_obtained"] == 3
+    assert body["total"]["remaining_value"] == 80
+    # « Encore recherchée » ne change pas la progression : la carte est possédée.
+    client.put("/api/prefs/wishlists/1/cards/sv2-1", json={"still_wanted": True})
+    assert {x["list_id"]: x for x in _wl(client)["lists"]}[1]["n_obtained"] == 3
+    # Une carte sans prix du jour est comptée à part, pas à 0 sans le dire.
+    with psycopg.connect(_admin_dsn()) as admin:
+        admin.execute("DELETE FROM prod.fact_price_history WHERE card_id = 'sv3pt5-205'")
+    lst = {x["list_id"]: x for x in _wl(client)["lists"]}[other]
+    assert lst["remaining_value"] == 0 and lst["n_unpriced"] == 1
 
 
 def test_reader_still_cannot_write_outside_prefs(client):

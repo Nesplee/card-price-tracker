@@ -1,6 +1,10 @@
 # Réglages de l'utilisateur saisis dans le board (2026-11-17, migration 017) :
 # par carte (invendable, ne plus suivre, prix minimum de vente), par set
-# (masterset) et listes de cartes recherchées (prix cible, note). Le seul
+# (masterset) et listes de cartes recherchées (prix cible, note). Plusieurs
+# listes (2026-11-18, migration 019) : une carte peut figurer dans plusieurs
+# listes, chacune avec sa cible et sa note ; une carte possédée y est
+# « obtenue » (progression) sans signal d'achat, sauf case « encore
+# recherchée ». Le seul
 # endroit où l'API écrit : dashboard_reader n'a de droits d'écriture que sur
 # le schéma prefs. Les règles qui en découlent (prefs.v_card_rules) filtrent
 # les signaux au calcul (src/signals/opportunities.py) et à la lecture
@@ -43,10 +47,12 @@ class WishlistIn(BaseModel):
 
 class WishlistCardIn(BaseModel):
     """Champs absents : inchangés (ou vides pour une carte ajoutée).
-    target_price à null : cible retirée."""
+    target_price à null : cible retirée. still_wanted : « encore recherchée »
+    pour une carte déjà possédée (2e exemplaire)."""
 
     target_price: float | None = Field(default=None, gt=0, lt=100000)
     note: str | None = Field(default=None, max_length=200)
+    still_wanted: bool | None = None
 
 
 def _card_exists(conn, card_id: str) -> None:
@@ -117,6 +123,32 @@ def create_wishlist(body: WishlistIn, conn=Depends(get_api_connection)) -> Respo
     return _json(dict(row))
 
 
+@router.put("/wishlists/{list_id}")
+def rename_wishlist(list_id: int, body: WishlistIn, conn=Depends(get_api_connection)) -> Response:
+    _list_exists(conn, list_id)
+    try:
+        row = conn.execute(
+            "UPDATE prefs.wishlist SET name = %(n)s WHERE list_id = %(id)s "
+            "RETURNING list_id, name",
+            {"n": body.name.strip(), "id": list_id},
+        ).fetchone()
+    except (errors.UniqueViolation, errors.CheckViolation):
+        conn.rollback()
+        raise HTTPException(status_code=409, detail="nom déjà pris ou vide") from None
+    conn.commit()
+    return _json(dict(row))
+
+
+@router.delete("/wishlists/{list_id}", status_code=204)
+def delete_wishlist(list_id: int, conn=Depends(get_api_connection)) -> Response:
+    """Supprime la liste et ses cartes (cascade). Les réglages des cartes
+    elles-mêmes (ne plus suivre, prix minimum) ne bougent pas."""
+    _list_exists(conn, list_id)
+    conn.execute("DELETE FROM prefs.wishlist WHERE list_id = %(id)s", {"id": list_id})
+    conn.commit()
+    return Response(status_code=204)
+
+
 def _list_exists(conn, list_id: int) -> None:
     if not conn.execute(
         "SELECT 1 FROM prefs.wishlist WHERE list_id = %(id)s", {"id": list_id}
@@ -130,16 +162,18 @@ def put_wishlist_card(
 ) -> Response:
     _list_exists(conn, list_id)
     _card_exists(conn, card_id)
-    fields = [f for f in ("target_price", "note") if f in body.model_fields_set]
+    fields = [f for f in ("target_price", "note", "still_wanted") if f in body.model_fields_set]
+    if "still_wanted" in fields and body.still_wanted is None:
+        raise HTTPException(status_code=422, detail="booléen attendu")
     sets = ", ".join(f"{f} = EXCLUDED.{f}" for f in fields)
     note = body.note.strip() or None if body.note is not None else None
     conn.execute(
         f"""
-        INSERT INTO prefs.wishlist_card (list_id, card_id, target_price, note)
-        VALUES (%(l)s, %(c)s, %(t)s, %(n)s)
+        INSERT INTO prefs.wishlist_card (list_id, card_id, target_price, note, still_wanted)
+        VALUES (%(l)s, %(c)s, %(t)s, %(n)s, coalesce(%(s)s, false))
         ON CONFLICT (list_id, card_id) DO UPDATE SET {sets + ", " if sets else ""}updated_at = now()
         """,
-        {"l": list_id, "c": card_id, "t": body.target_price, "n": note},
+        {"l": list_id, "c": card_id, "t": body.target_price, "n": note, "s": body.still_wanted},
     )
     # Rechercher une carte, c'est vouloir la suivre : « ne plus suivre » tombe.
     conn.execute(
@@ -161,6 +195,18 @@ def delete_wishlist_card(list_id: int, card_id: str, conn=Depends(get_api_connec
     return Response(status_code=204)
 
 
+def _progress(cards: list[dict]) -> dict:
+    """« 12 / 30 obtenues » et valeur restante : somme des prix market des
+    cartes non obtenues (celles sans prix du jour comptent à part)."""
+    todo = [c for c in cards if not c["obtained"]]
+    return {
+        "n_cards": len(cards),
+        "n_obtained": len(cards) - len(todo),
+        "remaining_value": round(sum(c["price"] or 0 for c in todo), 2),
+        "n_unpriced": sum(1 for c in todo if c["price"] is None),
+    }
+
+
 def get_wishlists(conn) -> dict:
     """Listes de cartes recherchées avec, par carte : prix market et annonce
     la moins chère du jour, prix passés (1 à 90 j), mini-courbe sur 30 j,
@@ -172,7 +218,8 @@ def get_wishlists(conn) -> dict:
         ).fetchall()
     ]
     rows = conn.execute("""
-        SELECT w.list_id, w.card_id, w.target_price, w.note, w.added_at::date AS added_on,
+        SELECT w.list_id, w.card_id, w.target_price, w.note, w.still_wanted,
+               w.added_at::date AS added_on,
                c.name, c.set_id, c.set_name, c.series, c.rarity, c.image_small, c.image_alt,
                coalesce((SELECT sum(quantity) FROM prod.dim_owned_card o
                          WHERE o.card_id = w.card_id), 0)::int AS owned_quantity
@@ -239,6 +286,10 @@ def get_wishlists(conn) -> dict:
             spark = [[d, round(p, 2)] for d, p, _ in h if (as_of - d).days <= SPARK_DAYS]
         target = float(r["target_price"]) if r["target_price"] is not None else None
         price = cur[1] if cur else None
+        # « obtenue » : possédée. Active (signal d'achat) : pas obtenue, ou
+        # « encore recherchée ». Même règle que prefs.v_card_rules.
+        obtained = r["owned_quantity"] > 0
+        active = not obtained or r["still_wanted"]
         cards.append(
             {
                 **_clean({k: v for k, v in r.items() if k != "target_price"}),
@@ -248,11 +299,17 @@ def get_wishlists(conn) -> dict:
                 "past": past,
                 "spark": spark,
                 "to_target": (price / target - 1) if price and target else None,
-                "signal": sig.get(r["card_id"]),
+                "obtained": obtained,
+                "active": active,
+                "signal": sig.get(r["card_id"]) if active else None,
                 "prefs": prefs.get(r["card_id"], DEFAULT_PREFS),
             }
         )
-    return {"as_of": as_of, "lists": lists, "cards": cards}
+    for lst in lists:
+        lst.update(_progress([c for c in cards if c["list_id"] == lst["list_id"]]))
+    # « Toutes » : chaque carte compte une fois, même présente dans plusieurs listes.
+    distinct = list({c["card_id"]: c for c in cards}.values())
+    return {"as_of": as_of, "lists": lists, "cards": cards, "total": _progress(distinct)}
 
 
 @router.get("/wishlists")

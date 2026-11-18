@@ -388,7 +388,7 @@ def _signals(conn) -> list[tuple[str, str]]:
     ]
 
 
-def test_owned_card_gets_no_buy_unless_wishlisted(db_connection) -> None:
+def test_owned_card_gets_no_buy_unless_still_wanted(db_connection) -> None:
     # Une reverse seule suffit : la carte est possédée.
     _rules_seed(
         "INSERT INTO prod.dim_owned_card (card_id, variance, grade, quantity) "
@@ -396,7 +396,12 @@ def test_owned_card_gets_no_buy_unless_wishlisted(db_connection) -> None:
     )
     compute_opportunities(db_connection, D)
     assert ("base1-4", "buy") not in _signals(db_connection)
+    # Dans une liste, une carte possédée est « obtenue » : toujours pas d'achat.
     _rules_seed("INSERT INTO prefs.wishlist_card (list_id, card_id) VALUES (1, 'base1-4')")
+    compute_opportunities(db_connection, D)
+    assert ("base1-4", "buy") not in _signals(db_connection)
+    # « Encore recherchée » (2e exemplaire) : l'achat revient.
+    _rules_seed("UPDATE prefs.wishlist_card SET still_wanted = true WHERE card_id = 'base1-4'")
     compute_opportunities(db_connection, D)
     assert ("base1-4", "buy") in _signals(db_connection)
 

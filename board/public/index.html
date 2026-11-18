@@ -363,10 +363,10 @@
 
   /* Recherchées : cartes à acheter, en tête de la colonne Signaux */
   .wadd { position: relative; padding: 0 var(--pad) 12px; }
-  .wadd input { width: 100%; font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--rule2); min-height: 34px; padding: 4px 10px 4px 32px;
+  .wadd > input { width: 100%; font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--rule2); min-height: 34px; padding: 4px 10px 4px 32px;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237c7c7c' stroke-width='1.6'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='m15 15 5 5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: 9px 50%; background-size: 15px; }
-  .wadd input::placeholder { color: var(--faint); }
-  .wadd input:focus-visible { outline: 2px solid var(--ink); outline-offset: -1px; border-color: var(--ink); }
+  .wadd > input::placeholder { color: var(--faint); }
+  .wadd > input:focus-visible { outline: 2px solid var(--ink); outline-offset: -1px; border-color: var(--ink); }
   .wres { position: absolute; left: var(--pad); right: var(--pad); top: 36px; z-index: 6; background: #000; border: 1px solid var(--rule2); box-shadow: 0 12px 28px rgba(0,0,0,.7); max-height: 360px; overflow-y: auto; }
   .wres button { width: 100%; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto 18px; gap: 0 10px; align-items: center; justify-content: stretch; text-align: left; border: 0; border-top: 1px solid var(--rule); padding: 6px 10px; min-height: 44px; font-weight: 400; }
   .wres button:first-child { border-top: 0; }
@@ -377,6 +377,40 @@
   .wres .r { text-align: right; white-space: nowrap; }
   .wres .add { color: var(--dim); font-size: 16px; line-height: 1; }
   .wres p { padding: 10px; color: var(--dim); }
+  /* Onglets des listes, progression, menu des listes d'une carte */
+  .wtabs { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 var(--pad) 10px; }
+  .wtabs button { max-width: 100%; min-height: 28px; padding: 2px 10px; font-weight: 400; font-size: 12.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wtabs button small { margin-left: 6px; color: var(--faint); font-size: 11px; }
+  .wtabs button[aria-pressed="true"] { background: var(--ink); color: #000; border-color: var(--ink); font-weight: 700; }
+  .wtabs button[aria-pressed="true"] small { color: #000; }
+  .wtabs .wnew { border-style: dashed; }
+  .wprog { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 0 var(--pad) 12px; color: var(--dim); font-size: 12px; }
+  .wprog b { color: var(--ink); font-weight: 400; }
+  .wprog .g { width: 80px; height: 4px; flex: none; }
+  .wprog .acts { margin-left: auto; display: flex; gap: 6px; }
+  .wprog .acts button { min-height: 26px; padding: 1px 9px; font-weight: 400; font-size: 12px; color: var(--dim); }
+  .wst .star { width: 100%; }
+  .wmenu { display: grid; gap: 4px; padding: 8px 10px; margin-top: 6px; background: var(--raise); border: 1px solid var(--rule2); }
+  .wmenu[hidden] { display: none; }
+  .wmenu .tg span { overflow-wrap: anywhere; }
+  .wmenu .wnew { justify-content: flex-start; min-height: 28px; padding: 2px 8px; font-weight: 400; font-size: 12px; color: var(--dim); border-style: dashed; }
+  .wr { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; border-top: 1px solid var(--rule); }
+  .wr:first-child { border-top: 0; }
+  .wr .wst { display: contents; }
+  .wr .wmenu { grid-column: 1 / -1; margin: 0 10px 8px; }
+  .wres .wr > button[data-add] { border-top: 0; }
+  .wres .wmenu .wnew { display: flex; width: auto; justify-self: start; min-height: 28px; padding: 2px 8px; border: 1px dashed var(--rule2); }
+  .wres .wmenu .wnew:hover { background: none; border-color: var(--ink); }
+  .wres .wr .wsb { width: 44px; min-height: 44px; padding: 0; justify-content: center; border: 0; border-left: 1px solid var(--rule); color: var(--dim); }
+  .wres .wr .wsb[aria-pressed="true"] { color: var(--ink); }
+  .wres .wr .wsb[aria-pressed="true"] svg { fill: currentColor; }
+  .wres .wr .wsb svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+  .wlines { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule); }
+  .wlines h4 { margin: 0; font-size: 11px; font-weight: 400; color: var(--faint); }
+  .wline { display: grid; gap: 4px; font-size: 12.5px; }
+  .wline > b { font-weight: 700; overflow-wrap: anywhere; }
+  .wline small { color: var(--faint); }
+  .wl .ro { font-size: 12.5px; color: var(--ink); white-space: nowrap; }
   .wl { border-top: 1px solid var(--rule); }
   .wl > summary { display: grid; grid-template-columns: minmax(0, 1fr) 76px 84px 112px 12px; gap: 0 14px; align-items: center; padding: 7px var(--pad); min-height: 52px; }
   .wl > summary:hover, .wl[open] { background: var(--raise); }
@@ -406,6 +440,12 @@
   /* Import de la collection */
   .imp-open { min-height: 28px; padding: 2px 10px; font-size: 12px; font-weight: 400; color: var(--dim); }
   .imp-open svg { width: 14px; height: 14px; }
+  dialog#wl-dlg { width: min(440px, calc(100vw - 32px)); padding: 0; color: var(--ink); background: #000; border: 1px solid var(--rule2); box-shadow: 0 24px 60px rgba(0,0,0,.8); }
+  dialog#wl-dlg::backdrop { background: rgba(0,0,0,.72); }
+  dialog#wl-dlg .imp-b { max-height: none; }
+  dialog#wl-dlg input { font: inherit; width: 100%; color: var(--ink); background: var(--bg); border: 1px solid var(--rule2); min-height: 34px; padding: 4px 10px; }
+  dialog#wl-dlg input:focus-visible { outline: 2px solid var(--ink); outline-offset: -1px; border-color: var(--ink); }
+  dialog#wl-dlg button.danger { color: var(--bad); border-color: var(--bad); }
   dialog#imp { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0; color: var(--ink); background: #000; border: 1px solid var(--rule2); box-shadow: 0 24px 60px rgba(0,0,0,.8); }
   dialog#imp::backdrop { background: rgba(0,0,0,.72); }
   .imp-h { display: flex; align-items: center; gap: 12px; padding: 16px 20px 12px; border-bottom: 1px solid var(--rule2); }
@@ -628,6 +668,8 @@
     </div>
     <section class="sec" aria-label="Cartes recherchées" id="wish-sec">
       <div class="sh"><svg class="i"><use href="#i-star"/></svg><h3 id="w-title">Recherchées</h3><span class="r" id="w-sum"></span></div>
+      <div class="wtabs" id="w-tabs" role="group" aria-label="Listes de cartes recherchées"></div>
+      <div class="wprog" id="w-prog"></div>
       <div class="wadd">
         <input id="w-q" type="search" placeholder="Ajouter une carte : nom (ex. Umbreon ex)" autocomplete="off" aria-label="Chercher une carte dans le catalogue" aria-controls="w-res">
         <div class="wres" id="w-res" hidden></div>
@@ -662,6 +704,13 @@
 
 <div id="zoom" hidden role="dialog" aria-label="Carte en grand"><img alt=""></div>
 
+<dialog id="wl-dlg" aria-labelledby="wl-title">
+  <form id="wl-form" novalidate>
+    <div class="imp-h"><h2 id="wl-title"></h2></div>
+    <div class="imp-b"><p id="wl-msg"></p><input id="wl-name" maxlength="60" autocomplete="off" aria-label="Nom de la liste"></div>
+    <div class="imp-f"><span class="st err" id="wl-err" role="alert"></span><button type="button" id="wl-cancel">Annuler</button><button type="submit" class="primary" id="wl-ok"></button></div>
+  </form>
+</dialog>
 <dialog id="imp" aria-labelledby="imp-title">
   <div class="imp-h"><h2 id="imp-title">Importer un export de la collection</h2><button type="button" data-imp="close">Fermer</button></div>
   <div class="imp-b" id="imp-b">
@@ -709,7 +758,7 @@ const state = {
   days: [7, 14, 30].includes(store.get('days', 14)) ? store.get('days', 14) : 14,
   all: false, allNews: false, allOwn: false, allBuzz: false, allMarket: false,
   coll: null, sig: null, wish: null,
-  open: new Set(), history: new Map(), wishOpen: new Set(),
+  open: new Set(), history: new Map(), wishOpen: new Set(), menuOpen: new Set(), wishTab: store.get('wishTab', null),
   range: [30, 90, 'all'].includes(store.get('range', 'all')) ? store.get('range', 'all') : 'all',
 };
 
@@ -1205,7 +1254,7 @@ function cardControls(c) {
   const owned = ownedQty(c) > 0;
   return `<div class="cp" data-card="${esc(c.card_id)}" data-owned="${owned ? 1 : 0}">
       <h4>Réglages de la carte</h4>
-      <button type="button" class="star" data-wish aria-pressed="${!!p.wishlisted}"><svg aria-hidden="true"><use href="#i-star"/></svg><span>${p.wishlisted ? 'Dans les recherchées' : 'Ajouter aux recherchées'}</span></button>
+      ${starBlock(c.card_id)}
       ${owned ? `<label class="tg"><input type="checkbox" data-pref="unsellable"${p.unsellable ? ' checked' : ''}><span>Invendable</span></label>
       <label class="numf">Vendre à partir de <input type="number" inputmode="decimal" min="0" step="1" data-pref="min_sell_price" value="${p.min_sell_price ?? ''}" placeholder="—" aria-label="Prix minimum de vente, en dollars"> $</label>` : ''}
       <label class="tg"><input type="checkbox" data-pref="unfollowed"${p.unfollowed ? ' checked' : ''}><span>Ne plus suivre</span></label>
@@ -1272,10 +1321,8 @@ function setPrefs(id, prefs) {
     const c = cardsById(id)[0] || { card_id: id, prefs };
     box.querySelector('.rule').innerHTML = ruleText({ ...c, prefs: c.prefs || prefs, quantity: box.dataset.owned === '1' ? 1 : 0 });
     box.querySelectorAll('input[type="checkbox"][data-pref]').forEach((i) => { i.checked = !!c.prefs?.[i.dataset.pref]; });
-    const star = box.querySelector('[data-wish]');
-    star.setAttribute('aria-pressed', String(!!c.prefs?.wishlisted));
-    star.querySelector('span').textContent = c.prefs?.wishlisted ? 'Dans les recherchées' : 'Ajouter aux recherchées';
   });
+  refreshStars(id);
   const row = document.querySelector(`#movers details[data-id="${CSS.escape(id)}"] .who small`);
   const m = state.coll?.cards.find((c) => c.card_id === id);
   if (row && m) row.innerHTML = moverTags({ ...m, ...moves(state.win).find((x) => x.card_id === id) });
@@ -1308,29 +1355,121 @@ async function savePref(inp) {
   }
 }
 
-const wishListId = () => state.wish?.lists?.[0]?.list_id ?? 1;
-async function toggleWish(id, on, box) {
+// ---------- listes de cartes recherchées : étoile, onglets, gestion
+const enc = encodeURIComponent;
+const wishLists = () => state.wish?.lists || [];
+const listName = (id) => wishLists().find((l) => l.list_id === id)?.name ?? '';
+function curTab() {
+  const t = state.wishTab, ls = wishLists();
+  if (t === 'all') return 'all';
+  return ls.some((l) => l.list_id === t) ? t : (ls[0]?.list_id ?? 'all');
+}
+// Liste qui reçoit les cartes ajoutées par la recherche : l'onglet ouvert, ou la première.
+const addListId = () => { const t = curTab(); return t === 'all' ? wishLists()[0]?.list_id : t; };
+
+// Étoile d'une carte : un menu pour cocher et décocher les listes. compact : icône seule (recherche).
+function starBlock(id, compact) {
+  const ls = wishLists();
+  const inl = new Set((state.wish?.cards || []).filter((c) => c.card_id === id).map((c) => c.list_id));
+  const open = state.menuOpen.has(id);
+  const label = inl.size ? `Dans ${inl.size} liste${inl.size > 1 ? 's' : ''}` : 'Ajouter aux recherchées';
+  const btn = compact
+    ? `<button type="button" class="wsb" data-menu aria-expanded="${open}" aria-pressed="${inl.size > 0}" aria-label="Listes de cette carte : ${esc(label)}"><svg aria-hidden="true"><use href="#i-star"/></svg></button>`
+    : `<button type="button" class="star" data-menu aria-expanded="${open}" aria-pressed="${inl.size > 0}"><svg aria-hidden="true"><use href="#i-star"/></svg><span>${label}</span></button>`;
+  return `<div class="wst" data-card="${esc(id)}"${compact ? ' data-compact="1"' : ''}>${btn}
+    <div class="wmenu"${open ? '' : ' hidden'}>${ls.map((l) => `<label class="tg"><input type="checkbox" data-wl="${l.list_id}"${inl.has(l.list_id) ? ' checked' : ''}><span>${esc(l.name)}</span></label>`).join('')}
+      <button type="button" class="wnew" data-newlist>+ Nouvelle liste</button></div></div>`;
+}
+function refreshStars(id) {
+  document.querySelectorAll(`.wst[data-card="${CSS.escape(id)}"]`).forEach((el) => {
+    const t = document.createElement('template');
+    t.innerHTML = starBlock(id, !!el.dataset.compact).trim();
+    el.replaceWith(t.content.firstChild);
+  });
+}
+function syncCardPrefs(id) {
+  const w = state.wish.cards.find((c) => c.card_id === id);
+  const owned = cardsById(id).some((c) => ownedQty(c) > 0);
+  setPrefs(id, w ? w.prefs : { wishlisted: false, target_price: null, buy_blocked: owned });
+}
+async function setMembership(id, listId, on, box) {
   saved(box, 'Enregistrement…');
   try {
-    if (on) await send('PUT', `/api/prefs/wishlists/${wishListId()}/cards/${encodeURIComponent(id)}`, {});
-    else await send('DELETE', `/api/prefs/wishlists/${wishListId()}/cards/${encodeURIComponent(id)}`);
+    if (on) await send('PUT', `/api/prefs/wishlists/${listId}/cards/${enc(id)}`, {});
+    else await send('DELETE', `/api/prefs/wishlists/${listId}/cards/${enc(id)}`);
     await loadWish();
-    const w = state.wish.cards.find((c) => c.card_id === id);
-    const owned = cardsById(id).some((c) => ownedQty(c) > 0);
-    setPrefs(id, w ? w.prefs : { wishlisted: false, target_price: null, buy_blocked: owned });
-    saved(box, on ? 'Ajoutée aux recherchées.' : 'Retirée des recherchées.');
+    syncCardPrefs(id);
+    saved(document.querySelector(`.cp[data-card="${CSS.escape(id)}"]`) || box, on ? `Ajoutée à « ${listName(listId)} ».` : `Retirée de « ${listName(listId)} ».`);
     refreshSignals();
   } catch (err) {
     saved(box, 'Non enregistré : ' + err.message, true);
     toast(err.message);
+    refreshStars(id);
   }
+  document.querySelector(`.wst[data-card="${CSS.escape(id)}"] [data-wl="${listId}"]`)?.focus();
 }
+async function saveStill(inp) {
+  const id = inp.dataset.still, list = +inp.dataset.list;
+  try {
+    await send('PUT', `/api/prefs/wishlists/${list}/cards/${enc(id)}`, { still_wanted: inp.checked });
+    await loadWish();
+    syncCardPrefs(id);
+    refreshSignals();
+  } catch (err) { inp.checked = !inp.checked; toast('Non enregistré : ' + err.message); }
+}
+
+// Fenêtre unique : nouvelle liste, renommer, supprimer (avec confirmation).
+const wlDlg = document.getElementById('wl-dlg'), wlName = document.getElementById('wl-name');
+let wlCtx = null;
+function openListDlg(mode, o = {}) {
+  wlCtx = { mode, ...o };
+  const del = mode === 'delete', cur = wishLists().find((l) => l.list_id === o.listId);
+  document.getElementById('wl-title').textContent = { new: 'Nouvelle liste', rename: 'Renommer la liste', delete: 'Supprimer la liste' }[mode];
+  const n = (state.wish?.cards || []).filter((c) => c.list_id === o.listId).length;
+  document.getElementById('wl-msg').textContent = del
+    ? `Supprimer « ${cur?.name} » et ses ${n} carte${n > 1 ? 's' : ''} ? Les cartes elles-mêmes ne sont pas touchées : seule leur place dans cette liste disparaît. Impossible à annuler.`
+    : 'Un nom court, différent de celui des autres listes (60 caractères au plus).';
+  wlName.hidden = del; wlName.value = mode === 'rename' ? cur?.name || '' : '';
+  document.getElementById('wl-err').textContent = '';
+  const ok = document.getElementById('wl-ok');
+  ok.textContent = del ? 'Supprimer' : mode === 'new' ? 'Créer' : 'Renommer';
+  ok.classList.toggle('danger', del);
+  wlDlg.showModal();
+  if (del) ok.focus(); else { wlName.focus(); wlName.select(); }
+}
+document.getElementById('wl-cancel').addEventListener('click', () => wlDlg.close());
+document.getElementById('wl-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const { mode, listId, cardId } = wlCtx, err = document.getElementById('wl-err');
+  const name = wlName.value.trim();
+  if (mode !== 'delete' && !name) { err.textContent = 'Donne un nom à la liste.'; return; }
+  try {
+    if (mode === 'new') {
+      const l = await send('POST', '/api/prefs/wishlists', { name });
+      if (cardId) await send('PUT', `/api/prefs/wishlists/${l.list_id}/cards/${enc(cardId)}`, {});
+      state.wishTab = l.list_id; store.set('wishTab', state.wishTab);
+    } else if (mode === 'rename') {
+      await send('PUT', `/api/prefs/wishlists/${listId}`, { name });
+    } else {
+      await send('DELETE', `/api/prefs/wishlists/${listId}`);
+      if (state.wishTab === listId) { state.wishTab = null; store.set('wishTab', null); }
+    }
+  } catch (ex) { err.textContent = /déjà pris/.test(ex.message) ? 'Ce nom est déjà pris par une autre liste.' : ex.message; return; }
+  wlDlg.close();
+  try {
+    await loadWish();
+    if (cardId) syncCardPrefs(cardId);
+    refreshSignals();
+  } catch (ex) { toast(ex.message); }
+});
 
 document.addEventListener('change', (e) => {
   const inp = e.target;
   if (inp.matches?.('[data-pref]')) savePref(inp);
   else if (inp.matches?.('[data-set-master]')) saveMasterset(inp);
   else if (inp.matches?.('[data-target]')) saveTarget(inp);
+  else if (inp.matches?.('[data-still]')) saveStill(inp);
+  else if (inp.matches?.('[data-wl]')) setMembership(inp.closest('.wst').dataset.card, +inp.dataset.wl, inp.checked, inp.closest('.cp'));
 });
 document.addEventListener('keydown', (e) => {
   // Entrée valide le champ sans replier la ligne qui le contient.
@@ -1338,8 +1477,21 @@ document.addEventListener('keydown', (e) => {
 });
 document.addEventListener('click', (e) => {
   if (e.target.closest('summary') && e.target.matches?.('input')) { e.preventDefault(); return; }
-  const w = e.target.closest('[data-wish]');
-  if (w) { const box = w.closest('.cp'); toggleWish(box.dataset.card, w.getAttribute('aria-pressed') !== 'true', box); return; }
+  const mn = e.target.closest('[data-menu]');
+  if (mn) {
+    const id = mn.closest('.wst').dataset.card;
+    if (state.menuOpen.has(id)) state.menuOpen.delete(id); else state.menuOpen.add(id);
+    refreshStars(id);
+    document.querySelector(`.wst[data-card="${CSS.escape(id)}"] [data-menu]`)?.focus();
+    return;
+  }
+  const nl = e.target.closest('[data-newlist]');
+  if (nl) { openListDlg('new', { cardId: nl.closest('.wst').dataset.card }); return; }
+  const tb = e.target.closest('[data-wtab]');
+  if (tb) { state.wishTab = tb.dataset.wtab === 'all' ? 'all' : +tb.dataset.wtab; store.set('wishTab', state.wishTab); renderWish(); return; }
+  if (e.target.closest('[data-wnew]')) { openListDlg('new'); return; }
+  const wa = e.target.closest('[data-wact]');
+  if (wa) { openListDlg(wa.dataset.wact, { listId: +wa.dataset.list }); return; }
   const r = e.target.closest('[data-range]');
   if (r) {
     state.range = r.dataset.range === 'all' ? 'all' : +r.dataset.range; store.set('range', state.range);
@@ -1369,74 +1521,124 @@ function wspark(pts) {
   return `<svg class="sp" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><line x1="0" x2="100" y1="${Y(v[0])}" y2="${Y(v[0])}"/><polyline points="${pts.map(([d, y]) => X(pdate(d)).toFixed(1) + ',' + Y(y).toFixed(1)).join(' ')}"/></svg>`;
 }
 
-function wishRow(c) {
+function wishRow(c, tab) {
   const p7 = c.past?.['7'] ?? c.past?.[7];
   const ch = c.price != null && p7 ? (c.price / p7 - 1) * 100 : null;
   const sg = c.signal;
   const tag = sg?.today ? `<span class="tag l-ok"><i class="lamp"></i>achat · ${esc(SIGNAL_TEXT[sg.signals[0]] || sg.signals[0])}</span>`
     : sg ? `<span class="tag" style="--c:var(--dim)">achat ${sg.days_14} j / 14</span>` : '';
-  const own = c.owned_quantity ? `<span class="tag" style="--c:var(--dim)">×${c.owned_quantity} à toi</span>` : '';
+  const own = c.obtained ? `<span class="tag l-ok"><i class="lamp"></i>obtenue${c.owned_quantity > 1 ? ' ×' + c.owned_quantity : ''}${c.still_wanted ? ' · encore recherchée' : ''}</span>` : '';
+  const many = tab === 'all' && c.lines.length > 1 ? `<span class="tag" style="--c:var(--dim)">${c.lines.length} listes</span>` : '';
   const hit = c.to_target != null && c.to_target <= 0;
   const gap = c.to_target == null ? (c.target_price ? 'pas de prix' : 'sans cible') : hit ? 'cible atteinte' : `${pct(c.to_target * 100)} au-dessus`;
+  const tgt = tab === 'all'
+    ? `<span class="ro">${c.target_price ? usd(c.target_price) : '—'}</span>`
+    : `<input type="number" inputmode="decimal" min="0" step="1" data-target="${esc(c.card_id)}" data-list="${c.list_id}" value="${c.target_price ?? ''}" placeholder="cible $" aria-label="Prix cible de ${esc(c.name)}, en dollars">`;
   return `<details class="wl" data-id="${esc(c.card_id)}"${state.wishOpen.has(c.card_id) ? ' open' : ''}>
       <summary>
-        <span class="who">${thumb(c)}<b>${esc(c.name)}</b><small>${tag}${own}<span>${esc(c.set_name)} · ${esc(c.rarity || '')}</span></small></span>
+        <span class="who">${thumb(c)}<b>${esc(c.name)}</b><small>${tag}${own}${many}<span>${esc(c.set_name)} · ${esc(c.rarity || '')}</span></small></span>
         <span class="px">${usd(c.price)}<small class="${tone(ch, CARD_TH[7])}">${ch == null ? '—' : pct(ch) + ' 7 j'}</small></span>
         <span class="spk">${wspark(c.spark)}</span>
-        <span class="tgt"><input type="number" inputmode="decimal" min="0" step="1" data-target="${esc(c.card_id)}" value="${c.target_price ?? ''}" placeholder="cible $" aria-label="Prix cible de ${esc(c.name)}, en dollars"><small class="${hit ? 'hit' : ''}">${gap}</small></span>
+        <span class="tgt">${tgt}<small class="${hit ? 'hit' : ''}">${gap}</small></span>
         <svg class="i chev"><use href="#i-chev"/></svg>
       </summary>
       <div class="detail" data-detail></div>
     </details>`;
 }
 
-function wishFacts(c) {
-  return `<dl class="kv">
+const stillLabel = (l) => `<label class="tg"><input type="checkbox" data-still="${esc(l.card_id)}" data-list="${l.list_id}"${l.still_wanted ? ' checked' : ''}><span>Encore recherchée (un 2e exemplaire)</span></label>`;
+function wishFacts(c, tab) {
+  // Onglet d'une liste : la case « encore recherchée » d'une carte obtenue.
+  // « Toutes » : une ligne par liste, avec sa cible et sa case.
+  const lines = tab === 'all'
+    ? `<div class="wlines"><h4>Dans les listes</h4>${c.lines.map((l) => `<div class="wline"><b>${esc(listName(l.list_id))}</b>
+        <label class="numf">Cible <input type="number" inputmode="decimal" min="0" step="1" data-target="${esc(l.card_id)}" data-list="${l.list_id}" value="${l.target_price ?? ''}" placeholder="—" aria-label="Prix cible dans ${esc(listName(l.list_id))}, en dollars"> $</label>
+        ${l.obtained ? stillLabel(l) : ''}${l.note ? `<small>${esc(l.note)}</small>` : ''}</div>`).join('')}</div>`
+    : c.obtained ? `<div class="wlines">${stillLabel(c)}</div>` : '';
+  return `<div><dl class="kv">
       <div><dt>Prix market</dt><dd>${usd(c.price)}</dd></div>
       <div><dt>Annonce la moins chère</dt><dd>${usd(c.low)}</dd></div>
       <div><dt>Cible</dt><dd>${usd(c.target_price)}</dd></div>
       <div><dt>il y a 30 j</dt><dd>${usd(c.past?.['30'] ?? c.past?.[30])}</dd></div>
       <div class="sep"><dt>Ajoutée le</dt><dd>${c.added_on ? fdate(c.added_on) : '—'}</dd></div>
-      ${c.note ? `<div><dt>Note</dt><dd style="white-space:normal">${esc(c.note)}</dd></div>` : ''}
-    </dl>`;
+      ${tab !== 'all' && c.note ? `<div><dt>Note</dt><dd style="white-space:normal">${esc(c.note)}</dd></div>` : ''}
+    </dl>${lines}</div>`;
+}
+
+// « Toutes » : chaque carte une fois, même présente dans plusieurs listes.
+function wishView(tab) {
+  const w = state.wish;
+  if (tab !== 'all') return w.cards.filter((c) => c.list_id === tab).map((c) => ({ ...c, lines: [c] }));
+  const m = new Map();
+  for (const c of w.cards) { const g = m.get(c.card_id); if (g) g.lines.push(c); else m.set(c.card_id, { ...c, lines: [c] }); }
+  return [...m.values()].map((g) => {
+    const act = g.lines.filter((l) => l.active && l.target_price != null).map((l) => l.target_price);
+    const all = g.lines.filter((l) => l.target_price != null).map((l) => l.target_price);
+    const t = act.length ? Math.min(...act) : all.length ? Math.min(...all) : null;
+    return { ...g, target_price: t, to_target: g.price && t ? g.price / t - 1 : null, still_wanted: g.lines.some((l) => l.still_wanted),
+      signal: g.lines.map((l) => l.signal).find(Boolean) ?? null };
+  });
+}
+
+function renderWishHead(tab) {
+  const w = state.wish, ls = w.lists;
+  document.getElementById('w-tabs').innerHTML =
+    `<button type="button" data-wtab="all" aria-pressed="${tab === 'all'}">Toutes<small>${w.total.n_cards}</small></button>`
+    + ls.map((l) => `<button type="button" data-wtab="${l.list_id}" aria-pressed="${tab === l.list_id}" title="${esc(l.name)}">${esc(l.name)}<small>${l.n_cards}</small></button>`).join('')
+    + '<button type="button" class="wnew" data-wnew>+ Nouvelle liste</button>';
+  const pr = tab === 'all' ? w.total : ls.find((l) => l.list_id === tab);
+  const el = document.getElementById('w-prog');
+  el.hidden = !pr || !pr.n_cards && tab === 'all';
+  if (!pr) return;
+  const pc = pr.n_cards ? (pr.n_obtained / pr.n_cards) * 100 : 0;
+  el.innerHTML = `<span><b>${pr.n_obtained} / ${pr.n_cards}</b> obtenues</span><span class="g" role="img" aria-label="${pc.toFixed(0)} % obtenues"><i style="width:${pc.toFixed(1)}%"></i></span>`
+    + `<span>reste <b>${usd(pr.remaining_value)}</b>${pr.n_unpriced ? ` · ${pr.n_unpriced} sans prix` : ''}</span>`
+    + (tab === 'all' ? '' : `<span class="acts"><button type="button" data-wact="rename" data-list="${tab}">Renommer</button><button type="button" data-wact="delete" data-list="${tab}">Supprimer</button></span>`);
 }
 
 function renderWish() {
   const w = state.wish;
-  const cards = w.cards.filter((c) => c.list_id === wishListId());
-  document.getElementById('w-title').textContent = w.lists[0]?.name || 'Recherchées';
+  if (!w) return;
+  const tab = curTab(), cards = wishView(tab);
+  renderWishHead(tab);
+  const q = document.getElementById('w-q'), target = wishLists().find((l) => l.list_id === addListId());
+  q.disabled = !target;
+  q.placeholder = target ? `Ajouter à « ${target.name} » : nom (ex. Umbreon ex)` : 'Crée d\'abord une liste';
   const hits = cards.filter((c) => c.to_target != null && c.to_target <= 0).length;
   const live = cards.filter((c) => c.signal?.today).length;
   document.getElementById('w-sum').innerHTML = cards.length ? `<b>${cards.length}</b> carte${cards.length > 1 ? 's' : ''}${hits ? ` · <b>${hits}</b> sous la cible` : ''}${live ? ` · ${live} signal${live > 1 ? 's' : ''} d'achat` : ''}` : '';
   const el = document.getElementById('wish');
-  el.innerHTML = cards.length ? cards.map(wishRow).join('')
-    : '<p class="empty">Aucune carte recherchée. Cherche une carte ci-dessus ou touche « Ajouter aux recherchées » dans une carte dépliée : son prix sera suivi ici, avec un signal quand elle passe sous ta cible ou baisse de 10 % en 7 jours.</p>';
+  el.innerHTML = cards.length ? cards.map((c) => wishRow(c, tab)).join('')
+    : !w.lists.length ? '<p class="empty">Aucune liste. Touche « + Nouvelle liste » pour en créer une (par exemple une par set où il te manque des cartes).</p>'
+    : '<p class="empty">Aucune carte dans cette liste. Cherche une carte ci-dessus ou touche l\'étoile d\'une carte dépliée : son prix sera suivi ici, avec un signal quand elle passe sous ta cible ou baisse de 10 % en 7 jours.</p>';
   el.querySelectorAll('details.wl').forEach((d) => {
     const c = cards.find((x) => x.card_id === d.dataset.id);
     d.addEventListener('toggle', () => {
-      if (d.open) { state.wishOpen.add(c.card_id); openWish(d, c); } else state.wishOpen.delete(c.card_id);
+      if (d.open) { state.wishOpen.add(c.card_id); openWish(d, c, tab); } else state.wishOpen.delete(c.card_id);
     });
-    if (d.open) openWish(d, c);
+    if (d.open) openWish(d, c, tab);
   });
 }
 
-function openWish(d, c) {
+function openWish(d, c, tab) {
   const sg = c.signal?.today ? [{ side: 'buy', score: c.signal.score, signals: c.signal.signals, reason: c.signal.reason }] : [];
-  detail(d, { ...c, signals: sg }, wishFacts(c));
+  detail(d, { ...c, signals: sg }, wishFacts(c, tab));
 }
 
 async function loadWish() {
   state.wish = await getJSON('/api/prefs/wishlists');
   renderWish();
+  // Étoiles déjà affichées (collection, mouvements, recherche) : listes à jour.
+  new Set([...document.querySelectorAll('.wst')].map((el) => el.dataset.card)).forEach(refreshStars);
 }
 
 async function saveTarget(inp) {
-  const id = inp.dataset.target;
+  const id = inp.dataset.target, list = inp.dataset.list || addListId();
   const t = inp.value.trim().replace(',', '.');
   const v = t === '' ? null : Number(t);
   if (v !== null && !(v > 0 && v < 100000)) { toast('Cible invalide : un montant en dollars, ou vide.'); return; }
   try {
-    await send('PUT', `/api/prefs/wishlists/${wishListId()}/cards/${encodeURIComponent(id)}`, { target_price: v });
+    await send('PUT', `/api/prefs/wishlists/${list}/cards/${enc(id)}`, { target_price: v });
     await loadWish();
     refreshSignals();
   } catch (err) { toast('Cible non enregistrée : ' + err.message); }
@@ -1453,9 +1655,9 @@ wq.addEventListener('input', () => {
     try {
       const r = await getJSON('/api/cards?search=' + encodeURIComponent(q));
       if (seq !== searchSeq) return;
-      const have = new Set((state.wish?.cards || []).map((c) => c.card_id));
+      const have = new Set((state.wish?.cards || []).filter((c) => c.list_id === addListId()).map((c) => c.card_id));
       const items = r.items.slice().sort((a, b) => (b.current_price ?? -1) - (a.current_price ?? -1)).slice(0, 12);
-      wres.innerHTML = items.length ? items.map((c) => `<button type="button" data-add="${esc(c.card_id)}"${have.has(c.card_id) ? ' disabled' : ''}>${thumb(c)}<span><b>${esc(c.name)}</b><small>${esc(c.set_name)} · ${esc(c.rarity || '')}</small></span><span class="r">${usd(c.current_price)}</span><span class="add" aria-hidden="true">${have.has(c.card_id) ? '★' : '+'}</span></button>`).join('')
+      wres.innerHTML = items.length ? items.map((c) => `<div class="wr"><button type="button" data-add="${esc(c.card_id)}"${have.has(c.card_id) ? ' disabled' : ''}>${thumb(c)}<span><b>${esc(c.name)}</b><small>${esc(c.set_name)} · ${esc(c.rarity || '')}</small></span><span class="r">${usd(c.current_price)}</span><span class="add" aria-hidden="true">${have.has(c.card_id) ? '★' : '+'}</span></button>${starBlock(c.card_id, true)}</div>`).join('')
         + (r.total > 25 ? `<p>${r.total} cartes : précise le nom pour réduire la liste.</p>` : '')
         : '<p>Aucune carte de ce nom dans le catalogue.</p>';
       wres.hidden = false;
@@ -1468,14 +1670,15 @@ document.addEventListener('click', (e) => {
   if (add) {
     e.preventDefault();
     wres.hidden = true; wq.value = '';
-    toggleWish(add.dataset.add, true, null).then(() => {
+    setMembership(add.dataset.add, addListId(), true, null).then(() => {
       const d = document.querySelector(`#wish details[data-id="${CSS.escape(add.dataset.add)}"]`);
       d?.scrollIntoView({ block: 'nearest' });
       d?.querySelector('[data-target]')?.focus();
     });
     return;
   }
-  if (!e.target.closest('.wadd')) wres.hidden = true;
+  // Cible détachée : l'étoile vient d'être redessinée par un autre gestionnaire.
+  if (e.target.isConnected && !e.target.closest('.wadd')) wres.hidden = true;
 });
 
 // ---------- import de la collection
