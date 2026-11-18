@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 from datetime import date, timedelta
+from decimal import Decimal
 
 import psycopg
 import pytest
@@ -20,6 +21,7 @@ from src.signals.opportunities import (
     compute_opportunities,
     evaluate,
 )
+from tests.fx import weekdays
 
 
 def _features(**overrides) -> CardFeatures:
@@ -52,7 +54,9 @@ def test_quiet_card_has_no_opportunity():
 
 
 def test_cheap_card_is_ignored():
-    assert evaluate(_features(market=4.0, low=1.0)) == []
+    # Seuil de bruit : 4 CHF (5 USD avant le passage au CHF).
+    assert evaluate(_features(market=3.99, low=1.0)) == []
+    assert _codes(_features(market=4.0, low=1.0), "buy") == ["annonce_sous_cote"]
 
 
 def test_card_with_too_few_days_is_ignored():
@@ -274,6 +278,37 @@ def test_outcome_view_measures_return(db_connection) -> None:
     assert perf[:3] == ("buy", "rebond", 1) and perf[3] == 1
 
 
+def test_signals_and_backtest_are_in_chf_including_the_exchange_rate(db_connection, rates):
+    # 1 USD = 0,80 CHF jusqu'au 29/10, puis 0,88 (cours du vendredi 30/10, qui
+    # vaut pour le samedi J = 31/10). base1-4 reste à 100 $.
+    with psycopg.connect(_admin_dsn()) as admin:
+        fixings = {d: (1.0, 0.8) for d in weekdays(date(2026, 9, 1), date(2026, 10, 29))}
+        rates(admin, {**fixings, date(2026, 10, 30): (1.0, 0.88)})
+    compute_opportunities(db_connection, D)
+    row = db_connection.execute(
+        "SELECT signals, market_price, low_price, eu_price, usd_chf, reason "
+        "FROM prod.fact_opportunity WHERE card_id = 'base1-4'"
+    ).fetchone()
+    # Prix du jour en CHF ; aucune offre CardTrader ici ; ligne calculée en CHF.
+    assert row[:5] == (["annonce_sous_cote"], 88, Decimal("26.40"), None, None)
+    assert "≈ 26.40 CHF" in row[5]
+    # Achat fictif sept jours avant J, au prix CHF de ce jour-là (80) : le prix
+    # en dollars n'a pas bougé, mais en francs il a pris 10 %.
+    db_connection.execute(
+        "INSERT INTO prod.fact_opportunity (date_id, card_id, side, score, signals, reason, "
+        "market_price) VALUES (%s, 'base1-4', 'buy', 50, ARRAY['rebond'], 'test', 80)",
+        (D - timedelta(days=7),),
+    )
+    db_connection.commit()
+    with psycopg.connect(load_dashboard_reader_config().dsn) as reader:
+        outcome = reader.execute(
+            "SELECT price_7d, return_7d, hit_7d FROM prod.v_opportunity_outcome "
+            "WHERE date_id = %s",
+            (D - timedelta(days=7),),
+        ).fetchone()
+    assert outcome == (Decimal("88.00000000"), Decimal("0.1000"), True)
+
+
 def test_recent_news_is_attached_to_the_card(db_connection) -> None:
     news_id = db_connection.execute(
         "INSERT INTO raw.news_item (source, external_id, url, title, published_at, status) "
@@ -354,17 +389,27 @@ def test_blocked_sell_and_min_price():
     # Aucun signal de vente tant que market reste sous le seuil.
     assert _codes(replace(f, min_sell_price=200.0), "sell") == []
     assert _codes(replace(f, min_sell_price=150.0), "sell") == ["pic"]
+    # Avec une offre NM Europe (CardTrader), c'est elle qu'on compare au seuil.
+    assert _codes(replace(f, min_sell_price=200.0, eu_price=210.0), "sell") == ["pic"]
+    assert _codes(replace(f, min_sell_price=150.0, eu_price=140.0), "sell") == []
 
 
 def test_wishlist_target_reached_even_outside_scope_and_cheap():
     f = _features(in_universe=False, market=3.0, low=2.5, ma30=3.0, price_7d=3.0, price_30d=3.0)
     assert evaluate(f) == []
     wished = replace(f, wishlisted=True, target_price=3.5)
-    assert _codes(wished, "buy") == ["cible_atteinte"]
-    # Cible atteinte seulement par l'annonce la moins chère : signal plus faible.
-    by_low = replace(wished, target_price=2.8)
-    (opp,) = evaluate(by_low)
+    # Sans offre NM en Europe : repère market converti, signal plus faible.
+    (opp,) = evaluate(wished)
     assert [s.code for s in opp.signals] == ["cible_atteinte"] and opp.score == 40
+    assert "≈ 3.00 CHF" in opp.reason and "aucune offre NM en Europe" in opp.reason
+    # L'ancienne branche « annonce la moins chère tous états » n'existe plus.
+    assert _codes(replace(wished, target_price=2.8), "buy") == []
+    # Offre NM Europe sous la cible : signal fort, dès le premier jour.
+    (opp,) = evaluate(replace(wished, target_price=3.5, eu_price=3.2))
+    assert [s.code for s in opp.signals] == ["cible_atteinte"] and opp.score >= 60
+    assert "offre NM Europe à 3.20 CHF" in opp.reason
+    # Offre NM Europe au-dessus de la cible : rien, même si market est dessous.
+    assert _codes(replace(wished, target_price=3.5, eu_price=3.9), "buy") == []
 
 
 def test_wishlist_drop_without_target():

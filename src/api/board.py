@@ -1,9 +1,20 @@
 # Données du tableau de bord « board » (board/index.html) : deux blocs face à
 # face, Collection (valeur et mouvements de prix des cartes possédées) et
 # Signaux (achats / ventes portés par les news et la méta compétitive).
-# Rôle dashboard_reader, prix TCGplayer (USD) uniquement. Lecture seule, sauf
-# les réglages de l'utilisateur (schéma prefs, voir src/api/prefs.py), dont les
-# règles filtrent aussi les signaux affichés ici (prefs.v_card_rules).
+# Rôle dashboard_reader. Lecture seule, sauf les réglages de l'utilisateur
+# (schéma prefs, voir src/api/prefs.py), dont les règles filtrent aussi les
+# signaux affichés ici (prefs.v_card_rules).
+#
+# Tout en francs suisses depuis le 2026-11-18 (migrations 020 à 022), avec
+# deux mesures qui ne se mélangent jamais :
+#   - `price`, `past`, courbes, valeurs : prix market TCGplayer (prix de vente
+#     moyen, USD) converti au taux BCE de chaque jour (prod.mv_usd_chf). C'est
+#     la tendance ; le board le marque « ≈ ». Un jour sans taux n'a pas de prix.
+#   - `eu` : première offre anglaise Near Mint d'un vendeur d'Europe ou de
+#     Suisse sur CardTrader (CHF, 3 jours au plus avant as_of), hors offres
+#     aberrantes (vue prod.v_cardtrader_eu, migration 023). C'est le prix
+#     affiché d'une carte quand il existe ; il n'entre dans aucune courbe ni
+#     aucune somme de la tendance (total à part : eu_total).
 from __future__ import annotations
 
 import json
@@ -21,6 +32,10 @@ from src.api.queries import NEWS_WINDOW_DAYS, RULES_FILTER
 router = APIRouter(prefix="/api/board")
 
 _PLATFORM = "tcgplayer"
+CURRENCY = "CHF"
+# Âge maximal du prix CardTrader affiché, en jours avant as_of (même règle
+# que les signaux, EU_PRICE_MAX_AGE_DAYS dans src/signals/opportunities.py).
+EU_MAX_AGE_DAYS = 3
 # Fenêtres des mouvements, en jours calendaires. Le prix « passé » d'une carte
 # est sa dernière observation à D - N ou avant, dans une marge de quelques jours
 # (l'historique a des trous : 26/08, 16 au 25/10) : au-delà, pas de variation.
@@ -66,6 +81,79 @@ def _num(value):
 
 def _clean(row: dict) -> dict:
     return {k: _num(v) for k, v in row.items()}
+
+
+def usd_chf_rates(conn) -> dict[date, float]:
+    """Taux USD -> CHF de chaque jour (règle de la migration 020)."""
+    return {
+        r["date_id"]: float(r["usd_chf"])
+        for r in conn.execute("SELECT date_id, usd_chf FROM prod.mv_usd_chf").fetchall()
+    }
+
+
+def to_chf(
+    rows, rates: dict[date, float], key: str = "price"
+) -> tuple[dict[str, list[tuple[date, float]]], date | None]:
+    """Regroupe des lignes (card_id, date_id, <key> en USD) par carte, en CHF.
+    Les jours sans taux sont écartés. Renvoie aussi le dernier jour de prix
+    TCGplayer, converti ou non, pour signaler un taux manquant."""
+    by_card: dict[str, list[tuple[date, float]]] = {}
+    last_day = None
+    for r in rows:
+        d = r["date_id"]
+        last_day = d if last_day is None or d > last_day else last_day
+        rate = rates.get(d)
+        if rate is not None:
+            by_card.setdefault(r["card_id"], []).append((d, float(r[key]) * rate))
+    return by_card, last_day
+
+
+def fx_info(conn, as_of: date | None, last_day: date | None) -> dict:
+    """Taux appliqué au dernier jour affiché, et jour de prix TCGplayer sans
+    taux BCE (le board affiche alors un bandeau, prix arrêtés à as_of)."""
+    row = None
+    if as_of is not None:
+        row = conn.execute(
+            "SELECT ecb_date, usd_chf FROM prod.mv_usd_chf WHERE date_id = %(d)s", {"d": as_of}
+        ).fetchone()
+    return {
+        "date": as_of,
+        "ecb_date": row["ecb_date"] if row else None,
+        "usd_chf": float(row["usd_chf"]) if row else None,
+        "missing_since": last_day if last_day and (as_of is None or last_day > as_of) else None,
+    }
+
+
+def eu_prices(conn, card_ids: list[str], since: date | None) -> tuple[dict[str, dict], int]:
+    """Dernière offre NM Europe CardTrader de chaque carte, datée de `since`
+    ou après (vue prod.v_cardtrader_eu, CHF). Si cette dernière offre est
+    aberrante (règle de la migration 023), la carte n'a pas de prix Europe :
+    elle est comptée à part (second élément), pas remplacée par une offre plus
+    ancienne."""
+    if not card_ids or since is None:
+        return {}, 0
+    rows = conn.execute(
+        """
+        SELECT DISTINCT ON (card_id) card_id, date_id, eu_price, eu_condition,
+               eu_seller_country, eu_finish, plausible
+        FROM prod.v_cardtrader_eu
+        WHERE card_id = ANY(%(ids)s) AND date_id >= %(since)s
+        ORDER BY card_id, date_id DESC
+        """,
+        {"ids": card_ids, "since": since},
+    ).fetchall()
+    eu = {
+        r["card_id"]: {
+            "price": float(r["eu_price"]),
+            "date": r["date_id"],
+            "condition": r["eu_condition"],
+            "country": r["eu_seller_country"],
+            "finish": r["eu_finish"],
+        }
+        for r in rows
+        if r["plausible"]
+    }
+    return eu, sum(1 for r in rows if not r["plausible"])
 
 
 def _past(history: list[tuple[date, float]], target: date, slack: int) -> tuple[date, float] | None:
@@ -141,11 +229,17 @@ def get_collection_board(conn) -> dict:
         """,
         params,
     ).fetchall()
-    by_card: dict[str, list[tuple[date, float]]] = {}
-    for r in prices:
-        by_card.setdefault(r["card_id"], []).append((r["date_id"], float(r["price"])))
+    by_card, last_day = to_chf(prices, usd_chf_rates(conn))
     if not by_card:
-        return {"as_of": None, "history": [], "windows": {}, "cards": [], "sparks": {}}
+        return {
+            "as_of": None,
+            "currency": CURRENCY,
+            "fx": fx_info(conn, None, last_day),
+            "history": [],
+            "windows": {},
+            "cards": [],
+            "sparks": {},
+        }
 
     # Signaux du dernier jour sur les cartes possédées (prix, news, méta).
     sig_rows = conn.execute(
@@ -166,7 +260,8 @@ def get_collection_board(conn) -> dict:
         sigs.setdefault(r["card_id"], []).append(_clean(r))
     prefs = card_prefs(conn, [c["card_id"] for c in cards])
 
-    # Valeur de la collection actuelle, jour par jour (quantité x prix market).
+    # Valeur de la collection actuelle, jour par jour (quantité x prix market
+    # converti).
     qty = {c["card_id"]: c["quantity"] for c in cards}
     per_day: dict[date, float] = {}
     for cid, h in by_card.items():
@@ -174,6 +269,9 @@ def get_collection_board(conn) -> dict:
             per_day[d] = per_day.get(d, 0.0) + qty[cid] * v
     hist = sorted(per_day.items())
     as_of, total = hist[-1]
+    eu, eu_ignored = eu_prices(
+        conn, [c["card_id"] for c in cards], as_of - timedelta(days=EU_MAX_AGE_DAYS)
+    )
 
     out_cards = []
     for c in cards:
@@ -191,6 +289,7 @@ def get_collection_board(conn) -> dict:
             "variances": [v for v in c["variances"] if v],
             "grades": [g for g in c["grades"] if g],
             "price": cur[1] if cur else None,
+            "eu": eu.get(c["card_id"]),
             "past": {},
             "signals": sigs.get(c["card_id"], []),
             "prefs": prefs.get(c["card_id"], DEFAULT_PREFS),
@@ -216,9 +315,23 @@ def get_collection_board(conn) -> dict:
         m = dict(by_card[cid])
         sparks[cid] = [round(m[d], 2) if d in m else None for d in dates]
 
+    # Total « au prix Europe » : à part, jamais mélangé à la valeur (tendance).
+    # Les cartes sans offre NM en Europe n'y sont pas, leur nombre est donné.
+    with_eu = [c for c in out_cards if c["eu"]]
     return {
         "as_of": as_of,
+        "currency": CURRENCY,
+        "fx": fx_info(conn, as_of, last_day),
         "total_value": total,
+        "eu_total": {
+            "value": round(sum(c["quantity"] * c["eu"]["price"] for c in with_eu), 2),
+            "cards": len(with_eu),
+            "of": len(out_cards),
+            "quantity": sum(c["quantity"] for c in with_eu),
+            "date": max((c["eu"]["date"] for c in with_eu), default=None),
+            # Offres aberrantes écartées (migration 023) : ces cartes sont « ≈ ».
+            "ignored": eu_ignored,
+        },
         "history": [{"date": d, "value": round(v, 2)} for d, v in hist],
         "windows": windows,
         "cards": out_cards,
@@ -270,6 +383,7 @@ def get_master_sets(conn) -> dict:
         """,
         {"share": MASTER_SET_MIN_SHARE, "chase": list(CHASE_RARITIES)},
     ).fetchall()
+    rates = usd_chf_rates(conn)
     out = []
     for st in sets:
         cards = conn.execute(
@@ -296,9 +410,7 @@ def get_master_sets(conn) -> dict:
             """,
             {"ids": [c["card_id"] for c in cards], "platform": _PLATFORM},
         ).fetchall()
-        by_card: dict[str, list[tuple[date, float]]] = {}
-        for r in prices:
-            by_card.setdefault(r["card_id"], []).append((r["date_id"], float(r["price"])))
+        by_card, _ = to_chf(prices, rates)
         qty = {c["card_id"]: c["quantity"] for c in cards}
         per_day: dict[date, list[float]] = {}
         for cid, h in by_card.items():
@@ -311,6 +423,9 @@ def get_master_sets(conn) -> dict:
             continue
         hist = sorted(per_day.items())
         as_of = hist[-1][0]
+        eu, _ = eu_prices(
+            conn, [c["card_id"] for c in cards], as_of - timedelta(days=EU_MAX_AGE_DAYS)
+        )
         set_hist = [(d, e[0]) for d, e in hist]
         windows = {}
         for w in WINDOWS:
@@ -337,6 +452,7 @@ def get_master_sets(conn) -> dict:
                     "quantity": c["quantity"],
                     "variances": c["variances"],
                     "price": cur[1] if cur else None,
+                    "eu": eu.get(c["card_id"]),
                     "past": past,
                 }
             )
@@ -357,7 +473,12 @@ def get_master_sets(conn) -> dict:
                 "cards": out_cards,
             }
         )
-    return {"min_share": MASTER_SET_MIN_SHARE, "chase_rarities": list(CHASE_RARITIES), "sets": out}
+    return {
+        "currency": CURRENCY,
+        "min_share": MASTER_SET_MIN_SHARE,
+        "chase_rarities": list(CHASE_RARITIES),
+        "sets": out,
+    }
 
 
 def get_signals_board(conn, *, days: int) -> dict:
@@ -373,6 +494,7 @@ def get_signals_board(conn, *, days: int) -> dict:
     if as_of is None:
         return {
             "as_of": None,
+            "currency": CURRENCY,
             "days": days,
             "computed": [],
             "trends": [],
@@ -415,13 +537,13 @@ def get_signals_board(conn, *, days: int) -> dict:
             FROM o, unnest(o.signals) AS s GROUP BY card_id, side
         ), last AS (
             SELECT DISTINCT ON (card_id, side) card_id, side, date_id AS last_date, score,
-                   signals, reason, market_price, change_7d, change_30d
+                   signals, reason, market_price, eu_price, change_7d, change_30d
             FROM o ORDER BY card_id, side, date_id DESC
         ), own AS (
             SELECT card_id, sum(quantity)::int AS q FROM prod.dim_owned_card GROUP BY card_id
         )
         SELECT a.card_id, a.side, a.n_days, a.dates, a.scores, c.codes, l.last_date, l.score,
-               l.signals, l.reason, l.market_price, l.change_7d, l.change_30d,
+               l.signals, l.reason, l.market_price, l.eu_price, l.change_7d, l.change_30d,
                dc.name, dc.set_name, dc.series, dc.rarity, dc.image_small, dc.image_alt,
                coalesce(own.q, 0) AS owned_quantity
         FROM agg a
@@ -524,6 +646,7 @@ def get_signals_board(conn, *, days: int) -> dict:
 
     return {
         "as_of": as_of,
+        "currency": CURRENCY,
         "days": days,
         "computed": computed,
         "trends": trends,

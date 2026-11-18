@@ -1,9 +1,17 @@
 # Requêtes SQL brutes utilisées par l'API du dashboard (src/api/main.py).
-# Toutes filtrent explicitement platform_name = 'tcgplayer' (voir Global
-# Constraints du plan) -- jamais de mélange avec cardmarket/EUR.
+# Toutes lisent les prix TCGplayer, jamais cardmarket (EUR), sauf la fiche
+# carte qui ajoute la courbe CardTrader à part.
+#
+# Montants en francs suisses depuis le 2026-11-18 (migrations 020 à 022) : les
+# prix TCGplayer (USD) sont lus dans la vue prod.v_tcgplayer_chf, qui les
+# convertit au taux BCE de leur jour (NULL les jours sans taux). C'est un prix
+# de vente moyen converti, pas un prix suisse : le board le marque « ≈ ».
 from __future__ import annotations
 
-_PLATFORM = "tcgplayer"
+CURRENCY = "CHF"
+# Seuil de bruit des tendances par set, même valeur que MIN_PRICE dans
+# src/signals/opportunities.py (CHF).
+TREND_MIN_PRICE = 4
 
 
 def _card_filters(
@@ -18,9 +26,8 @@ def _card_filters(
     # fournis par l'appelant (pas None) ajoutent une condition -- évite un
     # empilement de "colonne = %(param)s OR %(param)s IS NULL" plus lent et
     # plus difficile à lire.
-    # Le filtre platform_name est déjà appliqué dans le subquery LATERAL, donc
-    # pas besoin de le répéter dans la clause WHERE extérieure (le table alias
-    # 'p' n'est pas en scope là).
+    # Les prix (latest.market_chf) viennent du subquery LATERAL sur la vue
+    # prod.v_tcgplayer_chf, qui filtre déjà la plateforme tcgplayer.
     conditions: list[str] = []
     params: dict = {}
     if search:
@@ -39,10 +46,10 @@ def _card_filters(
         conditions.append("c.rarity ILIKE %(rarity)s")
         params["rarity"] = f"%{rarity}%"
     if price_min is not None:
-        conditions.append("latest.average_sell_price >= %(price_min)s")
+        conditions.append("latest.market_chf >= %(price_min)s")
         params["price_min"] = price_min
     if price_max is not None:
-        conditions.append("latest.average_sell_price <= %(price_max)s")
+        conditions.append("latest.market_chf <= %(price_max)s")
         params["price_max"] = price_max
     return " AND ".join(conditions) if conditions else "true", params
 
@@ -66,7 +73,6 @@ def search_cards(
     # Deux requêtes séparées : une pour le COUNT(*) (sans LIMIT/OFFSET, donc toujours
     # exact même si la page demandée est hors limite), une pour les résultats paginés.
     where_sql, params = _card_filters(search, series, set_name, rarity, price_min, price_max)
-    params["platform"] = _PLATFORM
     params["limit"] = page_size
     params["offset"] = (page - 1) * page_size
 
@@ -75,11 +81,10 @@ def search_cards(
         SELECT COUNT(*) AS total_count
         FROM prod.dim_card c
         LEFT JOIN LATERAL (
-            SELECT fph.average_sell_price
-            FROM prod.fact_price_history fph
-            JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
-            WHERE fph.card_id = c.card_id AND p.platform_name = %(platform)s
-            ORDER BY fph.date_id DESC
+            SELECT t.market_chf
+            FROM prod.v_tcgplayer_chf t
+            WHERE t.card_id = c.card_id
+            ORDER BY t.date_id DESC
             LIMIT 1
         ) latest ON true
         WHERE {where_sql}
@@ -91,14 +96,13 @@ def search_cards(
         SELECT
             c.card_id, c.name, c.series, c.set_name, c.rarity,
             c.set_id, c.image_small, c.image_alt,
-            latest.average_sell_price AS current_price
+            latest.market_chf AS current_price
         FROM prod.dim_card c
         LEFT JOIN LATERAL (
-            SELECT fph.average_sell_price
-            FROM prod.fact_price_history fph
-            JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
-            WHERE fph.card_id = c.card_id AND p.platform_name = %(platform)s
-            ORDER BY fph.date_id DESC
+            SELECT t.market_chf
+            FROM prod.v_tcgplayer_chf t
+            WHERE t.card_id = c.card_id
+            ORDER BY t.date_id DESC
             LIMIT 1
         ) latest ON true
         WHERE {where_sql}
@@ -116,15 +120,25 @@ def get_card_history(conn, card_id: str) -> tuple[dict, list[dict]] | None:
     ).fetchone()
     if card is None:
         return None
+    # Série TCGplayer convertie en CHF (tendance) et, à part, l'offre NM
+    # Europe CardTrader (CHF) des jours où elle existe : deux mesures
+    # différentes, jamais raccordées (le board les trace séparément).
     history = conn.execute(
         """
-        SELECT fph.date_id, fph.average_sell_price, fph.trend_price, fph.low_price
-        FROM prod.fact_price_history fph
-        JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
-        WHERE fph.card_id = %(card_id)s AND p.platform_name = %(platform)s
-        ORDER BY fph.date_id
+        WITH t AS (
+            SELECT date_id, market_chf, trend_chf, low_chf
+            FROM prod.v_tcgplayer_chf WHERE card_id = %(card_id)s
+        ), e AS (
+            SELECT date_id, eu_price FROM prod.v_cardtrader_eu
+            WHERE card_id = %(card_id)s AND plausible
+        )
+        SELECT coalesce(t.date_id, e.date_id) AS date_id,
+               t.market_chf AS average_sell_price, t.trend_chf AS trend_price,
+               t.low_chf AS low_price, e.eu_price
+        FROM t FULL JOIN e ON e.date_id = t.date_id
+        ORDER BY 1
         """,
-        {"card_id": card_id, "platform": _PLATFORM},
+        {"card_id": card_id},
     ).fetchall()
     return card, history
 
@@ -149,22 +163,20 @@ def get_owned_cards(
     # que le Catalogue) -- alias de table identiques (c./latest.) donc la
     # clause WHERE générée s'applique sans modification.
     where_sql, params = _card_filters(search, series, set_name, rarity, price_min, price_max)
-    params["platform"] = _PLATFORM
     return conn.execute(
         f"""
         SELECT
             o.id, o.card_id, c.name, c.series, c.set_name, c.rarity, o.variance, o.grade,
             o.quantity, o.average_cost_paid,
             (o.average_cost_paid IS NULL OR o.average_cost_paid = 0) AS cost_unknown,
-            latest.average_sell_price AS current_price
+            latest.market_chf AS current_price
         FROM prod.dim_owned_card o
         JOIN prod.dim_card c ON c.card_id = o.card_id
         LEFT JOIN LATERAL (
-            SELECT fph.average_sell_price
-            FROM prod.fact_price_history fph
-            JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
-            WHERE fph.card_id = o.card_id AND p.platform_name = %(platform)s
-            ORDER BY fph.date_id DESC
+            SELECT t.market_chf
+            FROM prod.v_tcgplayer_chf t
+            WHERE t.card_id = o.card_id
+            ORDER BY t.date_id DESC
             LIMIT 1
         ) latest ON true
         WHERE {where_sql}
@@ -180,18 +192,16 @@ def get_collection_value_history(conn) -> list[dict]:
     # (voir get_owned_cards ci-dessus), contrairement à ce que faisait cette
     # requête auparavant. Un coût d'achat inconnu n'a jamais empêché de
     # connaître le prix de marché actuel d'une carte.
-    return conn.execute(
-        """
-        SELECT fph.date_id, SUM(o.quantity * fph.average_sell_price) AS total_value
+    # Jours sans taux BCE (market_chf NULL) exclus : une valeur partielle
+    # serait fausse.
+    return conn.execute("""
+        SELECT t.date_id, SUM(o.quantity * t.market_chf) AS total_value
         FROM prod.dim_owned_card o
-        JOIN prod.fact_price_history fph ON fph.card_id = o.card_id
-        JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
-        WHERE p.platform_name = %(platform)s
-        GROUP BY fph.date_id
-        ORDER BY fph.date_id
-        """,
-        {"platform": _PLATFORM},
-    ).fetchall()
+        JOIN prod.v_tcgplayer_chf t ON t.card_id = o.card_id
+        WHERE t.usd_chf IS NOT NULL
+        GROUP BY t.date_id
+        ORDER BY t.date_id
+        """).fetchall()
 
 
 def get_collection_movers(conn, *, window: int) -> list[dict]:
@@ -220,23 +230,22 @@ def get_collection_movers(conn, *, window: int) -> list[dict]:
         """
         WITH ranked AS (
             SELECT
-                fph.card_id, fph.average_sell_price,
-                ROW_NUMBER() OVER (PARTITION BY fph.card_id ORDER BY fph.date_id DESC) AS rn
-            FROM prod.fact_price_history fph
-            JOIN prod.dim_platform p ON p.platform_id = fph.platform_id
-            WHERE p.platform_name = %(platform)s AND fph.average_sell_price IS NOT NULL
+                t.card_id, t.market_chf,
+                ROW_NUMBER() OVER (PARTITION BY t.card_id ORDER BY t.date_id DESC) AS rn
+            FROM prod.v_tcgplayer_chf t
+            WHERE t.market_chf IS NOT NULL
         )
         SELECT
             o.card_id, c.name, SUM(o.quantity) AS quantity,
-            cur.average_sell_price AS current_price,
-            past.average_sell_price AS past_price
+            cur.market_chf AS current_price,
+            past.market_chf AS past_price
         FROM prod.dim_owned_card o
         JOIN prod.dim_card c ON c.card_id = o.card_id
         LEFT JOIN ranked cur ON cur.card_id = o.card_id AND cur.rn = 1
         LEFT JOIN ranked past ON past.card_id = o.card_id AND past.rn = 1 + %(window)s
-        GROUP BY o.card_id, c.name, cur.average_sell_price, past.average_sell_price
+        GROUP BY o.card_id, c.name, cur.market_chf, past.market_chf
         """,
-        {"platform": _PLATFORM, "window": window},
+        {"window": window},
     ).fetchall()
 
 
@@ -257,12 +266,13 @@ NEWS_WINDOW_DAYS = 14
 # Filtre des signaux selon les réglages de l'utilisateur (prefs.v_card_rules,
 # migration 017), à joindre sous l'alias r sur une ligne o de
 # prod.fact_opportunity : même règle qu'au calcul (src/signals/opportunities.py),
-# le seuil de vente comparé au prix du jour du signal.
+# le seuil de vente (CHF) comparé au prix du jour du signal : l'offre NM Europe
+# CardTrader, à défaut le market converti (migration 022).
 RULES_FILTER = """
 NOT (o.side = 'buy' AND coalesce(r.buy_blocked, false))
 AND NOT (o.side = 'sell' AND (coalesce(r.sell_blocked, false)
                               OR (r.min_sell_price IS NOT NULL
-                                  AND o.market_price < r.min_sell_price)))
+                                  AND coalesce(o.eu_price, o.market_price) < r.min_sell_price)))
 """
 
 _OPPORTUNITY_CTES = """
@@ -405,7 +415,7 @@ def get_signal_performance(conn) -> list[dict]:
 def get_opportunity_trends(conn, *, date_id=None) -> dict:
     """Tendances qui entourent les signaux : sets (prix + signaux + news),
     news de marché de la semaine, évolution de la méta compétitive."""
-    params = {"date_id": date_id, "platform": _PLATFORM, "news_days": NEWS_WINDOW_DAYS}
+    params = {"date_id": date_id, "min_price": TREND_MIN_PRICE, "news_days": NEWS_WINDOW_DAYS}
     sets = conn.execute(
         """
         WITH d AS (
@@ -417,20 +427,18 @@ def get_opportunity_trends(conn, *, date_id=None) -> dict:
             JOIN prod.dim_card c ON c.card_id = u.card_id
             CROSS JOIN d
             JOIN LATERAL (
-                SELECT f.average_sell_price FROM prod.fact_price_history f
-                JOIN prod.dim_platform p ON p.platform_id = f.platform_id
-                WHERE f.card_id = u.card_id AND p.platform_name = %(platform)s
-                  AND f.date_id BETWEEN d.date_id - 3 AND d.date_id
-                  AND f.average_sell_price >= 5
-                ORDER BY f.date_id DESC LIMIT 1
+                SELECT t.market_chf AS average_sell_price FROM prod.v_tcgplayer_chf t
+                WHERE t.card_id = u.card_id
+                  AND t.date_id BETWEEN d.date_id - 3 AND d.date_id
+                  AND t.market_chf >= %(min_price)s
+                ORDER BY t.date_id DESC LIMIT 1
             ) cur ON true
             JOIN LATERAL (
-                SELECT f.average_sell_price FROM prod.fact_price_history f
-                JOIN prod.dim_platform p ON p.platform_id = f.platform_id
-                WHERE f.card_id = u.card_id AND p.platform_name = %(platform)s
-                  AND f.date_id BETWEEN d.date_id - 36 AND d.date_id - 30
-                  AND f.average_sell_price > 0
-                ORDER BY f.date_id DESC LIMIT 1
+                SELECT t.market_chf AS average_sell_price FROM prod.v_tcgplayer_chf t
+                WHERE t.card_id = u.card_id
+                  AND t.date_id BETWEEN d.date_id - 36 AND d.date_id - 30
+                  AND t.market_chf > 0
+                ORDER BY t.date_id DESC LIMIT 1
             ) past ON true
         ), by_set AS (
             SELECT set_name, max(series) AS series, count(*)::int AS cards,

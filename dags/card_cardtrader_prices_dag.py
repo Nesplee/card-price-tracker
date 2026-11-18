@@ -2,10 +2,14 @@
 # l'API officielle CardTrader (plateforme cardtrader_en, CHF, migration 018).
 # Voir src/load/cardtrader_loader.py et ~/mere/rapports/cardmarket-prix-2026-11-17.md.
 #
-# 07:30 UTC : après le pipeline TCGplayer (07:00) et hors des créneaux chargés
-# de la machine (01:30 sauvegarde, 03:00 notation second_brain, 07:00 prix,
-# 12:00 et 20:00 news). Indépendant du DAG TCGplayer : il ne lit que le
-# catalogue (prod.dim_card) et la collection, et n'écrit que ses propres lignes.
+# 06:30 UTC (07:30 jusqu'au 2026-11-18) : AVANT le pipeline TCGplayer (07:00),
+# dont les signaux lisent le prix CardTrader du jour (cible atteinte, prix
+# minimum de vente : dashboard en CHF, migration 022). Une collecte qui
+# déborde après 07:00 n'est pas grave : les signaux prennent alors le dernier
+# prix CardTrader de moins de 3 jours. Hors des créneaux chargés de la machine
+# (01:30 sauvegarde, 03:00 notation second_brain, 07:00 prix, 12:00 et 20:00
+# news). Indépendant du DAG TCGplayer : il ne lit que le catalogue
+# (prod.dim_card) et la collection, et n'écrit que ses propres lignes.
 #
 # Créé EN PAUSE (is_paused_upon_creation) : il ne tourne qu'une fois activé à
 # la main dans Airflow, après accord de l'utilisateur et application de la
@@ -31,7 +35,7 @@ from src.monitor.failure_callback import record_failure
 
 
 @dag(
-    schedule="30 7 * * *",
+    schedule="30 6 * * *",
     start_date=datetime(2024, 1, 1, tzinfo=UTC),
     catchup=False,
     max_active_runs=1,

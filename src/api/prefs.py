@@ -8,7 +8,9 @@
 # endroit où l'API écrit : dashboard_reader n'a de droits d'écriture que sur
 # le schéma prefs. Les règles qui en découlent (prefs.v_card_rules) filtrent
 # les signaux au calcul (src/signals/opportunities.py) et à la lecture
-# (src/api/board.py, src/api/queries.py).
+# (src/api/board.py, src/api/queries.py). Seuils en CHF depuis le 2026-11-18
+# (migration 021), comparés à l'offre NM Europe CardTrader, à défaut au prix
+# market TCGplayer converti.
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -18,7 +20,20 @@ from fastapi.responses import Response
 from psycopg import errors
 from pydantic import BaseModel, Field
 
-from src.api.board import _WINDOW_SLACK, DEFAULT_PREFS, WINDOWS, _clean, _json, _past, card_prefs
+from src.api.board import (
+    _WINDOW_SLACK,
+    CURRENCY,
+    DEFAULT_PREFS,
+    EU_MAX_AGE_DAYS,
+    WINDOWS,
+    _clean,
+    _json,
+    _past,
+    card_prefs,
+    eu_prices,
+    fx_info,
+    usd_chf_rates,
+)
 from src.api.db import get_api_connection
 from src.api.queries import RULES_FILTER
 
@@ -30,7 +45,8 @@ SPARK_DAYS = 30
 
 
 class CardPrefIn(BaseModel):
-    """Champs absents : inchangés. min_sell_price à null : seuil retiré."""
+    """Champs absents : inchangés. min_sell_price (CHF, migration 021) à
+    null : seuil retiré."""
 
     unsellable: bool | None = None
     unfollowed: bool | None = None
@@ -47,7 +63,7 @@ class WishlistIn(BaseModel):
 
 class WishlistCardIn(BaseModel):
     """Champs absents : inchangés (ou vides pour une carte ajoutée).
-    target_price à null : cible retirée. still_wanted : « encore recherchée »
+    target_price (CHF) à null : cible retirée. still_wanted : « encore recherchée »
     pour une carte déjà possédée (2e exemplaire)."""
 
     target_price: float | None = Field(default=None, gt=0, lt=100000)
@@ -198,21 +214,25 @@ def delete_wishlist_card(list_id: int, card_id: str, conn=Depends(get_api_connec
 
 
 def _progress(cards: list[dict]) -> dict:
-    """« 12 / 30 obtenues » et valeur restante : somme des prix market des
-    cartes non obtenues (celles sans prix du jour comptent à part)."""
+    """« 12 / 30 obtenues » et coût restant : somme des prix du jour des cartes
+    non obtenues (offre NM Europe, à défaut market converti : n_approx cartes
+    comptées en « ≈ » ; celles sans aucun prix comptent à part)."""
     todo = [c for c in cards if not c["obtained"]]
     return {
         "n_cards": len(cards),
         "n_obtained": len(cards) - len(todo),
-        "remaining_value": round(sum(c["price"] or 0 for c in todo), 2),
-        "n_unpriced": sum(1 for c in todo if c["price"] is None),
+        "remaining_value": round(sum(c["ref_price"] or 0 for c in todo), 2),
+        "n_unpriced": sum(1 for c in todo if c["ref_price"] is None),
+        "n_approx": sum(1 for c in todo if c["ref_price"] is not None and c["eu"] is None),
     }
 
 
 def get_wishlists(conn) -> dict:
-    """Listes de cartes recherchées avec, par carte : prix market et annonce
-    la moins chère du jour, prix passés (1 à 90 j), mini-courbe sur 30 j,
-    écart à la cible et signal d'achat du jour."""
+    """Listes de cartes recherchées avec, par carte : offre NM Europe
+    CardTrader et prix market converti du jour, prix passés (1 à 90 j) et
+    mini-courbe sur 30 j (market converti), écart à la cible (comparée à
+    l'offre NM Europe, à défaut au market converti, comme le signal
+    cible_atteinte) et signal d'achat du jour. Montants en CHF."""
     lists = [
         dict(r)
         for r in conn.execute(
@@ -232,6 +252,8 @@ def get_wishlists(conn) -> dict:
     ids = list({r["card_id"] for r in rows})
     by_card: dict[str, list[tuple[date, float, float | None]]] = {}
     sig: dict[str, dict] = {}
+    rates = usd_chf_rates(conn) if ids else {}
+    last_day = None
     if ids:
         for r in conn.execute(
             """
@@ -245,8 +267,13 @@ def get_wishlists(conn) -> dict:
             """,
             {"ids": ids, "platform": _PLATFORM},
         ).fetchall():
+            last_day = r["date_id"] if last_day is None else max(last_day, r["date_id"])
+            rate = rates.get(r["date_id"])
+            if rate is None:
+                continue  # jour sans taux BCE : pas de prix plutôt qu'un prix faux
+            low = float(r["low"]) * rate if r["low"] is not None else None
             by_card.setdefault(r["card_id"], []).append(
-                (r["date_id"], float(r["price"]), float(r["low"]) if r["low"] is not None else None)
+                (r["date_id"], float(r["price"]) * rate, low)
             )
         # Signal d'achat du dernier jour calculé, et nombre de jours avec un
         # signal sur les 14 derniers (mêmes règles que le reste du board).
@@ -274,6 +301,7 @@ def get_wishlists(conn) -> dict:
             sig[r["card_id"]] = _clean(r)
     prefs = card_prefs(conn, ids)
     as_of = max((h[-1][0] for h in by_card.values()), default=None)
+    eu, _ = eu_prices(conn, ids, as_of - timedelta(days=EU_MAX_AGE_DAYS) if as_of else None)
     cards = []
     for r in rows:
         h = by_card.get(r["card_id"], [])
@@ -288,6 +316,8 @@ def get_wishlists(conn) -> dict:
             spark = [[d, round(p, 2)] for d, p, _ in h if (as_of - d).days <= SPARK_DAYS]
         target = float(r["target_price"]) if r["target_price"] is not None else None
         price = cur[1] if cur else None
+        card_eu = eu.get(r["card_id"])
+        ref_price = card_eu["price"] if card_eu else price
         # « obtenue » : possédée. Active (signal d'achat) : pas obtenue, ou
         # « encore recherchée ». Même règle que prefs.v_card_rules.
         obtained = r["owned_quantity"] > 0
@@ -298,9 +328,11 @@ def get_wishlists(conn) -> dict:
                 "target_price": target,
                 "price": price,
                 "low": cur[2] if cur else None,
+                "eu": card_eu,
+                "ref_price": ref_price,
                 "past": past,
                 "spark": spark,
-                "to_target": (price / target - 1) if price and target else None,
+                "to_target": (ref_price / target - 1) if ref_price and target else None,
                 "obtained": obtained,
                 "active": active,
                 "signal": sig.get(r["card_id"]) if active else None,
@@ -311,7 +343,14 @@ def get_wishlists(conn) -> dict:
         lst.update(_progress([c for c in cards if c["list_id"] == lst["list_id"]]))
     # « Toutes » : chaque carte compte une fois, même présente dans plusieurs listes.
     distinct = list({c["card_id"]: c for c in cards}.values())
-    return {"as_of": as_of, "lists": lists, "cards": cards, "total": _progress(distinct)}
+    return {
+        "as_of": as_of,
+        "currency": CURRENCY,
+        "fx": fx_info(conn, as_of, last_day),
+        "lists": lists,
+        "cards": cards,
+        "total": _progress(distinct),
+    }
 
 
 @router.get("/wishlists")

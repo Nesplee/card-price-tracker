@@ -3,6 +3,10 @@
 # endpoint, voir src/api/main.py) -- si un endpoint renvoyait un champ
 # manquant ou mal typé, FastAPI lèverait une erreur explicite plutôt que de
 # laisser passer une réponse JSON incohérente vers le frontend.
+#
+# Montants en francs suisses depuis le 2026-11-18 (champ currency = "CHF") :
+# prix TCGplayer convertis au taux BCE de leur jour (vue prod.v_tcgplayer_chf),
+# mêmes noms de champs qu'avant.
 from __future__ import annotations
 
 from datetime import date
@@ -28,6 +32,7 @@ class CardListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    currency: str = "CHF"
 
 
 class PricePoint(BaseModel):
@@ -35,12 +40,16 @@ class PricePoint(BaseModel):
     average_sell_price: float | None
     trend_price: float | None
     low_price: float | None
+    # Première offre NM Europe CardTrader (CHF) ce jour-là : une autre mesure
+    # (offre la plus basse), jamais raccordée à la série TCGplayer.
+    eu_price: float | None = None
 
 
 class CardHistoryResponse(BaseModel):
     card_id: str
     name: str
     history: list[PricePoint]
+    currency: str = "CHF"
 
 
 class OwnedCard(BaseModel):
@@ -62,6 +71,7 @@ class OwnedCard(BaseModel):
 
 class CollectionResponse(BaseModel):
     items: list[OwnedCard]
+    currency: str = "CHF"
 
 
 class CollectionValuePoint(BaseModel):
@@ -128,6 +138,7 @@ class OpportunityListResponse(BaseModel):
     page: int
     page_size: int
     counts: OpportunityCounts
+    currency: str = "CHF"
 
 
 class SignalPerformance(BaseModel):

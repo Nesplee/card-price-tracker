@@ -30,6 +30,18 @@
 #   - « ne plus suivre » : aucun signal ;
 #   - cartes recherchées : évaluées même hors du périmètre d'achat, avec deux
 #     signaux propres, cible_atteinte et baisse_suivie.
+#
+# Partie 4 (2026-11-18) : tout en francs suisses (migrations 020 à 022).
+#   - Tendance (moyenne 30 j, variations, volatilité, sauts) : prix market
+#     TCGplayer converti en CHF au taux BCE de chaque jour (vue
+#     prod.v_tcgplayer_chf). Les variations incluent donc le change : c'est ce
+#     que l'utilisateur gagne ou perd en francs.
+#   - Prix du jour pour les seuils de l'utilisateur (cible d'une carte
+#     recherchée, prix minimum de vente) : la première offre anglaise Near
+#     Mint d'un vendeur d'Europe ou de Suisse sur CardTrader (CHF, 3 jours au
+#     plus), à défaut le market converti. Les deux ne mesurent pas la même
+#     chose (offre la plus basse contre prix de vente moyen) : CardTrader
+#     n'entre jamais dans la tendance.
 from __future__ import annotations
 
 import logging
@@ -42,7 +54,8 @@ from psycopg import Connection
 log = logging.getLogger(__name__)
 
 # En dessous, quelques centimes de variation font des % énormes : bruit pur.
-MIN_PRICE = 5.0
+# En CHF (5 USD jusqu'au 2026-11-18, soit environ 4 CHF).
+MIN_PRICE = 4.0
 # Jours de prix minimum sur 30 j pour que la moyenne mobile ait un sens (il
 # y a des trous dans l'historique, voir le 2026-10-16 -> 2026-10-25).
 MIN_DAYS_30 = 15
@@ -85,6 +98,8 @@ META_RISE_MIN_DIFF = 0.10
 META_FALL_MIN_PREV = 0.20
 # Cartes recherchées : baisse sur 7 j qui déclenche un signal sans prix cible.
 WISH_DROP_7D = -0.10
+# Âge maximal du prix CardTrader retenu pour les seuils, en jours.
+EU_PRICE_MAX_AGE_DAYS = 3
 
 
 @dataclass(frozen=True)
@@ -121,6 +136,14 @@ class CardFeatures:
     min_sell_price: float | None = None
     wishlisted: bool = False
     target_price: float | None = None
+    # Première offre NM Europe CardTrader (CHF), rattachée après coup.
+    eu_price: float | None = None
+
+    @property
+    def reference_price(self) -> float | None:
+        """Prix comparé aux seuils de l'utilisateur : l'offre NM Europe si
+        elle existe, sinon le market converti."""
+        return self.eu_price if self.eu_price is not None else self.market
 
     @property
     def change_7d(self) -> float | None:
@@ -168,6 +191,15 @@ class Opportunity:
 
 def _pct(value: float) -> str:
     return f"{value * 100:+.0f} %"
+
+
+def _chf(value: float) -> str:
+    return f"{value:.2f} CHF"
+
+
+def _approx(value: float) -> str:
+    """Montant TCGplayer converti : « ≈ », ce n'est pas un prix suisse."""
+    return f"≈ {value:.2f} CHF"
 
 
 def _news_text(title: str | None) -> str:
@@ -243,8 +275,8 @@ def _buy_signals(f: CardFeatures) -> list[Signal]:
                 Signal(
                     "annonce_sous_cote",
                     1 - relative,
-                    f"annonce la moins chère à {f.low:.2f} $ ({ratio * 100:.0f} % du prix "
-                    f"marché, {f.low_ratio_median * 100:.0f} % d'habitude)",
+                    f"annonce TCGplayer la moins chère à {_approx(f.low)} ({ratio * 100:.0f} % "
+                    f"du prix marché, {f.low_ratio_median * 100:.0f} % d'habitude)",
                 )
             )
 
@@ -253,7 +285,7 @@ def _buy_signals(f: CardFeatures) -> list[Signal]:
             Signal(
                 "rebond",
                 min(1.0, -dev / 0.4),
-                f"{-dev * 100:.0f} % sous la moyenne 30 j ({f.ma30:.2f} $), "
+                f"{-dev * 100:.0f} % sous la moyenne 30 j ({_approx(f.ma30)}), "
                 f"stable ou en hausse sur 7 j ({_pct(change_7d)})",
             )
         )
@@ -282,7 +314,7 @@ def _sell_signals(f: CardFeatures) -> list[Signal]:
             Signal(
                 "pic",
                 min(1.0, dev / 0.6),
-                f"{dev * 100:.0f} % au-dessus de la moyenne 30 j ({f.ma30:.2f} $)",
+                f"{dev * 100:.0f} % au-dessus de la moyenne 30 j ({_approx(f.ma30)})",
             )
         )
 
@@ -297,7 +329,7 @@ def _sell_signals(f: CardFeatures) -> list[Signal]:
             Signal(
                 "plus_value",
                 min(1.0, gain / 2),
-                f"{_pct(gain)} sur le prix payé ({f.avg_cost_paid:.2f} $), "
+                f"{_pct(gain)} sur le prix payé ({_chf(f.avg_cost_paid)}), "
                 f"en baisse sur 7 j ({_pct(change_7d)})",
             )
         )
@@ -320,26 +352,29 @@ def _sell_signals(f: CardFeatures) -> list[Signal]:
 
 def _wishlist_signals(f: CardFeatures) -> list[Signal]:
     """Signaux propres aux cartes recherchées, à tout prix (une carte
-    recherchée à 3 $ compte autant qu'une autre)."""
+    recherchée à 3 CHF compte autant qu'une autre)."""
     signals = []
     if f.target_price:
-        if f.market <= f.target_price:
-            signals.append(
-                Signal(
-                    "cible_atteinte",
-                    min(1.0, 0.6 + (1 - f.market / f.target_price)),
-                    f"prix market {f.market:.2f} $, sous ta cible de {f.target_price:.2f} $",
+        if f.eu_price is not None:
+            # Prix qu'on peut vraiment payer en Europe : une offre NM réelle.
+            if f.eu_price <= f.target_price:
+                signals.append(
+                    Signal(
+                        "cible_atteinte",
+                        min(1.0, 0.6 + (1 - f.eu_price / f.target_price)),
+                        f"offre NM Europe à {_chf(f.eu_price)} (CardTrader), sous ta cible "
+                        f"de {_chf(f.target_price)}",
+                    )
                 )
-            )
-        elif f.low and f.low <= f.target_price:
-            # low : annonce la moins chère, tous états confondus (souvent une
-            # carte abîmée) : signal plus faible que le prix market.
+        elif f.market <= f.target_price:
+            # Pas d'offre NM en Europe : repère seulement (prix de vente moyen
+            # TCGplayer converti), signal plus faible.
             signals.append(
                 Signal(
                     "cible_atteinte",
                     0.4,
-                    f"annonce la moins chère à {f.low:.2f} $ (tous états), sous ta cible "
-                    f"de {f.target_price:.2f} $ ; market {f.market:.2f} $",
+                    f"prix market {_approx(f.market)} (TCGplayer converti, aucune offre NM en "
+                    f"Europe), sous ta cible de {_chf(f.target_price)}",
                 )
             )
     change_7d = f.change_7d
@@ -384,7 +419,7 @@ def evaluate(f: CardFeatures) -> list[Opportunity]:
         f.owned_quantity > 0
         and not cheap
         and not f.sell_blocked
-        and (f.min_sell_price is None or f.market >= f.min_sell_price)
+        and (f.min_sell_price is None or f.reference_price >= f.min_sell_price)
     ):
         signals = (_sell_signals(f) if prices_usable else []) + _context_sell_signals(f)
         if signals:
@@ -430,15 +465,20 @@ WITH owned AS (
     LEFT JOIN owned o ON o.card_id = ids.card_id
     JOIN prod.dim_card c ON c.card_id = ids.card_id
 ), h AS (
+    -- Prix TCGplayer convertis en CHF au taux de chaque jour (migration 020,
+    -- même règle que prod.v_tcgplayer_chf). Jointure INNER sur le taux : un
+    -- jour sans taux BCE n'a pas de prix, plutôt qu'un prix faux.
     SELECT f.card_id, f.date_id, s.in_universe, s.owned_quantity, s.avg_cost_paid,
            s.name, s.series,
-           f.average_sell_price::float8 AS market,
-           f.low_price::float8 AS low,
-           ln(f.average_sell_price / lag(f.average_sell_price) OVER w)::float8 AS log_ret,
+           (f.average_sell_price * x.usd_chf)::float8 AS market,
+           (f.low_price * x.usd_chf)::float8 AS low,
+           ln((f.average_sell_price * x.usd_chf)
+              / lag(f.average_sell_price * x.usd_chf) OVER w)::float8 AS log_ret,
            f.date_id - lag(f.date_id) OVER w AS gap
     FROM prod.fact_price_history f
     JOIN scope s ON s.card_id = f.card_id
     JOIN prod.dim_platform p ON p.platform_id = f.platform_id AND p.platform_name = 'tcgplayer'
+    JOIN prod.mv_usd_chf x ON x.date_id = f.date_id
     WHERE f.date_id BETWEEN %(d)s::date - 35 AND %(d)s::date
       AND f.average_sell_price > 0
     WINDOW w AS (PARTITION BY f.card_id ORDER BY f.date_id)
@@ -513,11 +553,13 @@ GROUP BY lower(u.card_name), totals.recent, totals.prev
 # déterministe sur les mêmes prix). Pas de DELETE possible (droits
 # pipeline_app) : si un rejeu après correction de prix ne déclenche plus un
 # signal, l'ancienne ligne reste -- acceptable, computed_at le signale.
+# En CHF depuis la migration 022 : usd_chf (taux des lignes converties depuis
+# l'USD) est remis à NULL par un recalcul.
 _UPSERT_SQL = """
 INSERT INTO prod.fact_opportunity
     (date_id, card_id, side, score, signals, reason, market_price, low_price, ma30,
-     change_7d, change_30d, volatility)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+     change_7d, change_30d, volatility, eu_price)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (date_id, card_id, side) DO UPDATE SET
     score = EXCLUDED.score,
     signals = EXCLUDED.signals,
@@ -528,6 +570,8 @@ ON CONFLICT (date_id, card_id, side) DO UPDATE SET
     change_7d = EXCLUDED.change_7d,
     change_30d = EXCLUDED.change_30d,
     volatility = EXCLUDED.volatility,
+    eu_price = EXCLUDED.eu_price,
+    usd_chf = NULL,
     computed_at = now()
 """
 
@@ -547,7 +591,26 @@ def fetch_features(conn: Connection, date_id: date) -> list[CardFeatures]:
         meta = {name: (share, share_prev) for name, share, share_prev in cur}
         cur.execute(_RULES_SQL)
         rules = {row[0]: row[1:] for row in cur}
-    return [_with_rules(_with_context(f, news, meta), rules) for f in features]
+        cur.execute(_EU_PRICE_SQL, {"d": date_id, "max_age": EU_PRICE_MAX_AGE_DAYS})
+        eu = dict(cur.fetchall())
+    return [
+        replace(_with_rules(_with_context(f, news, meta), rules), eu_price=eu.get(f.card_id))
+        for f in features
+    ]
+
+
+# Dernière offre NM Europe CardTrader de chaque carte, dans [J-3, J] : jamais
+# un prix postérieur au jour calculé (le backtest rejoue les jours passés).
+# Une dernière offre aberrante (migration 023, prod.v_cardtrader_eu) ne compte
+# pas : la carte est alors comparée à la vente moyenne convertie.
+_EU_PRICE_SQL = """
+SELECT card_id, eu_price FROM (
+    SELECT DISTINCT ON (card_id) card_id, eu_price::float8, plausible
+    FROM prod.v_cardtrader_eu
+    WHERE date_id BETWEEN %(d)s::date - %(max_age)s AND %(d)s
+    ORDER BY card_id, date_id DESC
+) last WHERE plausible
+"""
 
 
 # Réglages de l'utilisateur (migration 017) : une ligne par carte possédée,
@@ -621,6 +684,7 @@ def compute_opportunities(conn: Connection, date_id: date) -> dict[str, int]:
             _round(o.features.change_7d, 4),
             _round(o.features.change_30d, 4),
             _round(o.features.volatility, 4),
+            _round(o.features.eu_price, 2),
         )
         for o in opportunities
     ]

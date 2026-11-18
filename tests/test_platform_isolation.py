@@ -1,14 +1,26 @@
-# Point critique de la migration 018 : ajouter la plateforme cardtrader_en
-# (prix en CHF) dans prod.fact_price_history ne doit RIEN changer à ce qui
-# lit les prix TCGplayer (USD).
+# Deux plateformes, deux mesures, jamais mélangées (migrations 018, 020-022).
 #
-# Méthode : on sème un historique TCGplayer, on calcule les signaux et on
-# photographie tout ce qui lit fact_price_history (chaque endpoint GET de
-# l'API et du board, la fraîcheur, les jours du rattrapage, les vues
-# d'opportunités). Puis on charge des prix CardTrader très différents (x37,
-# sur les mêmes cartes, et sur cinq jours APRÈS le dernier jour TCGplayer)
-# avec le vrai chargeur, on recalcule les signaux, et on reprend la photo :
-# elle doit être identique.
+# Depuis le passage du dashboard en CHF (2026-11-18), le dashboard lit AUSSI
+# CardTrader (cardtrader_en, CHF), mais seulement pour le prix du jour d'une
+# carte (champ `eu`, total « au prix Europe ») et pour les seuils de
+# l'utilisateur (cible d'une carte recherchée, prix minimum de vente). Toute la
+# TENDANCE (courbes, variations, valeur de la collection et des sets, signaux
+# de prix, backtest, fraîcheur, rattrapage) reste sur TCGplayer converti au
+# taux BCE du jour.
+#
+# Méthode : on sème un historique TCGplayer et des taux BCE réels (pas la
+# parité), on calcule les signaux et on photographie tout ce qui lit des prix
+# (chaque endpoint GET de l'API et du board, la fraîcheur, les jours du
+# rattrapage, les vues d'opportunités). Puis on charge des prix CardTrader
+# différents (1,2 à 1,8 fois le prix en dollars, soit 1,5 à 2,3 fois le prix
+# converti : sous le seuil d'offre aberrante de la migration 023), sur les
+# mêmes cartes et sur cinq jours APRÈS le dernier jour TCGplayer, avec le vrai
+# chargeur, et on recalcule les signaux :
+#   - la partie tendance de la photo doit rester identique ;
+#   - les champs CardTrader doivent refléter exactement les lignes chargées,
+#     en CHF, sans conversion ;
+#   - aucune somme ne mélange les deux ;
+#   - des lignes cardmarket (EUR) ne sont jamais lues.
 from __future__ import annotations
 
 import os
@@ -28,6 +40,7 @@ from src.extract.cardtrader_prices import Offer
 from src.load.cardtrader_loader import CardPrice, write_prices
 from src.monitor.price_freshness import check_price_freshness
 from src.signals.opportunities import compute_opportunities
+from tests.fx import weekdays
 
 FIRST = date(2026, 8, 1)
 LAST_TCG = date(2026, 9, 15)  # dernier jour TCGplayer
@@ -97,8 +110,26 @@ def _tcg_prices() -> dict[tuple[str, date], float]:
     return prices
 
 
+# Taux BCE fictifs mais réalistes, qui bougent chaque jour ouvré (1 USD entre
+# 0,79 et 0,82 CHF) : une conversion oubliée ou faite au mauvais jour se voit.
+RATES = {
+    d: (round(1.15 + 0.001 * (i % 17), 4), round(0.93 - 0.0005 * (i % 11), 4))
+    for i, d in enumerate(weekdays(date(2026, 7, 27), date(2026, 9, 30)))
+}
+
+
+def _usd_chf(d: date) -> float:
+    """Règle de la migration 020 : dernier cours BCE daté avant d, taux croisé
+    arrondi à 6 décimales comme dans prod.mv_usd_chf."""
+    ecb = max(e for e in RATES if e < d)
+    usd, chf = RATES[ecb]
+    return round(chf / usd, 6)
+
+
 @pytest.fixture
-def seeded():
+def seeded(rates):
+    with _admin() as conn:
+        rates(conn, RATES)
     with _admin() as conn:
         conn.execute(
             "TRUNCATE TABLE prod.fact_opportunity, prod.fact_cardtrader_price, "
@@ -139,7 +170,7 @@ def seeded():
         )
         conn.execute(
             "INSERT INTO prefs.wishlist_card (list_id, card_id, target_price) "
-            "SELECT list_id, 'sv2-4', 40.00 FROM prefs.wishlist WHERE name = 'Recherchées'"
+            "SELECT list_id, 'sv2-4', 5.00 FROM prefs.wishlist WHERE name = 'Recherchées'"
         )
     _compute_signals()
     yield
@@ -158,6 +189,25 @@ def _strip(value):
         return {k: _strip(v) for k, v in value.items() if k != "computed_at"}
     if isinstance(value, list):
         return [_strip(v) for v in value]
+    return value
+
+
+# Champs qui viennent de CardTrader, par construction (prix du jour, total au
+# prix Europe, comparaison à la cible) : retirés de la photo « tendance ».
+CT_FIELDS = {"eu", "eu_total", "eu_price", "ref_price", "to_target", "remaining_value", "n_approx"}
+
+
+def _trend_only(value):
+    if isinstance(value, dict):
+        return {k: _trend_only(v) for k, v in value.items() if k not in CT_FIELDS}
+    if isinstance(value, list):
+        # Fiche carte : les jours CardTrader seuls (sans prix TCGplayer) sont
+        # la courbe CardTrader, pas la tendance.
+        return [
+            _trend_only(v)
+            for v in value
+            if not (isinstance(v, dict) and "eu_price" in v and v.get("average_sell_price") is None)
+        ]
     return value
 
 
@@ -199,7 +249,7 @@ def _load_cardtrader() -> dict[str, int]:
     while d <= LAST_CT:
         prices = []
         for card in CARDS:
-            base = tcg.get((card, min(d, LAST_TCG)), 30.0) * 37 * rng.uniform(0.5, 1.5)
+            base = tcg.get((card, min(d, LAST_TCG)), 30.0) * rng.uniform(1.2, 1.8)
             eu = Offer(1, 1, round(base, 2), "CHF", 1, "Near Mint", "en", "standard", "IT")
             # Une carte sans offre européenne : détail seulement, aucun fait.
             if card == "sv2-8":
@@ -214,10 +264,12 @@ def _load_cardtrader() -> dict[str, int]:
     return totals
 
 
-def test_cardtrader_rows_change_nothing_for_tcgplayer(seeded):
+def test_cardtrader_rows_change_nothing_in_the_trend(seeded):
     before = _snapshot()
     assert before["fact_opportunity"], "le jeu de données doit produire des signaux"
     assert before[f"freshness {LAST_TCG}"]["changed"] == 0  # source TCGplayer figée
+    # Sans CardTrader, aucune carte n'a de prix Europe.
+    assert before["/api/board/collection"]["eu_total"]["cards"] == 0
 
     totals = _load_cardtrader()
     n_days = (LAST_CT - FIRST).days + 1
@@ -236,10 +288,215 @@ def test_cardtrader_rows_change_nothing_for_tcgplayer(seeded):
     # Témoin : les lignes CardTrader sont bien là, et plus récentes.
     assert by_platform["cardtrader_en"] == 7 * n_days
     assert max_day == LAST_CT
+    # Et le dashboard les lit (prix du jour) : la photo complète a changé...
+    assert after["/api/board/collection"]["eu_total"]["cards"] == 3
+    assert after != before
 
+    # ... mais pas la tendance.
     assert after.keys() == before.keys()
+    differing = sorted(key for key in before if _trend_only(after[key]) != _trend_only(before[key]))
+    assert differing == []
+
+
+def test_trend_is_tcgplayer_converted_and_today_price_is_cardtrader_unconverted(seeded):
+    ct = {}
+    rng = random.Random(7)
+    tcg = _tcg_prices()
+    d = FIRST
+    while d <= LAST_CT:  # mêmes tirages que _load_cardtrader
+        for card in CARDS:
+            base = tcg.get((card, min(d, LAST_TCG)), 30.0) * rng.uniform(1.2, 1.8)
+            if card != "sv2-8":
+                ct[(card, d)] = round(base, 2)
+        d += timedelta(days=1)
+    _load_cardtrader()
+    with _admin() as conn:
+        # sv2-8 n'a jamais d'offre NM en Europe : repli sur le market converti.
+        conn.execute(
+            "INSERT INTO prefs.wishlist_card (list_id, card_id, target_price) "
+            "SELECT list_id, 'sv2-8', 1000.00 FROM prefs.wishlist WHERE name = 'Recherchées'"
+        )
+
+    reader = psycopg.connect(
+        _dsn("dashboard_reader", os.environ["DASHBOARD_READER_PASSWORD"]), row_factory=dict_row
+    )
+    app.dependency_overrides[get_api_connection] = lambda: reader
+    try:
+        client = TestClient(app)
+        board = client.get("/api/board/collection").json()
+        hist = client.get("/api/cards/sv2-1/history").json()
+        cards = client.get("/api/cards?search=sv2-1").json()
+        wish = client.get("/api/prefs/wishlists").json()
+    finally:
+        app.dependency_overrides.clear()
+        reader.close()
+
+    # Tendance : TCGplayer (USD) x taux du jour, à la date de chaque prix.
+    rate = _usd_chf(LAST_TCG)
+    owned = {"sv2-1": 2, "sv2-2": 1, "sv2-6": 1}
+    expected_total = sum(q * tcg[(c, LAST_TCG)] * rate for c, q in owned.items())
+    assert board["currency"] == "CHF" and board["as_of"] == LAST_TCG.isoformat()
+    assert board["total_value"] == pytest.approx(expected_total, abs=1e-6)
+    assert board["fx"]["usd_chf"] == pytest.approx(rate, abs=1e-6)
+    assert board["fx"]["missing_since"] is None
+    one = next(c for c in board["cards"] if c["card_id"] == "sv2-1")
+    assert one["price"] == pytest.approx(tcg[("sv2-1", LAST_TCG)] * rate, abs=1e-6)
+    assert cards["items"][0]["current_price"] == pytest.approx(one["price"], abs=1e-6)
+    # Prix du jour : la dernière offre NM Europe, en CHF telle quelle.
+    assert one["eu"]["price"] == ct[("sv2-1", LAST_CT)]
+    assert one["eu"]["date"] == LAST_CT.isoformat() and one["eu"]["country"] == "IT"
+    # Total au prix Europe : à part, jamais additionné à la tendance.
+    assert board["eu_total"]["value"] == pytest.approx(
+        sum(q * ct[(c, LAST_CT)] for c, q in owned.items()), abs=0.01
+    )
+    assert board["eu_total"]["value"] != pytest.approx(board["total_value"])
+
+    # Fiche carte : deux séries, chacune dans sa mesure, jamais raccordées.
+    points = {p["date_id"]: p for p in hist["history"]}
+    for day in (FIRST + timedelta(days=3), LAST_TCG):
+        p = points[day.isoformat()]
+        assert p["average_sell_price"] == pytest.approx(tcg[("sv2-1", day)] * _usd_chf(day))
+        assert p["eu_price"] == ct[("sv2-1", day)]
+    after_tcg = points[LAST_CT.isoformat()]
+    assert after_tcg["average_sell_price"] is None
+    assert after_tcg["eu_price"] == ct[("sv2-1", LAST_CT)]
+
+    # Cartes recherchées : prix du jour = offre NM Europe, à défaut market
+    # converti (compté « ≈ ») ; l'écart à la cible suit le même prix.
+    w = {c["card_id"]: c for c in wish["cards"]}
+    four, eight = w["sv2-4"], w["sv2-8"]
+    assert four["ref_price"] == ct[("sv2-4", LAST_CT)] and four["eu"]["price"] == four["ref_price"]
+    assert four["price"] == pytest.approx(tcg[("sv2-4", LAST_TCG)] * rate, abs=1e-6)
+    assert four["to_target"] == pytest.approx(four["ref_price"] / 5 - 1)
+    assert eight["eu"] is None and eight["ref_price"] == eight["price"]
+    assert eight["price"] == pytest.approx(tcg[("sv2-8", LAST_TCG)] * rate, abs=1e-6)
+    assert wish["total"]["n_approx"] == 1
+    assert wish["total"]["remaining_value"] == pytest.approx(
+        four["ref_price"] + eight["ref_price"], abs=0.01
+    )
+
+
+def test_user_thresholds_use_cardtrader_first(seeded):
+    _load_cardtrader()
+    with _admin() as conn:
+        (eu,) = conn.execute(
+            "SELECT eu_price FROM prod.fact_cardtrader_price "
+            "WHERE card_id = 'sv2-4' AND date_id = %s",
+            (LAST_TCG,),
+        ).fetchone()
+        # Cible juste au-dessus de l'offre NM Europe, bien au-dessus du market.
+        conn.execute("UPDATE prefs.wishlist_card SET target_price = %s", (eu + 1,))
+    _compute_signals()
+    with _admin() as conn:
+        row = conn.execute(
+            "SELECT signals, reason, eu_price, market_price FROM prod.fact_opportunity "
+            "WHERE card_id = 'sv2-4' AND side = 'buy' AND date_id = %s",
+            (LAST_TCG,),
+        ).fetchone()
+    assert row is not None and "cible_atteinte" in row[0]
+    assert "offre NM Europe" in row[1] and row[2] == eu
+
+    # Prix minimum de vente : comparé à l'offre NM Europe du jour du signal,
+    # au calcul comme à la lecture (RULES_FILTER).
+    with _admin() as conn:
+        sell = conn.execute(
+            "SELECT card_id, market_price, eu_price FROM prod.fact_opportunity "
+            "WHERE side = 'sell' AND date_id = %s ORDER BY card_id LIMIT 1",
+            (LAST_TCG,),
+        ).fetchone()
+    assert sell is not None, "le jeu de données doit produire un signal de vente"
+    card, market, eu_sell = sell
+    assert eu_sell is not None and eu_sell > market
+
+    def sells_shown(min_price) -> set[str]:
+        with _admin() as conn:
+            conn.execute(
+                "INSERT INTO prefs.card_setting (card_id, min_sell_price) VALUES (%s, %s) "
+                "ON CONFLICT (card_id) DO UPDATE SET min_sell_price = EXCLUDED.min_sell_price",
+                (card, min_price),
+            )
+        reader = psycopg.connect(
+            _dsn("dashboard_reader", os.environ["DASHBOARD_READER_PASSWORD"]),
+            row_factory=dict_row,
+        )
+        app.dependency_overrides[get_api_connection] = lambda: reader
+        try:
+            body = TestClient(app).get("/api/opportunities?side=sell&selection=false").json()
+        finally:
+            app.dependency_overrides.clear()
+            reader.close()
+        return {i["card_id"] for i in body["items"]}
+
+    # Seuil entre market et l'offre Europe : visible (l'offre Europe le dépasse).
+    assert card in sells_shown((market + eu_sell) / 2)
+    # Seuil au-dessus de l'offre Europe : masqué.
+    assert card not in sells_shown(eu_sell + 1)
+
+
+def test_cardmarket_rows_are_never_read(seeded):
+    _load_cardtrader()
+    _compute_signals()
+    before = _snapshot()
+    with _admin() as conn:
+        conn.execute(
+            "INSERT INTO prod.fact_price_history "
+            "(card_id, date_id, platform_id, average_sell_price, trend_price, low_price) "
+            "SELECT f.card_id, f.date_id, p.platform_id, f.average_sell_price * 50, "
+            "f.trend_price * 50, f.low_price * 50 "
+            "FROM prod.fact_price_history f "
+            "JOIN prod.dim_platform t ON t.platform_id = f.platform_id "
+            "AND t.platform_name = 'tcgplayer' "
+            "CROSS JOIN prod.dim_platform p WHERE p.platform_name = 'cardmarket'"
+        )
+    _compute_signals()
+    after = _snapshot()
     differing = sorted(key for key in before if after[key] != before[key])
     assert differing == []
+
+
+def test_aberrant_european_offer_is_ignored_everywhere(seeded):
+    # Offre « pas à vendre » (9 494,94 CHF, vue le 18/11/2026) sur sv2-1 le
+    # dernier jour : ni prix du jour, ni seuil, ni courbe ; la carte est « ≈ ».
+    _load_cardtrader()
+    with _admin() as conn:
+        conn.execute(
+            "UPDATE prod.fact_cardtrader_price SET eu_price = 9494.94, any_price = 20.00 "
+            "WHERE card_id = 'sv2-1' AND date_id = %s",
+            (LAST_CT,),
+        )
+        (plausible,) = conn.execute(
+            "SELECT plausible FROM prod.v_cardtrader_eu WHERE card_id = 'sv2-1' AND date_id = %s",
+            (LAST_CT,),
+        ).fetchone()
+    assert plausible is False
+    reader = psycopg.connect(
+        _dsn("dashboard_reader", os.environ["DASHBOARD_READER_PASSWORD"]), row_factory=dict_row
+    )
+    app.dependency_overrides[get_api_connection] = lambda: reader
+    try:
+        client = TestClient(app)
+        board = client.get("/api/board/collection").json()
+        hist = client.get("/api/cards/sv2-1/history").json()
+    finally:
+        app.dependency_overrides.clear()
+        reader.close()
+    one = next(c for c in board["cards"] if c["card_id"] == "sv2-1")
+    # La dernière offre est aberrante : pas de repli sur une offre plus ancienne.
+    assert one["eu"] is None
+    assert board["eu_total"]["cards"] == 2 and board["eu_total"]["ignored"] == 1
+    assert LAST_CT.isoformat() not in {p["date_id"] for p in hist["history"] if p["eu_price"]}
+    # Signaux : le seuil de vente se compare à la vente moyenne convertie.
+    with _admin() as conn:
+        rows = conn.execute(
+            "SELECT card_id, eu_price FROM prod.v_cardtrader_eu WHERE plausible "
+            "AND eu_price > 1000"
+        ).fetchall()
+    assert rows == []
+    from src.signals.opportunities import _EU_PRICE_SQL
+
+    with _pipeline() as conn:
+        eu = dict(conn.execute(_EU_PRICE_SQL, {"d": LAST_CT, "max_age": 3}).fetchall())
+    assert "sv2-1" not in eu and "sv2-2" in eu
 
 
 def test_write_prices_is_idempotent_and_keeps_currency(seeded):

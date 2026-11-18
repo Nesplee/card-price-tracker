@@ -119,6 +119,7 @@
   .kv .sel dt, .kv .sel dd { color: var(--ink); font-weight: 700; }
   .kv dd small { color: var(--faint); font-size: 11px; margin-left: 6px; font-weight: 400; }
   .kv .sep { border-top: 1px solid var(--rule); margin-top: 4px; padding-top: 4px; }
+  .kv dt.sub-dt { padding-left: 10px; color: var(--faint); font-size: 11px; } .kv dd.sub-dd { color: var(--faint); font-size: 11px; white-space: normal; }
 
   /* Mouvements */
   .breadth { padding: 0 var(--pad) 14px; }
@@ -179,6 +180,7 @@
   .pc-key b { color: var(--ink); font-weight: 400; }
   .pc-key i { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--ink); }
   .pc-key i.lo { border-top: 1.5px dashed var(--dim); }
+  .pc-key i.eu { border-top: 2px dotted var(--ink); }
   .pc-key i.gp { width: 12px; height: 10px; border: 1px solid var(--rule2); background: repeating-linear-gradient(135deg, var(--rule2) 0 1px, transparent 1px 4px); }
   .pc-head .seg { margin-left: auto; }
   .pc-head .seg button { min-height: 24px; padding: 1px 9px; font-size: 11.5px; }
@@ -192,11 +194,18 @@
   .plot .gap { fill: url(#hatch); stroke: none; }
   .plot .mk { stroke: var(--ink); stroke-width: 1.8; stroke-linejoin: round; }
   .plot .lo { stroke: var(--dim); stroke-width: 1.2; stroke-dasharray: 4 3; }
+  /* Offre NM Europe (CardTrader) : une autre mesure que la courbe market, tracée à part, en pointillé. */
+  .plot .eu { stroke: var(--ink); stroke-width: 2.2; stroke-dasharray: 1 4; stroke-linecap: square; }
   .plot .yl { position: absolute; right: -54px; width: 48px; transform: translateY(-50%); font-size: 10.5px; line-height: 1; color: var(--faint); white-space: nowrap; }
   .plot .gapl { position: absolute; top: 6px; transform: translateX(-50%); font-size: 10.5px; color: var(--faint); white-space: nowrap; background: var(--bg); padding: 1px 4px; pointer-events: none; }
   .plot .xh { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--mark); pointer-events: none; }
   .plot .dot { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; background: var(--ink); box-shadow: 0 0 0 2px var(--bg); pointer-events: none; }
   .plot .dot.lo { background: var(--dim); }
+  .plot .dot.eu { background: var(--bg); box-shadow: inset 0 0 0 2px var(--ink), 0 0 0 2px var(--bg); }
+  /* Taux BCE manquant : prix arrêtés au dernier jour converti. */
+  .fxbar { display: flex; align-items: center; gap: 9px; margin: 0; padding: 9px var(--pad); border-bottom: 1px solid var(--rule2); color: var(--warn); font-size: 12.5px; }
+  .fxbar[hidden] { display: none; }
+  .note b { color: var(--dim); font-weight: 400; }
   .plot .tip { position: absolute; top: 4px; transform: translateX(-50%); background: #000; border: 1px solid var(--rule2); padding: 5px 9px; font-size: 11.5px; line-height: 1.5; white-space: nowrap; pointer-events: none; z-index: 2; }
   .plot .tip span { display: block; color: var(--dim); }
   .plot .tip b { font-weight: 700; color: var(--ink); }
@@ -602,6 +611,7 @@
   </nav>
   <div class="live l-off" id="live"><i class="lamp"></i><span>chargement…</span></div>
 </header>
+<p class="fxbar" id="fxbar" role="status" hidden><i class="lamp" style="--c:var(--warn)"></i><span></span></p>
 
 <div class="cols">
   <div class="col col-coll" id="collection">
@@ -622,9 +632,9 @@
       <div class="tools" id="m-tools">
         <label>Trier par
           <select id="f-sort">
-            <option value="impact">Impact $ (hausses et baisses)</option>
-            <option value="up">Plus fortes hausses ($)</option>
-            <option value="down">Plus fortes baisses ($)</option>
+            <option value="impact">Impact CHF (hausses et baisses)</option>
+            <option value="up">Plus fortes hausses (CHF)</option>
+            <option value="down">Plus fortes baisses (CHF)</option>
             <option value="pct">Variation % (hausses et baisses)</option>
             <option value="pctup">Plus fortes hausses (%)</option>
             <option value="pctdown">Plus fortes baisses (%)</option>
@@ -637,11 +647,11 @@
         </label>
         <label>Rareté <select id="f-rarity"><option value="">Toutes</option></select></label>
         <label>Set <select id="f-set"><option value="">Tous</option></select></label>
-        <label class="price">Prix <input id="f-pmin" type="number" min="0" step="1" inputmode="decimal" placeholder="min"> – <input id="f-pmax" type="number" min="0" step="1" inputmode="decimal" placeholder="max"> $</label>
+        <label class="price">Prix <input id="f-pmin" type="number" min="0" step="1" inputmode="decimal" placeholder="min"> – <input id="f-pmax" type="number" min="0" step="1" inputmode="decimal" placeholder="max"> CHF</label>
         <button type="button" id="f-reset" hidden>Réinitialiser</button>
       </div>
       <p class="mnote" id="m-note"></p>
-      <div class="thead"><span>Carte</span><span class="r hide">Qté</span><span class="r px">Prix</span><span class="hide">Courbe</span><span class="hide">Impact</span><span class="r dd">Δ $</span><span class="r">Δ %</span><span></span></div>
+      <div class="thead"><span>Carte</span><span class="r hide">Qté</span><span class="r px" title="Offre Near Mint la plus basse en Europe (CardTrader) ; ≈ : prix de vente moyen TCGplayer converti, quand il n'y a pas d'offre">Prix CHF</span><span class="hide">Courbe</span><span class="hide">Impact</span><span class="r dd" title="Variation du prix de vente moyen TCGplayer converti (≈)">Δ CHF</span><span class="r">Δ %</span><span></span></div>
       <div id="movers"></div>
     </section>
     <section class="sec" aria-label="Répartition par set">
@@ -768,8 +778,25 @@ const nf2 = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFr
 const nf1 = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const MINUS = '−';
 const sign = (v) => (v > 0 ? '+' : v < 0 ? MINUS : '±');
-const usd = (v) => v == null ? '—' : (Math.abs(v) >= 100 ? nf0.format(v) : nf2.format(v)).replace('-', MINUS) + ' $';
-const dusd = (v) => v == null ? '—' : sign(v) + (Math.abs(v) >= 100 ? nf0 : nf2).format(Math.abs(v)) + ' $';
+// Tout en francs suisses (2026-11-18). Deux mesures, jamais mélangées :
+//   - prix de vente moyen TCGplayer converti au taux BCE du jour : la tendance
+//     (courbes, variations, valeurs), marqué « ≈ » ;
+//   - offre Near Mint la plus basse en Europe (CardTrader, champ `eu`) : le
+//     prix du jour d'une carte quand il existe.
+// Dans les tableaux, les montants sont sans unité : l'en-tête dit « CHF ».
+const money = (v) => v == null ? '—' : (Math.abs(v) >= 100 ? nf0.format(v) : nf2.format(v)).replace('-', MINUS);
+const chf = (v) => v == null ? '—' : money(v) + ' CHF';
+const dnum = (v) => v == null ? '—' : sign(v) + (Math.abs(v) >= 100 ? nf0 : nf2).format(Math.abs(v));
+const dchf = (v) => v == null ? '—' : dnum(v) + ' CHF';
+const approx = (v) => v == null ? '—' : '≈ ' + chf(v);
+// Prix du jour d'une carte : offre NM Europe, sinon prix de vente moyen converti.
+const dayPrice = (c) => (c.eu ? c.eu.price : c.price);
+const dayCell = (c) => (c.eu ? money(c.eu.price) : c.price == null ? '—' : '≈ ' + money(c.price));
+const dayText = (c) => (c.eu ? chf(c.eu.price) : approx(c.price));
+const COND = { Mint: 'Mint', 'Near Mint': 'NM' };
+const euWhere = (e) => `${COND[e.condition] || esc(e.condition || '')}${e.country ? ', vendeur ' + esc(e.country) : ''}`;
+const dayTitle = (c) => (c.eu ? `Offre la plus basse en Europe : ${chf(c.eu.price)} (CardTrader, ${euWhere(c.eu)}, ${fdate(c.eu.date)})` : 'Aucune offre NM en Europe')
+  + (c.price != null ? ` · prix de vente moyen TCGplayer ${approx(c.price)}` : '');
 const pct = (v) => v == null ? '—' : sign(v) + nf1.format(Math.abs(v)) + ' %';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // Miniature d'une carte, chargée à la demande depuis son CDN d'origine (rien
@@ -895,22 +922,23 @@ function renderValue() {
     const x = c.windows[k];
     if (!x) return `<div><dt>${WLABEL[k]}</dt><dd>—</dd></div>`;
     const p = (x.delta / x.value) * 100;
-    return `<div class="${k === w ? 'sel' : ''}"><dt>${WLABEL[k]}</dt><dd><span class="${tone(p, COLL_TH[k])}">${dusd(x.delta)}</span><small>${pct(p)}</small></dd></div>`;
+    return `<div class="${k === w ? 'sel' : ''}"><dt>${WLABEL[k]}</dt><dd><span class="${tone(p, COLL_TH[k])}">${dchf(x.delta)}</span><small>${pct(p)}</small></dd></div>`;
   }).join('');
   const sinceP = (tot / first.value - 1) * 100;
   document.getElementById('v-strip').innerHTML = `
     <div>
-      <div class="nm">Aujourd'hui</div>
-      <div class="big">${nf0.format(tot)}<em>$</em></div>
-      <div class="g" title="Valeur actuelle rapportée au plus haut (${usd(peak.value)} le ${fdate(peak.date)})"><i style="width:${(tot / peak.value * 100).toFixed(1)}%"></i></div>
+      <div class="nm" title="Prix de vente moyen TCGplayer, converti au taux BCE du jour">Aujourd'hui ≈</div>
+      <div class="big">${nf0.format(tot)}<em>CHF</em></div>
+      <div class="g" title="Valeur actuelle rapportée au plus haut (${chf(peak.value)} le ${fdate(peak.date)})"><i style="width:${(tot / peak.value * 100).toFixed(1)}%"></i></div>
       <p class="note">${nf0.format(tot / peak.value * 100)} % du plus haut (${fdate(peak.date)})</p>
+      ${c.eu_total?.cards ? `<p class="note" title="Somme des offres Near Mint les plus basses en Europe (CardTrader), pour les cartes qui en ont une. Pas la valeur ci-dessus : une offre la plus basse n'est pas un prix de vente moyen.">au prix Europe : <b>${chf(c.eu_total.value)}</b><br>${c.eu_total.cards} cartes sur ${c.eu_total.of} avec une offre NM</p>` : ''}
     </div>
     <div class="tr" id="v-tr">${ch.svg}
       <span class="tl" style="top:0">${nf0.format(ch.hi / 1000)} k</span>
       <span class="tl" style="bottom:2px">${nf0.format(ch.lo / 1000)} k</span>
     </div>
     <dl class="kv">${rows}
-      <div class="sep"><dt>depuis ${fdate(first.date)}</dt><dd><span class="${tone(sinceP, COLL_TH[90])}">${dusd(tot - first.value)}</span><small>${pct(sinceP)}</small></dd></div>
+      <div class="sep"><dt>depuis ${fdate(first.date)}</dt><dd><span class="${tone(sinceP, COLL_TH[90])}">${dchf(tot - first.value)}</span><small>${pct(sinceP)}</small></dd></div>
       <div><dt>10 plus grosses</dt><dd title="part de la valeur totale">${nf0.format(share10)} %</dd></div>
     </dl>`;
   const ticks = axisTicks(h, ch);
@@ -932,7 +960,7 @@ function hover(el, h, ch) {
     if (!xh) { xh = document.createElement('div'); xh.className = 'xh'; tip = document.createElement('div'); tip.className = 'tip'; el.append(xh, tip); }
     xh.style.left = px + 'px';
     tip.style.left = Math.min(Math.max(px, 70), svg.width - 70) + 'px';
-    tip.innerHTML = `<span>${fdate(h[i].date)}</span><b>${usd(h[i].value)}</b>`;
+    tip.innerHTML = `<span>${fdate(h[i].date)}</span><b>${chf(h[i].value)}</b>`;
   };
   el.onpointermove = move;
   el.onpointerleave = () => { xh?.remove(); tip?.remove(); xh = tip = null; };
@@ -967,17 +995,17 @@ function renderMovers() {
   document.getElementById('mv-sec').dataset.sort = f.sort;
   const pmin = f.pmin === '' ? null : +f.pmin, pmax = f.pmax === '' ? null : +f.pmax;
   const all = chaseCards.filter((m) => (!f.rarity || m.rarity === f.rarity) && (!f.set || m.set_name === f.set)
-    && (pmin == null || (m.price ?? -1) >= pmin) && (pmax == null || (m.price ?? Infinity) <= pmax));
+    && (pmin == null || (dayPrice(m) ?? -1) >= pmin) && (pmax == null || (dayPrice(m) ?? Infinity) <= pmax));
   const known = all.filter((m) => m.d != null);
   const up = known.filter((m) => m.d > 0.005), dn = known.filter((m) => m.d < -0.005);
   const upS = up.reduce((a, m) => a + m.d, 0), dnS = dn.reduce((a, m) => a + m.d, 0);
   const flat = known.length - up.length - dn.length;
   const mx = Math.max(upS, -dnS) || 1;
   document.getElementById('m-title').textContent = 'Mouvements · ' + WLABEL[w];
-  document.getElementById('m-sum').innerHTML = `solde <b>${dusd(upS + dnS)}</b>`;
+  document.getElementById('m-sum').innerHTML = `solde <b>${dchf(upS + dnS)}</b>`;
   document.getElementById('breadth').innerHTML = `
-    <div class="bar" role="img" aria-label="Baisses ${dusd(dnS)}, hausses ${dusd(upS)}"><i class="lo" style="width:${(-dnS / mx * 100).toFixed(1)}%"></i><i class="ax"></i><i class="hi" style="width:${(upS / mx * 100).toFixed(1)}%"></i></div>
-    <div class="lg"><span>▼ <b>${dn.length}</b> en baisse · <b>${dusd(dnS)}</b></span><span class="hide">${flat} stables</span><span><b>${up.length}</b> en hausse · <b>${dusd(upS)}</b> ▲</span></div>`;
+    <div class="bar" role="img" aria-label="Baisses ${dchf(dnS)}, hausses ${dchf(upS)}"><i class="lo" style="width:${(-dnS / mx * 100).toFixed(1)}%"></i><i class="ax"></i><i class="hi" style="width:${(upS / mx * 100).toFixed(1)}%"></i></div>
+    <div class="lg"><span>▼ <b>${dn.length}</b> en baisse · <b>${dchf(dnS)}</b></span><span class="hide">${flat} stables</span><span><b>${up.length}</b> en hausse · <b>${dchf(upS)}</b> ▲</span></div>`;
   const byImpact = (a, b) => Math.abs(b.d) - Math.abs(a.d);
   const cmp = {
     impact: byImpact,
@@ -986,10 +1014,10 @@ function renderMovers() {
     pct: (a, b) => Math.abs(b.p) - Math.abs(a.p),
     pctup: (a, b) => b.p - a.p,
     pctdown: (a, b) => a.p - b.p,
-    pricedesc: (a, b) => b.price - a.price,
-    priceasc: (a, b) => a.price - b.price,
+    pricedesc: (a, b) => dayPrice(b) - dayPrice(a),
+    priceasc: (a, b) => dayPrice(a) - dayPrice(b),
     value: (a, b) => b.value - a.value,
-    rarity: (a, b) => rarityRank(a.rarity) - rarityRank(b.rarity) || b.price - a.price,
+    rarity: (a, b) => rarityRank(a.rarity) - rarityRank(b.rarity) || dayPrice(b) - dayPrice(a),
     set: (a, b) => a.set_name.localeCompare(b.set_name) || byImpact(a, b),
   }[f.sort] || byImpact;
   const unknown = all.filter((m) => m.d == null).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
@@ -999,17 +1027,18 @@ function renderMovers() {
   const missing = all.length - known.length;
   const excluded = everyCard.length - chaseCards.length;
   const filtered = chaseCards.length - all.length;
-  document.getElementById('m-note').innerHTML = (filtered ? `<b>${all.length}</b> cartes sur ${chaseCards.length} avec ces filtres` : `<b>${all.length}</b> cartes AR, SAR, full art, gold`) + ` · ${excluded} communes, rares et ex simples exclues` + (missing ? ` · ${missing} sans variation sur ${WLABEL[w]} (prix trop récent), listées en fin` : '');
+  document.getElementById('m-note').innerHTML = (filtered ? `<b>${all.length}</b> cartes sur ${chaseCards.length} avec ces filtres` : `<b>${all.length}</b> cartes AR, SAR, full art, gold`) + ` · ${excluded} communes, rares et ex simples exclues` + (missing ? ` · ${missing} sans variation sur ${WLABEL[w]} (prix trop récent), listées en fin` : '')
+    + ' · prix : offre NM la plus basse en Europe, ≈ prix de vente moyen converti sans offre · Δ : prix de vente moyen converti';
   document.getElementById('movers').innerHTML = !shown.length ? '<p class="empty">Aucune carte avec ces filtres.</p>' : shown.map((m) => {
     const wd = m.d == null ? 0 : Math.abs(m.d) / maxAbs * 50;
     return `<details class="mv" data-id="${esc(m.card_id)}"${state.open.has(m.card_id) ? ' open' : ''}>
       <summary>
         <span class="who">${thumb(m)}<b>${esc(m.name)}</b><small>${moverTags(m)}</small></span>
         <span class="q hide">×${m.quantity}</span>
-        <span class="num px">${usd(m.price)}</span>
+        <span class="num px" title="${dayTitle(m)}">${dayCell(m)}</span>
         <span class="hide">${spark(m.card_id, w)}</span>
-        <span class="hide"><span class="div" title="${dusd(m.d)}"><i class="${m.d < 0 ? 'neg' : ''}" style="${m.d < 0 ? 'right:50%' : 'left:50%'};width:${wd.toFixed(1)}%"></i></span></span>
-        <span class="num dd">${dusd(m.d)}</span>
+        <span class="hide"><span class="div" title="${dchf(m.d)}"><i class="${m.d < 0 ? 'neg' : ''}" style="${m.d < 0 ? 'right:50%' : 'left:50%'};width:${wd.toFixed(1)}%"></i></span></span>
+        <span class="num dd">${dnum(m.d)}</span>
         <span class="num ${tone(m.p, CARD_TH[w])}">${pct(m.p)}</span>
         <svg class="i chev"><use href="#i-chev"/></svg>
       </summary>
@@ -1040,7 +1069,7 @@ function moverTags(m) {
   const p = m.prefs || DEFAULT_PREFS;
   const pref = p.unfollowed ? '<span class="mute">non suivie</span>'
     : (p.wishlisted ? '<span class="mute" title="dans les recherchées"><svg aria-hidden="true"><use href="#i-star"/></svg>recherchée</span>' : '')
-      + (p.unsellable ? '<span class="mute">invendable</span>' : p.min_sell_price ? `<span class="mute">vente ≥ ${usd(p.min_sell_price)}</span>` : '');
+      + (p.unsellable ? '<span class="mute">invendable</span>' : p.min_sell_price ? `<span class="mute">vente ≥ ${chf(p.min_sell_price)}</span>` : '');
   return `${tag}${pref}${buzz}<span>${esc(m.set_name)}${ver ? ' · ' + ver : ''}</span>`;
 }
 
@@ -1142,7 +1171,9 @@ document.addEventListener('click', (e) => {
 function drawChart(pc, c) {
   charts.set(c.card_id, c);
   pc.dataset.card = c.card_id;
-  const all = (state.history.get(c.card_id) || []).filter((p) => p.average_sell_price != null);
+  // Points TCGplayer (convertis) et CardTrader (offre NM Europe), chacun sa
+  // courbe : un jour peut n'avoir que l'un des deux.
+  const all = (state.history.get(c.card_id) || []).filter((p) => p.average_sell_price != null || p.eu_price != null);
   const seg = `<div class="seg" role="group" aria-label="Période de la courbe">${RANGES.map(([k, l]) => `<button type="button" data-range="${k}" aria-pressed="${String(k) === String(state.range)}">${l}</button>`).join('')}</div>`;
   if (all.length < 2) { pc.innerHTML = `<div class="pc-head"><div class="pc-key"></div>${seg}</div><div class="msg">Historique insuffisant.</div>`; return; }
   const end = pdate(all[all.length - 1].date_id);
@@ -1150,7 +1181,7 @@ function drawChart(pc, c) {
   if (h.length < 2) h = all.slice(-2);
   const xs = h.map((p) => pdate(p.date_id));
   const x0 = xs[0], x1 = xs[xs.length - 1];
-  const vals = h.flatMap((p) => [p.average_sell_price, p.low_price].filter((v) => v != null && v > 0));
+  const vals = h.flatMap((p) => [p.average_sell_price, p.low_price, p.eu_price].filter((v) => v != null && v > 0));
   const sc = niceScale(Math.min(...vals), Math.max(...vals));
   const X = (t) => ((t - x0) / (x1 - x0 || 1)) * 1000;
   const Y = (v) => 100 - ((v - sc.lo) / (sc.hi - sc.lo)) * 100;
@@ -1171,7 +1202,7 @@ function drawChart(pc, c) {
     if (run.length > 1) spread += 'M' + run.map((i) => X(xs[i]).toFixed(1) + ',' + Y(h[i].average_sell_price).toFixed(2)).join('L') + 'L' + run.slice().reverse().map((i) => X(xs[i]).toFixed(1) + ',' + Y(h[i].low_price).toFixed(2)).join('L') + 'Z';
     run = [];
   };
-  h.forEach((p, i) => { if (isGap(i) || !(p.low_price > 0)) flush(); if (p.low_price > 0) run.push(i); });
+  h.forEach((p, i) => { if (isGap(i) || !(p.low_price > 0) || !(p.average_sell_price > 0)) flush(); if (p.low_price > 0 && p.average_sell_price > 0) run.push(i); });
   flush();
   let gaps = '', gapLabels = '', hasGap = false;
   h.forEach((p, i) => {
@@ -1185,7 +1216,7 @@ function drawChart(pc, c) {
   const wn = end - state.win * DAY;
   const band = wn > x0 ? `<rect class="wband" x="${X(wn).toFixed(1)}" y="0" width="${(1000 - X(wn)).toFixed(1)}" height="100"/>` : '';
   const grid = sc.ticks.map((v) => `<line class="${v === sc.lo ? 'base' : 'gl'}" x1="0" x2="1000" y1="${Y(v).toFixed(2)}" y2="${Y(v).toFixed(2)}"/>`).join('');
-  const tick = (v) => (sc.step >= 1 ? nf0 : nf2).format(v) + ' $';
+  const tick = (v) => (sc.step >= 1 ? nf0 : nf2).format(v);
   const ylab = sc.ticks.map((v) => `<span class="yl" style="top:${Y(v).toFixed(2)}%">${tick(v)}</span>`).join('');
   let xt = `<span class="first" style="left:0">${fdate(h[0].date_id)}</span>`;
   const span = x1 - x0, d0 = new Date(x0);
@@ -1201,35 +1232,41 @@ function drawChart(pc, c) {
   }
   xt += `<span class="last" style="left:100%">${fdate(h[h.length - 1].date_id)}</span>`;
   const last = h[h.length - 1];
+  const mk = [...h].reverse().find((p) => p.average_sell_price > 0)?.average_sell_price;
   const lastLow = [...h].reverse().find((p) => p.low_price > 0)?.low_price;
-  const gapPct = last.average_sell_price && lastLow ? (lastLow / last.average_sell_price - 1) * 100 : null;
+  const lastEu = [...h].reverse().find((p) => p.eu_price > 0)?.eu_price;
+  const gapPct = mk && lastLow ? (lastLow / mk - 1) * 100 : null;
   pc.innerHTML = `<div class="pc-head"><div class="pc-key">
-      <span><i></i>market <b>${usd(last.average_sell_price)}</b></span>
-      <span><i class="lo"></i>annonce la moins chère <b>${usd(lastLow)}</b>${gapPct != null ? ` (${pct(gapPct)})` : ''}</span>
+      <span title="Prix de vente moyen TCGplayer (market), converti au taux BCE de chaque jour"><i></i>vente moyenne <b>${approx(mk)}</b></span>
+      <span title="Annonce TCGplayer la moins chère, tous états, convertie"><i class="lo"></i>annonce US la moins chère <b>${approx(lastLow)}</b>${gapPct != null ? ` (${pct(gapPct)})` : ''}</span>
+      ${lastEu ? `<span title="Offre anglaise Near Mint la plus basse d'un vendeur d'Europe ou de Suisse (CardTrader), relevée depuis le 18 nov. 2026. Une autre mesure : jamais raccordée à la vente moyenne."><i class="eu"></i>offre NM Europe <b>${chf(lastEu)}</b></span>` : ''}
       ${hasGap ? '<span><i class="gp"></i>pas de relevé</span>' : ''}
     </div>${seg}</div>
-    <div class="plot" role="img" aria-label="Prix de ${esc(c.name)} du ${fdate(h[0].date_id)} au ${fdate(last.date_id)} : market ${usd(last.average_sell_price)}">
-      <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">${band}${grid}${gaps}<path class="spread" d="${spread}"/><path class="lo" d="${path('low_price')}"/><path class="mk" d="${path('average_sell_price')}"/></svg>
+    <div class="plot" role="img" aria-label="Prix de ${esc(c.name)} en francs, du ${fdate(h[0].date_id)} au ${fdate(last.date_id)} : vente moyenne ${approx(mk)}${lastEu ? `, offre NM Europe ${chf(lastEu)}` : ''}">
+      <svg viewBox="0 0 1000 100" preserveAspectRatio="none" aria-hidden="true">${band}${grid}${gaps}<path class="spread" d="${spread}"/><path class="lo" d="${path('low_price')}"/><path class="mk" d="${path('average_sell_price')}"/><path class="eu" d="${path('eu_price')}"/></svg>
       ${ylab}${gapLabels}
     </div>
     <div class="xa" aria-hidden="true">${xt}</div>`;
   const plot = pc.querySelector('.plot');
-  let xh, dm, dl, tip;
+  let xh, dm, dl, de, tip;
   plot.onpointermove = (ev) => {
     const r = plot.getBoundingClientRect();
     const t = x0 + Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)) * (x1 - x0);
     let i = 0, best = Infinity;
     xs.forEach((x, j) => { const d = Math.abs(x - t); if (d < best) { best = d; i = j; } });
     const p = h[i], left = X(xs[i]) / 10;
-    if (!xh) { xh = document.createElement('div'); xh.className = 'xh'; dm = document.createElement('i'); dm.className = 'dot'; dl = document.createElement('i'); dl.className = 'dot lo'; tip = document.createElement('div'); tip.className = 'tip'; plot.append(xh, dl, dm, tip); }
+    if (!xh) { xh = document.createElement('div'); xh.className = 'xh'; dm = document.createElement('i'); dm.className = 'dot'; dl = document.createElement('i'); dl.className = 'dot lo'; de = document.createElement('i'); de.className = 'dot eu'; tip = document.createElement('div'); tip.className = 'tip'; plot.append(xh, dl, dm, de, tip); }
     xh.style.left = left + '%';
-    dm.style.left = left + '%'; dm.style.top = Y(p.average_sell_price) + '%';
+    dm.hidden = !(p.average_sell_price > 0);
+    if (p.average_sell_price > 0) { dm.style.left = left + '%'; dm.style.top = Y(p.average_sell_price) + '%'; }
+    de.hidden = !(p.eu_price > 0);
+    if (p.eu_price > 0) { de.style.left = left + '%'; de.style.top = Y(p.eu_price) + '%'; }
     dl.hidden = !(p.low_price > 0);
     if (p.low_price > 0) { dl.style.left = left + '%'; dl.style.top = Y(p.low_price) + '%'; }
     tip.style.left = Math.min(Math.max(left * r.width / 100, 80), r.width - 80) + 'px';
-    tip.innerHTML = `<span>${fdate(p.date_id)}</span><b>${usd(p.average_sell_price)}</b> market<span>annonce ${usd(p.low_price)}</span>`;
+    tip.innerHTML = `<span>${fdate(p.date_id)}</span><b>${approx(p.average_sell_price)}</b> vente moyenne<span>annonce US ${approx(p.low_price)}</span>${p.eu_price ? `<span>offre NM Europe <b>${chf(p.eu_price)}</b></span>` : ''}`;
   };
-  plot.onpointerleave = () => { [xh, dm, dl, tip].forEach((n) => n?.remove()); xh = dm = dl = tip = null; };
+  plot.onpointerleave = () => { [xh, dm, dl, de, tip].forEach((n) => n?.remove()); xh = dm = dl = de = tip = null; };
 }
 
 function ruleText(c) {
@@ -1237,12 +1274,12 @@ function ruleText(c) {
   const owned = ownedQty(c) > 0;
   if (p.unfollowed) return 'Carte plus suivie : <b>aucun signal</b>, ni achat ni vente.';
   const out = [];
-  if (p.wishlisted) out.push(`Achat : <b>recherchée</b>, suivie même hors périmètre${p.target_price ? `, cible ${usd(p.target_price)}` : ''}.`);
+  if (p.wishlisted) out.push(`Achat : <b>recherchée</b>, suivie même hors périmètre${p.target_price ? `, cible ${chf(p.target_price)}` : ''}.`);
   else if (owned) out.push('Achat : <b>non</b>, tu l\'as déjà.');
   if (owned) {
     if (p.unsellable) out.push('Vente : <b>jamais</b>, carte invendable.');
     else if (p.in_masterset && p.sell_blocked) out.push('Vente : <b>jamais</b>, carte de masterset. Seuls ses doublons au-dessus de Rare se vendent.');
-    else if (p.min_sell_price) out.push(`Vente : ${p.in_masterset ? 'doublon de masterset, ' : ''}seulement à partir de <b>${usd(p.min_sell_price)}</b>.`);
+    else if (p.min_sell_price) out.push(`Vente : ${p.in_masterset ? 'doublon de masterset, ' : ''}seulement à partir de <b>${chf(p.min_sell_price)}</b>, comparé à l'offre NM la plus basse en Europe (à défaut ≈ vente moyenne).`);
     else if (p.in_masterset) out.push('Vente : doublon de masterset, <b>suivi</b>.');
   }
   return out.join(' ') || 'Aucune restriction sur les signaux.';
@@ -1256,7 +1293,7 @@ function cardControls(c) {
       <h4>Réglages de la carte</h4>
       ${starBlock(c.card_id)}
       ${owned ? `<label class="tg"><input type="checkbox" data-pref="unsellable"${p.unsellable ? ' checked' : ''}><span>Invendable</span></label>
-      <label class="numf">Vendre à partir de <input type="number" inputmode="decimal" min="0" step="1" data-pref="min_sell_price" value="${p.min_sell_price ?? ''}" placeholder="—" aria-label="Prix minimum de vente, en dollars"> $</label>` : ''}
+      <label class="numf">Vendre à partir de <input type="number" inputmode="decimal" min="0" step="1" data-pref="min_sell_price" value="${p.min_sell_price ?? ''}" placeholder="—" aria-label="Prix minimum de vente, en francs"> CHF</label>` : ''}
       <label class="tg"><input type="checkbox" data-pref="unfollowed"${p.unfollowed ? ' checked' : ''}><span>Ne plus suivre</span></label>
       <p class="rule">${ruleText(c)}</p>
       <p class="saved" aria-live="polite"></p>
@@ -1284,12 +1321,18 @@ async function detail(el, c, facts) {
   }
 }
 
+function euFacts(c) {
+  return `<div><dt>Offre NM Europe</dt><dd>${c.eu ? chf(c.eu.price) : '—'}</dd></div>
+      <div><dt class="sub-dt">CardTrader</dt><dd class="sub-dd">${c.eu ? `${euWhere(c.eu)} · ${fdate(c.eu.date)}` : 'aucune offre NM'}</dd></div>
+      <div><dt>Vente moyenne</dt><dd>${approx(c.price)}</dd></div>`;
+}
+
 function moverFacts(m) {
   return `<dl class="kv">
-      <div><dt>Prix market</dt><dd>${usd(m.price)}</dd></div>
-      <div><dt>il y a ${WLABEL[state.win]}</dt><dd>${usd(m.pastPrice)}</dd></div>
+      ${euFacts(m)}
+      <div><dt>il y a ${WLABEL[state.win]}</dt><dd>${approx(m.pastPrice)}</dd></div>
       <div><dt>Quantité</dt><dd>${m.quantity}</dd></div>
-      <div><dt>Valeur</dt><dd>${usd(m.value)}</dd></div>
+      <div><dt>Valeur</dt><dd>${approx(m.value)}</dd></div>
       <div class="sep"><dt>Série</dt><dd>${esc(m.series || '—')}</dd></div>
     </dl>`;
 }
@@ -1341,7 +1384,7 @@ async function savePref(inp) {
   else {
     const t = inp.value.trim().replace(',', '.');
     v = t === '' ? null : Number(t);
-    if (v !== null && !(v > 0 && v < 100000)) { saved(box, 'Prix invalide : un montant en dollars, ou vide pour retirer le seuil.', true); return; }
+    if (v !== null && !(v > 0 && v < 100000)) { saved(box, 'Prix invalide : un montant en francs, ou vide pour retirer le seuil.', true); return; }
   }
   saved(box, 'Enregistrement…');
   try {
@@ -1535,12 +1578,12 @@ function wishRow(c, tab) {
   const hit = c.to_target != null && c.to_target <= 0;
   const gap = c.to_target == null ? (c.target_price ? 'pas de prix' : 'sans cible') : hit ? 'cible atteinte' : `${pct(c.to_target * 100)} au-dessus`;
   const tgt = tab === 'all'
-    ? `<span class="ro">${c.target_price ? usd(c.target_price) : '—'}</span>`
-    : `<input type="number" inputmode="decimal" min="0" step="1" data-target="${esc(c.card_id)}" data-list="${c.list_id}" value="${c.target_price ?? ''}" placeholder="cible $" aria-label="Prix cible de ${esc(c.name)}, en dollars">`;
+    ? `<span class="ro">${c.target_price ? chf(c.target_price) : '—'}</span>`
+    : `<input type="number" inputmode="decimal" min="0" step="1" data-target="${esc(c.card_id)}" data-list="${c.list_id}" value="${c.target_price ?? ''}" placeholder="cible CHF" aria-label="Prix cible de ${esc(c.name)}, en francs">`;
   return `<details class="wl" data-id="${esc(c.card_id)}"${state.wishOpen.has(c.card_id) ? ' open' : ''}>
       <summary>
         <span class="who">${thumb(c)}<b>${esc(c.name)}</b><small>${tag}${own}${many}<span>${esc(c.set_name)} · ${esc(c.rarity || '')}</span></small></span>
-        <span class="px">${usd(c.price)}<small class="${tone(ch, CARD_TH[7])}">${ch == null ? '—' : pct(ch) + ' 7 j'}</small></span>
+        <span class="px" title="${dayTitle(c)}">${dayText(c)}<small class="${tone(ch, CARD_TH[7])}">${ch == null ? '—' : pct(ch) + ' 7 j'}</small></span>
         <span class="spk">${wspark(c.spark)}</span>
         <span class="tgt">${tgt}<small class="${hit ? 'hit' : ''}">${gap}</small></span>
         <svg class="i chev"><use href="#i-chev"/></svg>
@@ -1555,14 +1598,13 @@ function wishFacts(c, tab) {
   // « Toutes » : une ligne par liste, avec sa cible et sa case.
   const lines = tab === 'all'
     ? `<div class="wlines"><h4>Dans les listes</h4>${c.lines.map((l) => `<div class="wline"><b>${esc(listName(l.list_id))}</b>
-        <label class="numf">Cible <input type="number" inputmode="decimal" min="0" step="1" data-target="${esc(l.card_id)}" data-list="${l.list_id}" value="${l.target_price ?? ''}" placeholder="—" aria-label="Prix cible dans ${esc(listName(l.list_id))}, en dollars"> $</label>
+        <label class="numf">Cible <input type="number" inputmode="decimal" min="0" step="1" data-target="${esc(l.card_id)}" data-list="${l.list_id}" value="${l.target_price ?? ''}" placeholder="—" aria-label="Prix cible dans ${esc(listName(l.list_id))}, en francs"> CHF</label>
         ${l.obtained ? stillLabel(l) : ''}${l.note ? `<small>${esc(l.note)}</small>` : ''}</div>`).join('')}</div>`
     : c.obtained ? `<div class="wlines">${stillLabel(c)}</div>` : '';
   return `<div><dl class="kv">
-      <div><dt>Prix market</dt><dd>${usd(c.price)}</dd></div>
-      <div><dt>Annonce la moins chère</dt><dd>${usd(c.low)}</dd></div>
-      <div><dt>Cible</dt><dd>${usd(c.target_price)}</dd></div>
-      <div><dt>il y a 30 j</dt><dd>${usd(c.past?.['30'] ?? c.past?.[30])}</dd></div>
+      ${euFacts(c)}
+      <div><dt>Cible</dt><dd>${chf(c.target_price)}</dd></div>
+      <div><dt>il y a 30 j</dt><dd>${approx(c.past?.['30'] ?? c.past?.[30])}</dd></div>
       <div class="sep"><dt>Ajoutée le</dt><dd>${c.added_on ? fdate(c.added_on) : '—'}</dd></div>
       ${tab !== 'all' && c.note ? `<div><dt>Note</dt><dd style="white-space:normal">${esc(c.note)}</dd></div>` : ''}
     </dl>${lines}</div>`;
@@ -1578,7 +1620,7 @@ function wishView(tab) {
     const act = g.lines.filter((l) => l.active && l.target_price != null).map((l) => l.target_price);
     const all = g.lines.filter((l) => l.target_price != null).map((l) => l.target_price);
     const t = act.length ? Math.min(...act) : all.length ? Math.min(...all) : null;
-    return { ...g, target_price: t, to_target: g.price && t ? g.price / t - 1 : null, still_wanted: g.lines.some((l) => l.still_wanted),
+    return { ...g, target_price: t, to_target: g.ref_price && t ? g.ref_price / t - 1 : null, still_wanted: g.lines.some((l) => l.still_wanted),
       signal: g.lines.map((l) => l.signal).find(Boolean) ?? null };
   });
 }
@@ -1595,7 +1637,7 @@ function renderWishHead(tab) {
   if (!pr) return;
   const pc = pr.n_cards ? (pr.n_obtained / pr.n_cards) * 100 : 0;
   el.innerHTML = `<span><b>${pr.n_obtained} / ${pr.n_cards}</b> obtenues</span><span class="g" role="img" aria-label="${pc.toFixed(0)} % obtenues"><i style="width:${pc.toFixed(1)}%"></i></span>`
-    + `<span>reste <b>${usd(pr.remaining_value)}</b>${pr.n_unpriced ? ` · ${pr.n_unpriced} sans prix` : ''}</span>`
+    + `<span title="Offres NM les plus basses en Europe ; ≈ : au moins une carte comptée à la vente moyenne convertie">reste <b>${(pr.n_approx ? approx : chf)(pr.remaining_value)}</b>${pr.n_unpriced ? ` · ${pr.n_unpriced} sans prix` : ''}</span>`
     + (tab === 'all' ? '' : `<span class="acts"><button type="button" data-wact="rename" data-list="${tab}">Renommer</button><button type="button" data-wact="delete" data-list="${tab}">Supprimer</button></span>`);
 }
 
@@ -1639,7 +1681,7 @@ async function saveTarget(inp) {
   const id = inp.dataset.target, list = inp.dataset.list || addListId();
   const t = inp.value.trim().replace(',', '.');
   const v = t === '' ? null : Number(t);
-  if (v !== null && !(v > 0 && v < 100000)) { toast('Cible invalide : un montant en dollars, ou vide.'); return; }
+  if (v !== null && !(v > 0 && v < 100000)) { toast('Cible invalide : un montant en francs, ou vide.'); return; }
   try {
     await send('PUT', `/api/prefs/wishlists/${list}/cards/${enc(id)}`, { target_price: v });
     await loadWish();
@@ -1660,7 +1702,7 @@ wq.addEventListener('input', () => {
       if (seq !== searchSeq) return;
       const have = new Set((state.wish?.cards || []).filter((c) => c.list_id === addListId()).map((c) => c.card_id));
       const items = r.items.slice().sort((a, b) => (b.current_price ?? -1) - (a.current_price ?? -1)).slice(0, 12);
-      wres.innerHTML = items.length ? items.map((c) => `<div class="wr"><button type="button" data-add="${esc(c.card_id)}"${have.has(c.card_id) ? ' disabled' : ''}>${thumb(c)}<span><b>${esc(c.name)}</b><small>${esc(c.set_name)} · ${esc(c.rarity || '')}</small></span><span class="r">${usd(c.current_price)}</span><span class="add" aria-hidden="true">${have.has(c.card_id) ? '★' : '+'}</span></button>${starBlock(c.card_id, true)}</div>`).join('')
+      wres.innerHTML = items.length ? items.map((c) => `<div class="wr"><button type="button" data-add="${esc(c.card_id)}"${have.has(c.card_id) ? ' disabled' : ''}>${thumb(c)}<span><b>${esc(c.name)}</b><small>${esc(c.set_name)} · ${esc(c.rarity || '')}</small></span><span class="r">${chf(c.current_price)}</span><span class="add" aria-hidden="true">${have.has(c.card_id) ? '★' : '+'}</span></button>${starBlock(c.card_id, true)}</div>`).join('')
         + (r.total > 25 ? `<p>${r.total} cartes : précise le nom pour réduire la liste.</p>` : '')
         : '<p>Aucune carte de ce nom dans le catalogue.</p>';
       wres.hidden = false;
@@ -1732,7 +1774,7 @@ async function impPreview() {
       ${p.missing.length ? `<h3>Absentes de l'export</h3><p>Ces cartes sont dans ta collection mais pas dans ce fichier. Vendue, échangée, ou simple oubli de l'export ? Choisis pour chacune ; une carte retirée reste archivée.</p>
         <ul class="imp-list" id="imp-miss">${p.missing.map((c, i) => impItem(c, `×${c.quantity} <select data-miss="${i}" aria-label="Que faire de ${esc(c.name)}"><option value="keep">garder</option><option value="rm">retirer</option></select>`)).join('')}</ul>` : ''}
       ${p.added.length ? `<h3>Ajoutées</h3><ul class="imp-list">${list(p.added, (c) => impItem(c, `×${c.quantity}`))}</ul>` : ''}
-      ${p.changed.length ? `<h3>Modifiées</h3><ul class="imp-list">${list(p.changed, (c) => impItem(c, c.old_quantity !== c.quantity ? `×${c.old_quantity} → ×${c.quantity}` : `payé ${usd(c.old_average_cost_paid)} → ${usd(c.average_cost_paid)}`))}</ul>` : ''}`;
+      ${p.changed.length ? `<h3>Modifiées</h3><ul class="imp-list">${list(p.changed, (c) => impItem(c, c.old_quantity !== c.quantity ? `×${c.old_quantity} → ×${c.quantity}` : `payé ${chf(c.old_average_cost_paid)} → ${chf(c.average_cost_paid)}`))}</ul>` : ''}`;
     impCount();
   } catch (err) { impSt('Aperçu impossible : ' + err.message, true); }
 }
@@ -1782,12 +1824,12 @@ function renderSets() {
   const other = rest.reduce((a, s) => ({ name: `${rest.length} autres sets`, n: a.n + s.n, v: a.v + s.v, d: a.d + s.d, past: a.past + s.past, dk: true, other: true }), { n: 0, v: 0, d: 0, past: 0 });
   const rows = rest.length ? [...head, other] : head;
   document.getElementById('s-sum').innerHTML = `<b>${sets.length}</b> sets · le premier pèse <b>${nf0.format(sets[0].v / tot * 100)} %</b>`;
-  document.getElementById('s-stack').innerHTML = rows.map((s) => `<i class="${s.other ? 'o' : ''}" style="flex:${s.v.toFixed(2)}" title="${esc(s.name)} · ${usd(s.v)}"></i>`).join('');
+  document.getElementById('s-stack').innerHTML = rows.map((s) => `<i class="${s.other ? 'o' : ''}" style="flex:${s.v.toFixed(2)}" title="${esc(s.name)} · ${approx(s.v)}"></i>`).join('');
   const mx = Math.max(...rows.map((s) => s.v));
-  document.getElementById('sets').innerHTML = `<span class="h">Set</span><span class="h r">Cartes</span><span class="h r">Valeur</span><span class="h hide"></span><span class="h r">Part</span><span class="h r">Δ ${WLABEL[w]}</span>` +
+  document.getElementById('sets').innerHTML = `<span class="h">Set</span><span class="h r">Cartes</span><span class="h r">≈ CHF</span><span class="h hide"></span><span class="h r">Part</span><span class="h r">Δ ${WLABEL[w]}</span>` +
     rows.map((s) => {
       const p = s.past ? (s.d / s.past) * 100 : null;
-      return `<span class="n" ${s.other ? 'style="color:var(--dim)"' : ''}>${esc(s.name)}</span><span class="r">${s.n}</span><span class="r">${usd(s.v)}</span><span class="bar hide"><i style="width:${(s.v / mx * 100).toFixed(1)}%"></i></span><span class="r">${nf0.format(s.v / tot * 100)} %</span><span class="r ${tone(p, CARD_TH[w])}" title="${pct(p)}">${dusd(s.d)}</span>`;
+      return `<span class="n" ${s.other ? 'style="color:var(--dim)"' : ''}>${esc(s.name)}</span><span class="r">${s.n}</span><span class="r">${money(s.v)}</span><span class="bar hide"><i style="width:${(s.v / mx * 100).toFixed(1)}%"></i></span><span class="r">${nf0.format(s.v / tot * 100)} %</span><span class="r ${tone(p, CARD_TH[w])}" title="${pct(p)}">${dnum(s.d)}</span>`;
     }).join('');
 }
 
@@ -1809,7 +1851,7 @@ function setDetail(st, i, w) {
     const x = st.windows[k];
     if (!x) return `<div><dt>${WLABEL[k]}</dt><dd>—</dd></div>`;
     const q = (x.delta / x.value) * 100;
-    return `<div class="${k === w ? 'sel' : ''}"><dt>${WLABEL[k]}</dt><dd><span class="${tone(q, COLL_TH[k])}">${dusd(x.delta)}</span><small>${pct(q)}</small></dd></div>`;
+    return `<div class="${k === w ? 'sel' : ''}"><dt>${WLABEL[k]}</dt><dd><span class="${tone(q, COLL_TH[k])}">${dchf(x.delta)}</span><small>${pct(q)}</small></dd></div>`;
   }).join('');
   const sinceP = (now / first.value - 1) * 100;
   // Valeur par rareté (un exemplaire de chaque carte)
@@ -1825,37 +1867,40 @@ function setDetail(st, i, w) {
   const head = rr.slice(0, 5), rest = rr.slice(5);
   const other = rest.reduce((a, r) => ({ ...a, n: a.n + r.n, v: a.v + r.v, d: a.d + r.d, past: a.past + r.past }), { name: `${rest.length} autres raretés`, n: 0, v: 0, d: 0, past: 0, other: true });
   const rows = rest.length ? [...head, other] : head;
-  const stack = rows.map((r) => `<i class="${r.other ? 'o' : ''}" style="flex:${r.v.toFixed(2)}" title="${esc(r.name)} · ${usd(r.v)}"></i>`).join('');
-  const rarRows = `<span></span><span class="h">Rareté</span><span class="h r">Cartes</span><span class="h r">Valeur</span><span class="h r hide">Part</span><span class="h r">Δ ${WLABEL[w]}</span>` + rows.map((r, j) => {
+  const stack = rows.map((r) => `<i class="${r.other ? 'o' : ''}" style="flex:${r.v.toFixed(2)}" title="${esc(r.name)} · ${approx(r.v)}"></i>`).join('');
+  const rarRows = `<span></span><span class="h">Rareté</span><span class="h r">Cartes</span><span class="h r">≈ CHF</span><span class="h r hide">Part</span><span class="h r">Δ ${WLABEL[w]}</span>` + rows.map((r, j) => {
     const q = r.past ? (r.d / r.past) * 100 : null;
-    return `<span class="sw ${r.other ? 'o' : j % 2 ? 'e' : ''}"></span><span class="n">${esc(r.name)}</span><span class="r">${r.n}</span><span class="r">${usd(r.v)}</span><span class="r hide">${nf0.format(r.v / now * 100)} %</span><span class="r ${tone(q, CARD_TH[w])}" title="${pct(q)}">${dusd(r.d)}</span>`;
+    return `<span class="sw ${r.other ? 'o' : j % 2 ? 'e' : ''}"></span><span class="n">${esc(r.name)}</span><span class="r">${r.n}</span><span class="r">${money(r.v)}</span><span class="r hide">${nf0.format(r.v / now * 100)} %</span><span class="r ${tone(q, CARD_TH[w])}" title="${pct(q)}">${dnum(r.d)}</span>`;
   }).join('');
   const mv = st.cards.filter((c) => c.price != null && c.past[w] != null).map((c) => ({ ...c, d: c.price - c.past[w], q: (c.price / c.past[w] - 1) * 100 }));
-  const li = (c) => `<li><span><b>${esc(c.name)}</b><small>${esc(c.rarity || '')}${c.quantity ? ` · ×${c.quantity} à toi` : ' · manquante'}</small></span><span class="r">${dusd(c.d)}</span><span class="r ${tone(c.q, CARD_TH[w])}">${pct(c.q)}</span></li>`;
+  const li = (c) => `<li><span><b>${esc(c.name)}</b><small>${esc(c.rarity || '')}${c.quantity ? ` · ×${c.quantity} à toi` : ' · manquante'}</small></span><span class="r">${dnum(c.d)}</span><span class="r ${tone(c.q, CARD_TH[w])}">${pct(c.q)}</span></li>`;
   const ups = mv.filter((c) => c.d > 0).sort((a, b) => b.d - a.d).slice(0, 5);
   const dns = mv.filter((c) => c.d < 0).sort((a, b) => a.d - b.d).slice(0, 5);
   const cr = new Set(state.ms.chase_rarities || []);
   const allMissing = st.cards.filter((c) => !c.quantity);
-  const missing = allMissing.filter((c) => cr.has(c.rarity)).sort((a, b) => (b.price || 0) - (a.price || 0));
-  const cost = missing.reduce((a, c) => a + (c.price || 0), 0);
+  // Coût pour les avoir : prix du jour (offre NM Europe, à défaut ≈ prix de
+  // vente moyen converti) ; « ≈ » dès qu'une carte n'a pas d'offre.
+  const missing = allMissing.filter((c) => cr.has(c.rarity)).sort((a, b) => (dayPrice(b) || 0) - (dayPrice(a) || 0));
+  const cost = missing.reduce((a, c) => a + (dayPrice(c) || 0), 0);
   const others = allMissing.length - missing.length;
-  const otherCost = allMissing.reduce((a, c) => a + (c.price || 0), 0) - cost;
-  const miss = allMissing.length ? `<p class="lbl">Cartes recherchées manquantes · ${missing.length} · ${usd(cost)} pour les avoir toutes${others ? ` · plus ${others} autres cartes du set (${usd(otherCost)})` : ''}</p>
-      <ul class="miss">${missing.slice(0, 12).map((c) => `<li><span>${thumb(c)}<b>${esc(c.name)}</b><small>${esc(c.rarity || '')}</small></span><span class="r">${usd(c.price)}</span></li>`).join('')}${missing.length > 12 ? `<li><span style="color:var(--faint)">et ${missing.length - 12} autres</span><span></span></li>` : ''}${missing.length ? '' : '<li><span style="color:var(--dim)">Toutes les cartes recherchées sont là.</span><span></span></li>'}</ul>` : '';
+  const otherCost = allMissing.reduce((a, c) => a + (dayPrice(c) || 0), 0) - cost;
+  const ap = (list) => (list.some((c) => !c.eu) ? approx : chf);
+  const miss = allMissing.length ? `<p class="lbl">Cartes recherchées manquantes · ${missing.length} · ${ap(missing)(cost)} pour les avoir toutes${others ? ` · plus ${others} autres cartes du set (${ap(allMissing.filter((c) => !cr.has(c.rarity)))(otherCost)})` : ''}</p>
+      <ul class="miss">${missing.slice(0, 12).map((c) => `<li><span>${thumb(c)}<b>${esc(c.name)}</b><small>${esc(c.rarity || '')}</small></span><span class="r" title="${dayTitle(c)}">${dayText(c)}</span></li>`).join('')}${missing.length > 12 ? `<li><span style="color:var(--faint)">et ${missing.length - 12} autres</span><span></span></li>` : ''}${missing.length ? '' : '<li><span style="color:var(--dim)">Toutes les cartes recherchées sont là.</span><span></span></li>'}</ul>` : '';
   return `<div class="msb">
       <div class="mst"><label class="tg"><input type="checkbox" data-set-master="${esc(st.set_id)}"${st.masterset ? ' checked' : ''}><span>Masterset</span></label><span class="rule">Tu gardes un exemplaire de chaque carte : aucun signal de vente sur ce set, sauf pour les doublons d'une rareté au-dessus de Rare.</span></div>
       <div class="strip">
         <div>
-          <div class="nm">Set complet</div>
-          <div class="big">${nf0.format(now)}<em>$</em></div>
-          <p class="sub2">un exemplaire de chaque carte<br>tes ${st.copies} exemplaires : <b>${usd(owned)}</b></p>
+          <div class="nm" title="Prix de vente moyen TCGplayer, converti au taux BCE du jour">Set complet ≈</div>
+          <div class="big">${nf0.format(now)}<em>CHF</em></div>
+          <p class="sub2">un exemplaire de chaque carte<br>tes ${st.copies} exemplaires : <b>${approx(owned)}</b></p>
         </div>
         <div class="tr" id="ms-tr-${i}">${ch.svg}
           <span class="tl" style="top:0">${kfmt(ch.hi)}</span>
           <span class="tl" style="bottom:2px">${kfmt(ch.lo)}</span>
         </div>
         <dl class="kv">${kv}
-          <div class="sep"><dt>depuis ${fdate(first.date)}</dt><dd><span class="${tone(sinceP, COLL_TH[90])}">${dusd(now - first.value)}</span><small>${pct(sinceP)}</small></dd></div>
+          <div class="sep"><dt>depuis ${fdate(first.date)}</dt><dd><span class="${tone(sinceP, COLL_TH[90])}">${dchf(now - first.value)}</span><small>${pct(sinceP)}</small></dd></div>
         </dl>
       </div>
       <div class="axis" aria-hidden="true"><div>${axisTicks(h, ch)}</div></div>
@@ -1886,7 +1931,7 @@ function renderMasterSets() {
   v.querySelector('span').textContent = p == null ? '—' : `${pct(p)} sur ${WLABEL[w]}`;
   document.getElementById('j-sets').className = v.className.replace('verdict ', '');
   const complete = m.sets.filter((st) => st.owned_cards === st.n_cards).length;
-  document.getElementById('ms-sub').innerHTML = `<span><b>${m.sets.length}</b> sets suivis : ${nf0.format(m.min_share * 100)} % du set ou de ses cartes recherchées${complete ? ` · ${complete} complet${complete > 1 ? 's' : ''}` : ''}</span><span><b>${usd(tot)}</b> pour un exemplaire de chaque carte</span><span>prix de la variante principale</span>`;
+  document.getElementById('ms-sub').innerHTML = `<span><b>${m.sets.length}</b> sets suivis : ${nf0.format(m.min_share * 100)} % du set ou de ses cartes recherchées${complete ? ` · ${complete} complet${complete > 1 ? 's' : ''}` : ''}</span><span><b>${approx(tot)}</b> pour un exemplaire de chaque carte</span><span>prix de vente moyen de la variante principale, converti</span>`;
   document.getElementById('ms').innerHTML = m.sets.map((st, i) => {
     const h = st.history.map((x) => ({ date: x.date, value: x.set_value }));
     const win = st.windows[w];
@@ -1902,8 +1947,8 @@ function renderMasterSets() {
         <svg class="i chev"><use href="#i-chev"/></svg>
         <span class="nm2"><b>${esc(st.set_name)}${st.owned_cards === st.n_cards ? '<span class="badge l-ok"><i class="lamp"></i>complet</span>' : ''}${st.masterset ? '<span class="badge ms-on">masterset</span>' : ''}</b><span class="done"><span class="g" title="${full ? 'set complet' : 'part des cartes recherchées possédées'}"><i style="width:${gauge.toFixed(1)}%"></i></span><span>${full ? `<b>${st.owned_cards}/${st.n_cards}</b> cartes · ${st.entries} variantes` : `<b>${st.owned_chase}/${st.n_chase}</b> recherchées · ${st.owned_cards}/${st.n_cards} cartes du set`} · ${st.copies} exemplaires</span></span></span>
         <span class="spc">${setSpark(h)}</span>
-        <span class="val">${nf0.format(now)}<em>$</em></span>
-        <span class="vd ${tq === 'up' ? 'l-ok' : tq === 'dn' ? 'l-bad' : 'l-off'}"><span style="color:${tq ? 'var(--c)' : 'var(--ink)'}">${win ? dusd(win.delta) : '—'}<small>${pct(q)} · ${WLABEL[w]}</small></span></span>
+        <span class="val" title="Prix de vente moyen TCGplayer, converti">≈ ${nf0.format(now)}<em>CHF</em></span>
+        <span class="vd ${tq === 'up' ? 'l-ok' : tq === 'dn' ? 'l-bad' : 'l-off'}"><span style="color:${tq ? 'var(--c)' : 'var(--ink)'}">${win ? dchf(win.delta) : '—'}<small>${pct(q)} · ${WLABEL[w]}</small></span></span>
       </summary>
       ${setDetail(st, i, w)}
     </details>`;
@@ -1930,7 +1975,14 @@ function renderCollection() {
   v.querySelector('span').textContent = win ? `${pct(p)} sur ${WLABEL[w]}` : '—';
   document.getElementById('j-coll').className = v.className.replace('verdict ', '');
   const copies = c.cards.reduce((a, k) => a + k.quantity, 0);
-  document.getElementById('c-sub').innerHTML = `<span><b>${usd(c.total_value)}</b> de valeur market</span><span><b>${c.cards.length}</b> cartes · ${copies} exemplaires</span><span>prix TCGplayer du ${fdate(c.as_of)}</span>`;
+  const fx = c.fx || {};
+  const eu = c.eu_total || {};
+  document.getElementById('c-sub').innerHTML = `<span><b>${approx(c.total_value)}</b> au prix de vente moyen (TCGplayer, converti)</span>`
+    + (eu.cards ? `<span><b>${chf(eu.value)}</b> au prix Europe (offre NM la plus basse, ${eu.cards}/${eu.of} cartes)</span>` : '')
+    + `<span><b>${c.cards.length}</b> cartes · ${copies} exemplaires</span><span>prix TCGplayer du ${fdate(c.as_of)}${fx.usd_chf ? ` · 1 USD = ${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 4 }).format(fx.usd_chf)} CHF (BCE, ${fdate(fx.ecb_date)})` : ''}</span>`;
+  const bar = document.getElementById('fxbar');
+  bar.hidden = !fx.missing_since;
+  if (fx.missing_since) bar.querySelector('span').textContent = `Taux de change BCE indisponible pour les prix du ${fdate(fx.missing_since)} : prix et valeurs arrêtés au ${fdate(c.as_of)}, plutôt qu'une conversion fausse.`;
   document.getElementById('win').innerHTML = WINDOWS.map((k) => `<button type="button" data-w="${k}" aria-pressed="${k === w}">${WLABEL[k]}</button>`).join('');
   renderValue(); renderMovers(); renderMasterSets(); renderSets();
 }
@@ -1978,14 +2030,14 @@ function trendRow(t, computed) {
   const sub = (t.versions.length > 1 ? `${t.versions.length} impressions · ` : '') + sets.slice(0, 2).join(', ') + (sets.length > 2 ? '…' : '');
   const ch = t.change_7d == null ? '' : pct(t.change_7d * 100) + ' 7 j';
   const news = t.news.map((n) => `<div class="nitem"><a href="${safeUrl(n.url)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a><small>${esc(n.source)} · ${fdate(n.published_on)} · ${esc(EVENT_TEXT[n.event_type] || n.event_type)} · confiance ${nf0.format(n.confidence * 100)} %</small>${n.resume ? `<p>${esc(n.resume)}</p>` : ''}</div>`).join('');
-  const vers = t.versions.length > 1 ? `<div class="vers">${t.versions.map((v) => `<span class="${v.owned_quantity ? 'own' : ''}">${esc(v.set_name)} <b>${usd(v.market_price)}</b> · ${v.n_days} j${v.owned_quantity ? ` · ×${v.owned_quantity} à toi` : ''}</span>`).join('')}</div>` : '';
+  const vers = t.versions.length > 1 ? `<div class="vers">${t.versions.map((v) => `<span class="${v.owned_quantity ? 'own' : ''}">${esc(v.set_name)} <b>${v.eu_price != null ? chf(v.eu_price) : approx(v.market_price)}</b> · ${v.n_days} j${v.owned_quantity ? ` · ×${v.owned_quantity} à toi` : ''}</span>`).join('')}</div>` : '';
   const scores = t.scores.length > 1 ? `score ${t.scores[0]} → ${t.scores[t.scores.length - 1]} sur la période` : `score ${t.score}`;
   return `<details class="sg">
     <summary>
       <span class="st ${sell ? 'l-warn' : 'l-ok'}"><b><i class="lamp${live ? '' : ' hollow'}"></i>${sell ? 'vendre' : 'acheter'}</b><small><b>${t.n_days}</b>/${computed.length} j</small></span>
       <span class="who">${thumb(t)}<b>${esc(t.name)}${t.owned ? `<span class="own">×${t.owned}</span>` : ''}</b><small>${esc(sub)}</small><span class="drv">${codes}${extra.join('')}</span></span>
       <span class="rib">${ribbon(t.dates, computed)}<small>${live ? (st > 1 ? `<b>${st} j</b> d'affilée` : 'encore aujourd\'hui') : `dernier le ${fdate(t.last_date)}`}</small></span>
-      <span class="px">${usd(t.market_price)}<small class="${tone((t.change_7d ?? 0) * 100, 10)}">${ch}</small></span>
+      <span class="px" title="${t.eu_price != null ? `Offre NM la plus basse en Europe le jour du signal · vente moyenne ${approx(t.market_price)}` : 'Vente moyenne TCGplayer convertie, le jour du signal'}">${t.eu_price != null ? chf(t.eu_price) : approx(t.market_price)}<small class="${tone((t.change_7d ?? 0) * 100, 10)}">${ch}</small></span>
       <svg class="i chev"><use href="#i-chev"/></svg>
     </summary>
     <div class="body">

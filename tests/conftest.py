@@ -63,3 +63,30 @@ def pytest_sessionstart(session: pytest.Session) -> None:
                     "ressemble à la production. Les tests la videraient (TRUNCATE).",
                     returncode=2,
                 )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _fx_parity():
+    """Parité USD = CHF pour toute la session (voir tests/fx.py)."""
+    from tests.fx import set_parity
+
+    try:
+        conn = psycopg.connect(_admin_dsn())
+    except (KeyError, psycopg.OperationalError):
+        yield
+        return
+    with conn:
+        if conn.execute("SELECT to_regclass('prod.fact_fx_rate') IS NOT NULL").fetchone()[0]:
+            set_parity(conn)
+    yield
+
+
+@pytest.fixture
+def rates():
+    """Pose de vrais taux le temps d'un test : rates(conn, {jour: (usd, chf)}).
+    La parité est remise après le test."""
+    from tests.fx import set_parity, set_rates
+
+    yield set_rates
+    with psycopg.connect(_admin_dsn()) as conn:
+        set_parity(conn)

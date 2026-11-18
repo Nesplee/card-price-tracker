@@ -115,6 +115,8 @@ def collection(
         current_price = row["current_price"]
         cost_unknown = row["cost_unknown"]
         # market_value : nécessite juste un prix actuel connu.
+        # Tout en CHF : current_price est le market converti, et le prix payé
+        # (average_cost_paid) a été saisi en CHF par l'utilisateur.
         # gain_loss : nécessite EN PLUS un coût d'achat connu (cost_unknown
         # == False) -- sinon on comparerait un vrai prix de marché à un coût
         # arbitraire (0), ce qui produirait un gain/perte trompeur.
