@@ -20,22 +20,30 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 
+def loaded_days(conn, start: date, end: date) -> list[date]:
+    # Seulement les jours réellement chargés (il y a des trous dans l'historique),
+    # et chargés par TCGplayer : les signaux ne lisent que ses prix (2026-11-18,
+    # migration 018 : un jour CardTrader seul n'est pas un jour à recalculer).
+    return [
+        row[0]
+        for row in conn.execute(
+            "SELECT DISTINCT f.date_id FROM prod.fact_price_history f "
+            "JOIN prod.dim_platform p ON p.platform_id = f.platform_id "
+            "AND p.platform_name = 'tcgplayer' "
+            "WHERE f.date_id BETWEEN %s AND %s ORDER BY f.date_id",
+            (start, end),
+        )
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("start", type=date.fromisoformat)
     parser.add_argument("end", type=date.fromisoformat)
     args = parser.parse_args()
 
-    # Seulement les jours réellement chargés (il y a des trous dans l'historique).
     with get_connection(load_db_config()) as conn:
-        days = [
-            row[0]
-            for row in conn.execute(
-                "SELECT DISTINCT date_id FROM prod.fact_price_history "
-                "WHERE date_id BETWEEN %s AND %s ORDER BY date_id",
-                (args.start, args.end),
-            )
-        ]
+        days = loaded_days(conn, args.start, args.end)
     totals = {"buy": 0, "sell": 0}
     for day in days:
         with get_connection(load_db_config()) as conn:
